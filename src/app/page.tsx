@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { TOPICS, topicById } from "@/data/topics";
+import { TOPICS, topicById, assignConditions } from "@/data/topics";
 import { diagnosticQuestions, practicePool, type Question } from "@/data/questions";
-import { computeReward, type RewardResult } from "@/lib/rewardEngine";
+import { computeReward, type RewardResult, type Condition } from "@/lib/rewardEngine";
 import { inferStrengths, weakness, type TopicTally } from "@/lib/profile";
 import { logEvent } from "@/lib/logEvent";
 
@@ -23,6 +23,8 @@ export default function Home() {
     () => (typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random())),
     [],
   );
+  // Per-student counterbalanced condition assignment (2 variable, 2 fixed).
+  const conditions = useMemo(() => assignConditions(), []);
 
   function start() {
     if (!name.trim() || !age) return;
@@ -69,13 +71,19 @@ export default function Home() {
           <Diagnostic sessionId={sessionId} age={age} onDone={onDiagnosticDone} />
         )}
         {phase === "profile" && (
-          <Profile strengths={strengths} researcher={researcher} onStart={() => setPhase("practice")} />
+          <Profile
+            strengths={strengths}
+            conditions={conditions}
+            researcher={researcher}
+            onStart={() => setPhase("practice")}
+          />
         )}
         {phase === "practice" && (
           <Practice
             sessionId={sessionId}
             age={age}
             strengths={strengths}
+            conditions={conditions}
             researcher={researcher}
             onDone={onPracticeDone}
           />
@@ -230,7 +238,8 @@ function Diagnostic(props: {
 
 /* ---------- Profile (the measured strengths) ---------- */
 function Profile(props: {
-  strengths: Record<string, number>; researcher: boolean; onStart: () => void;
+  strengths: Record<string, number>; conditions: Record<string, Condition>;
+  researcher: boolean; onStart: () => void;
 }) {
   const sorted = [...TOPICS].sort((a, b) => props.strengths[a.id] - props.strengths[b.id]);
   return (
@@ -252,7 +261,7 @@ function Profile(props: {
                   {s < 0.4 ? "weak" : s < 0.7 ? "mixed" : "strong"}
                   {props.researcher && (
                     <span className="ml-2 text-accent">
-                      {s.toFixed(2)} · [{t.condition}]
+                      {s.toFixed(2)} · [{props.conditions[t.id]}]
                     </span>
                   )}
                 </span>
@@ -278,7 +287,8 @@ function Profile(props: {
 /* ---------- Stage 2: Personalized practice ---------- */
 function Practice(props: {
   sessionId: string; age: string;
-  strengths: Record<string, number>; researcher: boolean;
+  strengths: Record<string, number>; conditions: Record<string, Condition>;
+  researcher: boolean;
   onDone: (s: PracticeSummary) => void;
 }) {
   // Weakest-topic questions first — the visible personalization.
@@ -304,24 +314,25 @@ function Practice(props: {
   const q = queue[pi];
   const topic = topicById(q.topicId)!;
   const strength = props.strengths[q.topicId];
+  const condition = props.conditions[q.topicId];
 
   function choose(idx: number) {
     if (picked !== null) return;
     setPicked(idx);
     attempted.current += 1;
     const correct = idx === q.answer;
-    const rw = correct ? computeReward(strength, topic.condition) : null;
+    const rw = correct ? computeReward(strength, condition) : null;
 
     void logEvent({
       session_id: props.sessionId, age_bracket: props.age, stage: "practice",
-      topic: q.topicId, question_id: q.id, is_correct: correct, condition: topic.condition,
+      topic: q.topicId, question_id: q.id, is_correct: correct, condition,
       strength_at_time: strength, base_reward: rw?.base ?? null,
       awarded_reward: rw?.awarded ?? null, event_type: "answer",
     });
 
     if (rw) {
       total.current += rw.awarded;
-      byCondition.current[topic.condition] += rw.awarded;
+      byCondition.current[condition] += rw.awarded;
       revealReward(rw);
     }
   }
@@ -329,7 +340,7 @@ function Practice(props: {
   function revealReward(rw: RewardResult) {
     void logEvent({
       session_id: props.sessionId, age_bracket: props.age, stage: "practice",
-      topic: q.topicId, question_id: q.id, is_correct: true, condition: topic.condition,
+      topic: q.topicId, question_id: q.id, is_correct: true, condition,
       strength_at_time: strength, base_reward: rw.base, awarded_reward: rw.awarded,
       event_type: "reward_reveal",
     });
@@ -439,7 +450,7 @@ function Practice(props: {
       <div className="flex items-center justify-between font-mono text-xs text-ink-soft">
         <span>
           Practice · {topic.name}
-          {props.researcher && <span className="ml-2 text-accent">[{topic.condition}] s={strength.toFixed(2)}</span>}
+          {props.researcher && <span className="ml-2 text-accent">[{condition}] s={strength.toFixed(2)}</span>}
         </span>
         <span>Points <b className="text-ink tabular-nums">{total.current}</b></span>
       </div>
@@ -460,7 +471,7 @@ function Practice(props: {
                 {reward ? "Reward earned." : "Opening…"}
                 {props.researcher && reward && (
                   <span className="block text-[11px] font-mono text-accent mt-1">
-                    {topic.condition} · base {reward.base} · {reward.hit ? "hit" : "miss"}
+                    {condition} · base {reward.base} · {reward.hit ? "hit" : "miss"}
                   </span>
                 )}
               </p>

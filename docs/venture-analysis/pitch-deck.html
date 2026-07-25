@@ -293,11 +293,11 @@
     <h2>The AI designs the game.<br>The teacher approves it.</h2>
     <div class="split">
       <ol class="loop">
-        <li><span><b>Baseline.</b> Everyone starts identical (Phase&nbsp;1).</span></li>
-        <li><span><b>Profile.</b> AI infers each student's weak &amp; strong topics.</span></li>
-        <li><span><b>Design.</b> AI proposes quests + <b>variable, weak-area-weighted</b> rewards — with its reasoning.</span></li>
+        <li><span><b>Diagnose.</b> A short baseline (same for all) <b>measures</b> each student's weak spots.</span></li>
+        <li><span><b>Profile.</b> Practice is personalized to those weak topics.</span></li>
+        <li><span><b>Design.</b> AI proposes quests + weak-area-weighted rewards — with reasoning the <b>teacher</b> sees.</span></li>
         <li><span><b>Approve.</b> Teacher edits / accepts / rejects. Nothing ships unreviewed.</span></li>
-        <li><span><b>Play &amp; log.</b> The reward resolves; every event is captured.</span></li>
+        <li><span><b>Play &amp; log.</b> The reward resolves; voluntary persistence is captured.</span></li>
       </ol>
       <div class="demo">
         <div class="seg" role="group" aria-label="Topic strength">
@@ -310,6 +310,7 @@
         <div class="hint" id="hint">Tap to open the reward</div>
         <div class="formula" id="formula">base = 10 + 40·(1 − strength)</div>
         <div class="verdict" id="verdict"></div>
+        <div class="formula" style="margin-top:.6rem">Students never see "fixed / variable" — the surprise is the point.</div>
       </div>
     </div>
   </section>
@@ -358,7 +359,7 @@
     <h2>One classroom. Two weeks.<br>Two tests.</h2>
     <ul class="clean">
       <li><span><b>The wedge.</b> One gatekeeper (Prof. Singh) + a captive cohort = course-embedded adoption at <b>zero acquisition cost.</b></span></li>
-      <li><span><b>Test 1 — the reward thesis.</b> A within-subject dry run with 8–15 classmates: does variable + weak-area weighting lift weak-topic attempts vs. fixed points?</span></li>
+      <li><span><b>Test 1 — the reward thesis.</b> A within-subject dry run (8–15 people, condition hidden): does the variable schedule lift <b>voluntary persistence</b> vs. fixed — points held equal?</span></li>
       <li><span><b>Test 2 — HITL at scale.</b> Timed review: can the teacher clear 20 AI proposals at ≤30–45s each? If not, the core differentiator needs guardrails.</span></li>
     </ul>
     <p class="takeaway">Prove the two riskiest assumptions before building the full economy.</p>
