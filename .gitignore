@@ -16,6 +16,10 @@ out/
 build/
 dist/
 
+# Next.js / TypeScript generated
+next-env.d.ts
+*.tsbuildinfo
+
 # IDE
 .vscode/
 .idea/
