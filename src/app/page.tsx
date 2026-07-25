@@ -1,38 +1,48 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { TOPICS, topicById, assignConditions } from "@/data/topics";
 import { diagnosticQuestions, practicePool, type Question } from "@/data/questions";
 import { computeReward, type RewardResult, type Condition } from "@/lib/rewardEngine";
 import { inferStrengths, weakness, type TopicTally } from "@/lib/profile";
 import { logEvent } from "@/lib/logEvent";
 
-type Phase = "entry" | "diagnostic" | "profile" | "practice" | "summary";
+type Phase = "entry" | "diagnostic" | "profile" | "practice" | "results";
 const AGE_BRACKETS = ["22–29", "30–39", "40+"] as const;
-const INITIAL_PRACTICE = 4; // questions before the first "keep practicing?" choice
+const ROUND_LEN = 4; // questions per practice round
+
+function initTallies(): Record<string, TopicTally> {
+  return Object.fromEntries(TOPICS.map((t) => [t.id, { correct: 0, total: 0 }]));
+}
+
+interface PracticeSummary {
+  total: number;
+  attempted: number;
+  continues: number;
+  rounds: number;
+  byCondition: { fixed: number; variable: number };
+}
 
 export default function Home() {
   const [phase, setPhase] = useState<Phase>("entry");
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
   const [researcher, setResearcher] = useState(false);
-  const [strengths, setStrengths] = useState<Record<string, number>>({});
+
+  const sessionId = useRef(
+    typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random()),
+  ).current;
+  const conditions = useRef(assignConditions()).current;
+
+  // Running strength model — updated LIVE by every answer (diagnostic + practice).
+  const tallies = useRef<Record<string, TopicTally>>(initTallies());
+  const [strengths, setStrengths] = useState<Record<string, number>>(
+    inferStrengths(initTallies()),
+  );
+  const [baseline, setBaseline] = useState<Record<string, number>>({});
   const [result, setResult] = useState<PracticeSummary | null>(null);
 
-  const sessionId = useMemo(
-    () => (typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random())),
-    [],
-  );
-  // Per-student counterbalanced condition assignment (2 variable, 2 fixed).
-  const conditions = useMemo(() => assignConditions(), []);
-
-  function start() {
-    if (!name.trim() || !age) return;
-    void logEvent(base("quiz_start", { stage: "diagnostic" }));
-    setPhase("diagnostic");
-  }
-
-  function base(event_type: Parameters<typeof logEvent>[0]["event_type"], over: Partial<GE> = {}): GE {
+  function base(event_type: GE["event_type"], over: Partial<GE> = {}): GE {
     return {
       session_id: sessionId, age_bracket: age, stage: null, topic: null,
       question_id: null, is_correct: null, condition: null, strength_at_time: null,
@@ -40,9 +50,22 @@ export default function Home() {
     };
   }
 
-  function onDiagnosticDone(tallies: Record<string, TopicTally>) {
-    const s = inferStrengths(tallies);
-    setStrengths(s);
+  // Called on every answered question — this is the live analytics capture.
+  function recordAnswer(topicId: string, correct: boolean) {
+    const t = tallies.current[topicId];
+    t.total += 1;
+    if (correct) t.correct += 1;
+    setStrengths(inferStrengths(tallies.current));
+  }
+
+  function start() {
+    if (!name.trim() || !age) return;
+    void logEvent(base("quiz_start", { stage: "diagnostic" }));
+    setPhase("diagnostic");
+  }
+
+  function onDiagnosticDone() {
+    setBaseline(inferStrengths(tallies.current)); // snapshot to measure improvement against
     void logEvent(base("diagnostic_complete", { stage: "diagnostic" }));
     setPhase("profile");
   }
@@ -50,7 +73,7 @@ export default function Home() {
   function onPracticeDone(summary: PracticeSummary) {
     setResult(summary);
     void logEvent(base("quiz_end", { stage: "practice", awarded_reward: summary.total }));
-    setPhase("summary");
+    setPhase("results");
   }
 
   return (
@@ -68,15 +91,15 @@ export default function Home() {
           <Entry name={name} setName={setName} age={age} setAge={setAge} onStart={start} />
         )}
         {phase === "diagnostic" && (
-          <Diagnostic sessionId={sessionId} age={age} onDone={onDiagnosticDone} />
+          <Diagnostic
+            sessionId={sessionId}
+            age={age}
+            onAnswer={recordAnswer}
+            onDone={onDiagnosticDone}
+          />
         )}
         {phase === "profile" && (
-          <Profile
-            strengths={strengths}
-            conditions={conditions}
-            researcher={researcher}
-            onStart={() => setPhase("practice")}
-          />
+          <Profile strengths={strengths} conditions={conditions} researcher={researcher} onStart={() => setPhase("practice")} />
         )}
         {phase === "practice" && (
           <Practice
@@ -85,11 +108,12 @@ export default function Home() {
             strengths={strengths}
             conditions={conditions}
             researcher={researcher}
+            onAnswer={recordAnswer}
             onDone={onPracticeDone}
           />
         )}
-        {phase === "summary" && result && (
-          <Summary name={name} result={result} researcher={researcher} />
+        {phase === "results" && result && (
+          <Results name={name} strengths={strengths} baseline={baseline} result={result} researcher={researcher} />
         )}
       </div>
     </main>
@@ -98,32 +122,18 @@ export default function Home() {
 
 type GE = Parameters<typeof logEvent>[0];
 
-interface PracticeSummary {
-  total: number;
-  attempted: number;
-  continues: number;
-  byCondition: { fixed: number; variable: number };
-}
-
 /* ---------- shared bits ---------- */
 function ResearcherToggle(props: { on: boolean; setOn: (v: boolean) => void }) {
   return (
     <label className="fixed top-3 right-3 flex items-center gap-2 font-mono text-[11px] text-ink-soft/70 cursor-pointer select-none">
-      <input
-        type="checkbox"
-        checked={props.on}
-        onChange={(e) => props.setOn(e.target.checked)}
-        className="accent-accent"
-      />
+      <input type="checkbox" checked={props.on} onChange={(e) => props.setOn(e.target.checked)} className="accent-accent" />
       Researcher view
     </label>
   );
 }
 
 function Card(props: { children: React.ReactNode }) {
-  return (
-    <section className="bg-surface border border-line rounded-2xl p-6 space-y-5">{props.children}</section>
-  );
+  return <section className="bg-surface border border-line rounded-2xl p-6 space-y-5">{props.children}</section>;
 }
 
 function PrimaryButton(props: { onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
@@ -135,6 +145,40 @@ function PrimaryButton(props: { onClick: () => void; disabled?: boolean; childre
     >
       {props.children}
     </button>
+  );
+}
+
+function StrengthBars(props: { strengths: Record<string, number>; baseline?: Record<string, number>; researcher: boolean; conditions?: Record<string, Condition> }) {
+  const sorted = [...TOPICS].sort((a, b) => props.strengths[a.id] - props.strengths[b.id]);
+  return (
+    <div className="space-y-3">
+      {sorted.map((t) => {
+        const s = props.strengths[t.id];
+        const delta = props.baseline ? s - (props.baseline[t.id] ?? s) : 0;
+        const arrow = delta > 0.03 ? "▲" : delta < -0.03 ? "▼" : "→";
+        const arrowColor = delta > 0.03 ? "text-emerald-400" : delta < -0.03 ? "text-red-400" : "text-ink-soft/60";
+        return (
+          <div key={t.id}>
+            <div className="flex justify-between text-sm mb-1">
+              <span>{t.name}</span>
+              <span className="font-mono text-ink-soft">
+                {s < 0.4 ? "weak" : s < 0.7 ? "mixed" : "strong"}
+                {props.baseline && <span className={`ml-2 ${arrowColor}`}>{arrow}</span>}
+                {props.researcher && (
+                  <span className="ml-2 text-accent">
+                    {s.toFixed(2)}
+                    {props.conditions && ` · [${props.conditions[t.id]}]`}
+                  </span>
+                )}
+              </span>
+            </div>
+            <div className="h-2 bg-ground rounded-full overflow-hidden">
+              <div className="h-full bg-accent rounded-full transition-all" style={{ width: `${Math.round(s * 100)}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -176,7 +220,7 @@ function Entry(props: {
         Start diagnostic
       </PrimaryButton>
       <p className="text-xs text-ink-soft/70">
-        First a short diagnostic (same for everyone) to find your weak spots — then personalized practice.
+        A short diagnostic finds your weak spots — then personalized practice, refined each round.
       </p>
     </Card>
   );
@@ -185,14 +229,12 @@ function Entry(props: {
 /* ---------- Stage 1: Diagnostic ---------- */
 function Diagnostic(props: {
   sessionId: string; age: string;
-  onDone: (tallies: Record<string, TopicTally>) => void;
+  onAnswer: (topicId: string, correct: boolean) => void;
+  onDone: () => void;
 }) {
-  const questions = useMemo(() => diagnosticQuestions(), []);
+  const questions = useRef(diagnosticQuestions()).current;
   const [di, setDi] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
-  const tallies = useRef<Record<string, TopicTally>>(
-    Object.fromEntries(TOPICS.map((t) => [t.id, { correct: 0, total: 0 }])),
-  );
 
   const q = questions[di];
   const topic = topicById(q.topicId)!;
@@ -201,10 +243,7 @@ function Diagnostic(props: {
     if (picked !== null) return;
     setPicked(idx);
     const correct = idx === q.answer;
-    const tally = tallies.current[q.topicId];
-    tally.total += 1;
-    if (correct) tally.correct += 1;
-
+    props.onAnswer(q.topicId, correct);
     void logEvent({
       session_id: props.sessionId, age_bracket: props.age, stage: "diagnostic",
       topic: q.topicId, question_id: q.id, is_correct: correct, condition: null,
@@ -213,11 +252,8 @@ function Diagnostic(props: {
   }
 
   function next() {
-    if (di + 1 >= questions.length) props.onDone(tallies.current);
-    else {
-      setDi((i) => i + 1);
-      setPicked(null);
-    }
+    if (di + 1 >= questions.length) props.onDone();
+    else { setDi((i) => i + 1); setPicked(null); }
   }
 
   return (
@@ -228,99 +264,74 @@ function Diagnostic(props: {
       </div>
       <QuestionBody q={q} picked={picked} onChoose={choose} />
       {picked !== null && (
-        <PrimaryButton onClick={next}>
-          {di + 1 >= questions.length ? "See your profile" : "Next"}
-        </PrimaryButton>
+        <PrimaryButton onClick={next}>{di + 1 >= questions.length ? "See your profile" : "Next"}</PrimaryButton>
       )}
     </Card>
   );
 }
 
-/* ---------- Profile (the measured strengths) ---------- */
+/* ---------- Profile (measured strengths) ---------- */
 function Profile(props: {
   strengths: Record<string, number>; conditions: Record<string, Condition>;
   researcher: boolean; onStart: () => void;
 }) {
-  const sorted = [...TOPICS].sort((a, b) => props.strengths[a.id] - props.strengths[b.id]);
   return (
     <Card>
       <div>
         <h2 className="font-display text-2xl">Here's what we measured.</h2>
-        <p className="text-sm text-ink-soft mt-1">
-          Practice will focus on your weaker topics (top of the list).
-        </p>
+        <p className="text-sm text-ink-soft mt-1">Practice focuses on your weaker topics (top of the list) and re-measures as you go.</p>
       </div>
-      <div className="space-y-3">
-        {sorted.map((t) => {
-          const s = props.strengths[t.id];
-          return (
-            <div key={t.id}>
-              <div className="flex justify-between text-sm mb-1">
-                <span>{t.name}</span>
-                <span className="font-mono text-ink-soft">
-                  {s < 0.4 ? "weak" : s < 0.7 ? "mixed" : "strong"}
-                  {props.researcher && (
-                    <span className="ml-2 text-accent">
-                      {s.toFixed(2)} · [{props.conditions[t.id]}]
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div className="h-2 bg-ground rounded-full overflow-hidden">
-                <div className="h-full bg-accent rounded-full" style={{ width: `${Math.round(s * 100)}%` }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <StrengthBars strengths={props.strengths} researcher={props.researcher} conditions={props.conditions} />
       <PrimaryButton onClick={props.onStart}>Start personalized practice</PrimaryButton>
       {props.researcher && (
         <p className="text-[11px] font-mono text-ink-soft/70">
-          Researcher: strength = share correct, shrunk toward 0.5 (few items → less confidence).
-          Reward magnitude scales with weakness; fixed/variable is the hidden manipulation.
+          Researcher: strength = share correct, shrunk toward 0.5. It updates live on every answer — more rounds → more confident bracketing.
         </p>
       )}
     </Card>
   );
 }
 
-/* ---------- Stage 2: Personalized practice ---------- */
+/* ---------- Stage 2: Personalized practice (multi-round, live re-measure) ---------- */
 function Practice(props: {
   sessionId: string; age: string;
   strengths: Record<string, number>; conditions: Record<string, Condition>;
   researcher: boolean;
+  onAnswer: (topicId: string, correct: boolean) => void;
   onDone: (s: PracticeSummary) => void;
 }) {
-  // Weakest-topic questions first — the visible personalization.
-  const queue = useMemo(
-    () =>
-      [...practicePool()].sort(
-        (a, b) => weakness(props.strengths[b.topicId]) - weakness(props.strengths[a.topicId]),
-      ),
-    [props.strengths],
-  );
-
-  const [pi, setPi] = useState(0);
+  const [round, setRound] = useState(1);
+  const [qi, setQi] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const [reward, setReward] = useState<RewardResult | null>(null);
   const [display, setDisplay] = useState("?");
-  const [gate, setGate] = useState(false);
+  const [atRoundEnd, setAtRoundEnd] = useState(false);
 
   const total = useRef(0);
   const attempted = useRef(0);
   const continues = useRef(0);
   const byCondition = useRef({ fixed: 0, variable: 0 });
 
-  const q = queue[pi];
+  // Each round's questions are snapshotted at round start from the CURRENT strengths
+  // (weakest topics first) — so later rounds re-personalize as the student improves.
+  function buildRound(str: Record<string, number>): Question[] {
+    const pool = [...practicePool()].sort((a, b) => weakness(str[b.topicId]) - weakness(str[a.topicId]));
+    return Array.from({ length: ROUND_LEN }, (_, i) => pool[i % pool.length]);
+  }
+  const queue = useRef<Question[] | null>(null);
+  if (queue.current === null) queue.current = buildRound(props.strengths);
+
+  const q = queue.current[qi];
   const topic = topicById(q.topicId)!;
-  const strength = props.strengths[q.topicId];
   const condition = props.conditions[q.topicId];
+  const strength = props.strengths[q.topicId]; // live — reflects answers so far
 
   function choose(idx: number) {
     if (picked !== null) return;
     setPicked(idx);
     attempted.current += 1;
     const correct = idx === q.answer;
+    props.onAnswer(q.topicId, correct); // live re-measure
     const rw = correct ? computeReward(strength, condition) : null;
 
     void logEvent({
@@ -344,99 +355,62 @@ function Practice(props: {
       strength_at_time: strength, base_reward: rw.base, awarded_reward: rw.awarded,
       event_type: "reward_reveal",
     });
-
-    const reduce =
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    // Fixed = predictable (short, no roll). Variable = decelerating suspense roll.
+    const reduce = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (rw.condition === "fixed" || reduce) {
       window.setTimeout(() => { setDisplay(`+${rw.awarded}`); setReward(rw); }, reduce ? 0 : 260);
       return;
     }
-    const delays = [60, 70, 85, 105, 130, 165, 210, 270, 350]; // decelerating ~1.4s
+    const delays = [60, 70, 85, 105, 130, 165, 210, 270, 350];
     let step = 0;
     const tick = () => {
       if (step < delays.length) {
         setDisplay(`+${Math.round(Math.random() * rw.base * 1.6)}`);
         window.setTimeout(tick, delays[step++]);
-      } else {
-        setDisplay(`+${rw.awarded}`);
-        setReward(rw);
-      }
+      } else { setDisplay(`+${rw.awarded}`); setReward(rw); }
     };
     tick();
   }
 
   function advance() {
-    const nextIdx = pi + 1;
-    // Offer a voluntary "keep going?" choice — the engagement signal.
-    if (nextIdx === INITIAL_PRACTICE && nextIdx < queue.length) {
-      setGate(true);
-      return;
-    }
-    if (nextIdx >= queue.length) {
-      finish();
-      return;
-    }
-    step(nextIdx);
+    if (qi + 1 >= ROUND_LEN) { setAtRoundEnd(true); return; }
+    setQi(qi + 1); setPicked(null); setReward(null); setDisplay("?");
   }
 
-  function step(idx: number) {
-    setPi(idx);
-    setPicked(null);
-    setReward(null);
-    setDisplay("?");
-  }
-
-  function keepGoing() {
+  function nextRound() {
     continues.current += 1;
     void logEvent({
       session_id: props.sessionId, age_bracket: props.age, stage: "practice",
       topic: null, question_id: null, is_correct: null, condition: null,
-      strength_at_time: null, base_reward: null, awarded_reward: null,
-      event_type: "practice_continue",
+      strength_at_time: null, base_reward: null, awarded_reward: null, event_type: "practice_continue",
     });
-    setGate(false);
-    step(INITIAL_PRACTICE);
-  }
-
-  function stopNow() {
-    void logEvent({
-      session_id: props.sessionId, age_bracket: props.age, stage: "practice",
-      topic: null, question_id: null, is_correct: null, condition: null,
-      strength_at_time: null, base_reward: null, awarded_reward: null,
-      event_type: "practice_stop",
-    });
-    finish();
+    queue.current = buildRound(props.strengths); // re-personalize from updated strengths
+    setRound(round + 1); setQi(0); setPicked(null); setReward(null); setDisplay("?"); setAtRoundEnd(false);
   }
 
   function finish() {
+    void logEvent({
+      session_id: props.sessionId, age_bracket: props.age, stage: "practice",
+      topic: null, question_id: null, is_correct: null, condition: null,
+      strength_at_time: null, base_reward: null, awarded_reward: null, event_type: "practice_stop",
+    });
     props.onDone({
-      total: total.current,
-      attempted: attempted.current,
-      continues: continues.current,
-      byCondition: { ...byCondition.current },
+      total: total.current, attempted: attempted.current, continues: continues.current,
+      rounds: round, byCondition: { ...byCondition.current },
     });
   }
 
-  if (gate) {
+  if (atRoundEnd) {
     return (
       <Card>
-        <h2 className="font-display text-2xl">Nice run — {total.current} points so far.</h2>
-        <p className="text-sm text-ink-soft">
-          You've cleared the core set. Want to keep practicing your weak areas, or wrap up?
-        </p>
+        <h2 className="font-display text-2xl">Round {round} done — {total.current} points.</h2>
+        <p className="text-sm text-ink-soft">Here's your live picture. Keep going to re-measure and re-focus, or see your full results.</p>
+        <StrengthBars strengths={props.strengths} researcher={props.researcher} conditions={props.conditions} />
         <div className="grid grid-cols-2 gap-3">
-          <button onClick={stopNow} className="bg-ground border border-line rounded-lg py-3 text-ink-soft hover:border-accent transition">
-            Wrap up
-          </button>
-          <PrimaryButton onClick={keepGoing}>Keep practicing</PrimaryButton>
+          <button onClick={finish} className="bg-ground border border-line rounded-lg py-3 text-ink-soft hover:border-accent transition">See my results</button>
+          <PrimaryButton onClick={nextRound}>Practice another round</PrimaryButton>
         </div>
         {props.researcher && (
-          <p className="text-[11px] font-mono text-ink-soft/70">
-            Researcher: this voluntary choice IS the engagement DV — did variable-topic reward pull them onward?
-          </p>
+          <p className="text-[11px] font-mono text-ink-soft/70">Researcher: the continue/stop choice is the engagement DV; each round re-personalizes from the updated strengths.</p>
         )}
       </Card>
     );
@@ -449,7 +423,7 @@ function Practice(props: {
     <Card>
       <div className="flex items-center justify-between font-mono text-xs text-ink-soft">
         <span>
-          Practice · {topic.name}
+          Round {round} · Q{qi + 1}/{ROUND_LEN} · {topic.name}
           {props.researcher && <span className="ml-2 text-accent">[{condition}] s={strength.toFixed(2)}</span>}
         </span>
         <span>Points <b className="text-ink tabular-nums">{total.current}</b></span>
@@ -461,18 +435,14 @@ function Practice(props: {
         <div className="pt-2 border-t border-line">
           {correct ? (
             <div className="flex items-center gap-4">
-              <div
-                className="w-24 h-24 rounded-xl grid place-items-center border-2 border-accent/60 shrink-0"
-                style={{ background: "linear-gradient(150deg, rgba(240,170,60,.18), transparent)" }}
-              >
+              <div className="w-24 h-24 rounded-xl grid place-items-center border-2 border-accent/60 shrink-0"
+                style={{ background: "linear-gradient(150deg, rgba(240,170,60,.18), transparent)" }}>
                 <span className="font-display font-bold text-3xl text-accent tabular-nums">{display}</span>
               </div>
               <p className="text-sm text-ink-soft">
                 {reward ? "Reward earned." : "Opening…"}
                 {props.researcher && reward && (
-                  <span className="block text-[11px] font-mono text-accent mt-1">
-                    {condition} · base {reward.base} · {reward.hit ? "hit" : "miss"}
-                  </span>
+                  <span className="block text-[11px] font-mono text-accent mt-1">{condition} · base {reward.base} · {reward.hit ? "hit" : "miss"}</span>
                 )}
               </p>
             </div>
@@ -495,13 +465,7 @@ function QuestionBody(props: { q: Question; picked: number | null; onChoose: (i:
       <p className="text-lg">{q.prompt}</p>
       <div className="grid gap-2">
         {q.options.map((opt, idx) => {
-          const state = !answered
-            ? "idle"
-            : idx === q.answer
-            ? "right"
-            : idx === picked
-            ? "wrong"
-            : "dim";
+          const state = !answered ? "idle" : idx === q.answer ? "right" : idx === picked ? "wrong" : "dim";
           return (
             <button
               key={idx}
@@ -526,20 +490,24 @@ function QuestionBody(props: { q: Question; picked: number | null; onChoose: (i:
   );
 }
 
-/* ---------- Summary ---------- */
-function Summary(props: { name: string; result: PracticeSummary; researcher: boolean }) {
+/* ---------- Final measurement: strong & weak areas ---------- */
+function Results(props: {
+  name: string; strengths: Record<string, number>; baseline: Record<string, number>;
+  result: PracticeSummary; researcher: boolean;
+}) {
   const r = props.result;
   return (
     <Card>
-      <h2 className="font-display text-2xl">Nice work, {props.name || "learner"}.</h2>
-      <div className="flex items-baseline gap-2">
-        <span className="font-display text-5xl text-accent tabular-nums">{r.total}</span>
-        <span className="text-ink-soft">points · {r.attempted} questions practiced</span>
-      </div>
+      <h2 className="font-display text-2xl">Your strong &amp; weak areas</h2>
       <p className="text-sm text-ink-soft">
-        You chose to keep practicing <b className="text-ink">{r.continues}</b> time{r.continues === 1 ? "" : "s"}.
-        That voluntary persistence — not the score — is what the pilot measures.
+        Measured live across the diagnostic and {r.rounds} practice round{r.rounds === 1 ? "" : "s"}. Arrows show change since the diagnostic.
       </p>
+      <StrengthBars strengths={props.strengths} baseline={props.baseline} researcher={props.researcher} />
+      <div className="pt-2 border-t border-line text-sm text-ink-soft">
+        <b className="text-ink">{r.total}</b> points · <b className="text-ink">{r.attempted}</b> questions ·
+        chose to keep practicing <b className="text-ink">{r.continues}</b> time{r.continues === 1 ? "" : "s"}.
+        <span className="block mt-1 text-ink-soft/80">Voluntary persistence — not the score — is what the pilot measures.</span>
+      </div>
       {props.researcher && (
         <div className="grid grid-cols-2 gap-3 pt-2 border-t border-line">
           <div className="bg-ground border border-line rounded-xl p-4">
@@ -551,8 +519,7 @@ function Summary(props: { name: string; result: PracticeSummary; researcher: boo
             <p className="font-display text-2xl text-ink tabular-nums mt-1">{r.byCondition.fixed}</p>
           </div>
           <p className="col-span-2 text-[11px] font-mono text-ink-soft/70">
-            Researcher: within-subject, condition hidden from the student. Compare persistence &amp; return across
-            fixed vs variable topics, and across age brackets — points are EV-matched, so any behavior gap is the uncertainty.
+            Researcher: strengths accumulated live (share-correct, shrunk). Condition hidden; compare persistence across fixed vs variable and by age bracket.
           </p>
         </div>
       )}
