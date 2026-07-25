@@ -100,11 +100,52 @@ erDiagram
     topic   ||--o{ quest : targets
     student ||--o{ event : generates
 
-    student { uuid id; text cohort; text age_bracket; timestamptz created_at }
-    topic { text id; text course_id; text name; text parent_id }
-    student_topic_strength { uuid student_id; text topic_id; real strength; text source; timestamptz inferred_at }
-    quest { uuid id; uuid student_id; text topic_id; int phase; text difficulty; int point_value; text reasoning; text status; text approved_by; timestamptz approved_at }
-    event { bigint id; text session_id; text age_bracket; text stage; text topic; text question_id; bool is_correct; text condition; real strength_at_time; int base_reward; int awarded_reward; text event_type; timestamptz created_at }
+    student {
+        uuid id
+        text cohort
+        text age_bracket
+        timestamptz created_at
+    }
+    topic {
+        text id
+        text course_id
+        text name
+        text parent_id
+    }
+    student_topic_strength {
+        uuid student_id
+        text topic_id
+        real strength
+        text source
+        timestamptz inferred_at
+    }
+    quest {
+        uuid id
+        uuid student_id
+        text topic_id
+        int phase
+        text difficulty
+        int point_value
+        text reasoning
+        text status
+        text approved_by
+        timestamptz approved_at
+    }
+    event {
+        bigint id
+        text session_id
+        text age_bracket
+        text stage
+        text topic
+        text question_id
+        bool is_correct
+        text condition
+        real strength_at_time
+        int base_reward
+        int awarded_reward
+        text event_type
+        timestamptz created_at
+    }
 ```
 
 Notes:

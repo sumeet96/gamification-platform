@@ -103,7 +103,7 @@ flowchart TD
       Teacher -- reject --> QD
     end
     Build -. "prod: questions come<br/>only from approved queue" .-> Deliver
-    Deliver -. .-> Q
+    Deliver -.-> Q
 
     classDef edge fill:#5c3a00,color:#fff,stroke:#c77e12,stroke-width:1px;
     class Miss,Master,Keep,ContR,More,Teacher,Trig edge
