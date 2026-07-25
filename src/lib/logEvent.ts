@@ -20,7 +20,7 @@ export type EventType =
   | "practice_stop"
   | "quiz_end";
 
-export type Stage = "diagnostic" | "practice";
+export type Stage = "diagnostic" | "practice" | "review";
 
 export interface GameEvent {
   session_id: string;

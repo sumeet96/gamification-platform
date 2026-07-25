@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { TOPICS, topicById, assignConditions } from "@/data/topics";
-import { diagnosticQuestions, practicePool, type Question } from "@/data/questions";
+import { QUESTIONS, diagnosticQuestions, practicePool, type Question } from "@/data/questions";
 import { computeReward, type RewardResult, type Condition } from "@/lib/rewardEngine";
 import { inferStrengths, weakness, type TopicTally } from "@/lib/profile";
 import { logEvent } from "@/lib/logEvent";
@@ -22,6 +22,9 @@ interface PracticeSummary {
   rounds: number;
   byCondition: { fixed: number; variable: number };
 }
+
+// A round is a mix of fresh (measured, rewarded) and review (missed, re-served) items.
+type RoundItem = { q: Question; mode: "fresh" | "review" };
 
 export default function Home() {
   const [phase, setPhase] = useState<Phase>("entry");
@@ -317,20 +320,33 @@ function Practice(props: {
   const continues = useRef(0);
   const byCondition = useRef({ fixed: 0, variable: 0 });
 
-  // Each round's questions are snapshotted at round start from the CURRENT strengths
-  // (weakest topics first) — so later rounds re-personalize as the student improves.
-  // Each item is administered ONCE. A round draws only unseen questions
-  // (weakest topic first); repeats would inflate the estimate meaninglessly.
-  const seen = useRef(new Set<string>());
-  function buildRound(str: Record<string, number>): Question[] {
-    const unseen = practicePool().filter((qq) => !seen.current.has(qq.id));
-    unseen.sort((a, b) => weakness(str[b.topicId]) - weakness(str[a.topicId]));
-    return unseen.slice(0, ROUND_LEN);
+  // Fresh items are administered ONCE and drive the measurement. Items answered
+  // WRONG go into `missed` and re-surface as flagged "Review" — so a weak topic
+  // keeps coming back (spaced repetition) until mastered. A round is built by
+  // WEAKEST TOPIC FIRST: that topic contributes its fresh items, then its review
+  // items, before moving on — so the topic you keep failing leads every round.
+  // Review re-attempts don't update the strength estimate (the answer was already
+  // shown) and pay no points (so they can't game the reward economy).
+  const seenFresh = useRef(new Set<string>());
+  const missed = useRef(new Set<string>());
+  function buildRound(str: Record<string, number>): RoundItem[] {
+    const byWeakness = [...TOPICS].sort((a, b) => weakness(str[b.id]) - weakness(str[a.id]));
+    const out: RoundItem[] = [];
+    for (const t of byWeakness) {
+      if (out.length >= ROUND_LEN) break;
+      const fresh = practicePool().filter((qq) => qq.topicId === t.id && !seenFresh.current.has(qq.id));
+      for (const qq of fresh) if (out.length < ROUND_LEN) out.push({ q: qq, mode: "fresh" });
+      const review = QUESTIONS.filter((qq) => qq.topicId === t.id && missed.current.has(qq.id));
+      for (const qq of review) if (out.length < ROUND_LEN && !out.some((r) => r.q.id === qq.id)) out.push({ q: qq, mode: "review" });
+    }
+    return out;
   }
-  const queue = useRef<Question[] | null>(null);
+  const queue = useRef<RoundItem[] | null>(null);
   if (queue.current === null) queue.current = buildRound(props.strengths);
 
-  const q = queue.current[qi];
+  const item = queue.current[qi];
+  const q = item.q;
+  const mode = item.mode;
   const topic = topicById(q.topicId)!;
   const condition = props.conditions[q.topicId];
   const strength = props.strengths[q.topicId]; // live — reflects answers so far
@@ -338,10 +354,25 @@ function Practice(props: {
   function choose(idx: number) {
     if (picked !== null) return;
     setPicked(idx);
-    seen.current.add(q.id); // administered once — excluded from future rounds
     attempted.current += 1;
     const correct = idx === q.answer;
+
+    if (mode === "review") {
+      // Learning only: no measurement, no points. Correct = mastered → clear it.
+      if (correct) missed.current.delete(q.id);
+      void logEvent({
+        session_id: props.sessionId, age_bracket: props.age, stage: "review",
+        topic: q.topicId, question_id: q.id, is_correct: correct, condition: null,
+        strength_at_time: null, base_reward: null, awarded_reward: null, event_type: "answer",
+      });
+      return;
+    }
+
+    // Fresh item — drives the measurement and the reward economy.
+    seenFresh.current.add(q.id); // administered once
     props.onAnswer(q.topicId, correct); // live re-measure
+    if (correct) missed.current.delete(q.id);
+    else missed.current.add(q.id); // wrong → eligible for review
     const rw = correct ? computeReward(strength, condition) : null;
 
     void logEvent({
@@ -410,25 +441,32 @@ function Practice(props: {
   }
 
   if (atRoundEnd) {
-    const unseenLeft = practicePool().filter((qq) => !seen.current.has(qq.id)).length;
+    const freshLeft = practicePool().filter((qq) => !seenFresh.current.has(qq.id)).length;
+    const reviewLeft = missed.current.size;
+    const hasMore = freshLeft > 0 || reviewLeft > 0;
     return (
       <Card>
         <h2 className="font-display text-2xl">Round {round} done — {total.current} points.</h2>
         <p className="text-sm text-ink-soft">Your live picture, re-measured from this round. Arrows show change since the diagnostic.</p>
         <StrengthBars strengths={props.strengths} baseline={props.baseline} orderBy={props.baseline} researcher={props.researcher} conditions={props.conditions} />
-        {unseenLeft > 0 ? (
-          <div className="grid grid-cols-2 gap-3">
-            <button onClick={finish} className="bg-ground border border-line rounded-lg py-3 text-ink-soft hover:border-accent transition">See my results</button>
-            <PrimaryButton onClick={nextRound}>Practice another round</PrimaryButton>
+        {hasMore ? (
+          <div className="space-y-3">
+            {freshLeft === 0 && reviewLeft > 0 && (
+              <p className="text-xs text-ink-soft/70">No fresh questions left. The next round is <b className="text-ink">Review</b> of items you missed on your weak topics — no points, and it doesn't change the measurement.</p>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={finish} className="bg-ground border border-line rounded-lg py-3 text-ink-soft hover:border-accent transition">See my results</button>
+              <PrimaryButton onClick={nextRound}>{freshLeft > 0 ? "Practice another round" : "Review weak areas"}</PrimaryButton>
+            </div>
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-xs text-ink-soft/70">No new questions left to measure with. In the full system the AI generates fresh items each round; here we stop rather than re-serve known ones.</p>
+            <p className="text-xs text-ink-soft/70">Nothing left — every question cleared and all review items mastered. In the full system the AI would generate fresh items to keep going.</p>
             <PrimaryButton onClick={finish}>See my results</PrimaryButton>
           </div>
         )}
         {props.researcher && (
-          <p className="text-[11px] font-mono text-ink-soft/70">Researcher: strengths update only from fresh items (each administered once); the continue/stop choice is the engagement DV.</p>
+          <p className="text-[11px] font-mono text-ink-soft/70">Researcher: strength updates only from fresh items (each administered once); review re-attempts keep the weak topic in rotation but are excluded from the measurement.</p>
         )}
       </Card>
     );
@@ -442,7 +480,8 @@ function Practice(props: {
       <div className="flex items-center justify-between font-mono text-xs text-ink-soft">
         <span>
           Round {round} · Q{qi + 1}/{queue.current!.length} · {topic.name}
-          {props.researcher && <span className="ml-2 text-accent">[{condition}] s={strength.toFixed(2)}</span>}
+          {mode === "review" && <span className="ml-2 px-1.5 py-0.5 rounded bg-accent/15 text-accent">REVIEW</span>}
+          {props.researcher && mode === "fresh" && <span className="ml-2 text-accent">[{condition}] s={strength.toFixed(2)}</span>}
         </span>
         <span>Points <b className="text-ink tabular-nums">{total.current}</b></span>
       </div>
@@ -451,7 +490,7 @@ function Practice(props: {
 
       {answered && (
         <div className="pt-2 border-t border-line">
-          {correct ? (
+          {mode === "fresh" && correct ? (
             <div className="flex items-center gap-4">
               <div className="w-24 h-24 rounded-xl grid place-items-center border-2 border-accent/60 shrink-0"
                 style={{ background: "linear-gradient(150deg, rgba(240,170,60,.18), transparent)" }}>
@@ -464,10 +503,18 @@ function Practice(props: {
                 )}
               </p>
             </div>
+          ) : mode === "review" ? (
+            <p className="text-sm text-ink-soft">
+              {correct ? (
+                <>Mastered — cleared from your review list. <span className="text-ink-soft/70">(Review builds skill; the measurement moves only on fresh questions.)</span></>
+              ) : (
+                <>Not yet — we&apos;ll bring this one back. Correct answer highlighted.</>
+              )}
+            </p>
           ) : (
             <p className="text-sm text-ink-soft">Not quite — no reward this time. Correct answer highlighted.</p>
           )}
-          {(reward || !correct) && <div className="mt-4"><PrimaryButton onClick={advance}>Next</PrimaryButton></div>}
+          {(!(mode === "fresh" && correct) || reward) && <div className="mt-4"><PrimaryButton onClick={advance}>Next</PrimaryButton></div>}
         </div>
       )}
     </Card>
