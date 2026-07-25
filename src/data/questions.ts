@@ -75,6 +75,20 @@ export const QUESTIONS: Question[] = [
   { id: "change-4", topicId: "change", set: "practice",
     prompt: "A 'quick win' early in a transformation is valuable because it:",
     options: ["Ends the project", "Builds momentum and belief that change is possible", "Replaces strategy", "Cuts the budget"], answer: 1 },
+
+  // third practice item per topic (gives ~3 rounds of fresh material)
+  { id: "data-5", topicId: "data", set: "practice",
+    prompt: "'Data literacy' across an organization means:",
+    options: ["Everyone can code", "People can read, interpret, and question data in their work", "Only analysts touch data", "All data is encrypted"], answer: 1 },
+  { id: "strategy-5", topicId: "strategy", set: "practice",
+    prompt: "A 'minimum viable product' (MVP) is:",
+    options: ["The cheapest possible product", "The smallest version that delivers value and tests key assumptions", "A fully finished product", "A marketing plan"], answer: 1 },
+  { id: "emerging-5", topicId: "emerging", set: "practice",
+    prompt: "The main advantage of cloud computing for scaling is:",
+    options: ["It looks modern", "On-demand resources you pay for only as you use them", "It removes all cost", "It needs no internet"], answer: 1 },
+  { id: "change-5", topicId: "change", set: "practice",
+    prompt: "Transformation success is best measured with:",
+    options: ["Gut feel", "Clear, agreed metrics tied to business outcomes", "The number of meetings held", "Lines of code written"], answer: 1 },
 ];
 
 export function diagnosticQuestions(): Question[] {

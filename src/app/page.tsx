@@ -106,6 +106,7 @@ export default function Home() {
             sessionId={sessionId}
             age={age}
             strengths={strengths}
+            baseline={baseline}
             conditions={conditions}
             researcher={researcher}
             onAnswer={recordAnswer}
@@ -148,8 +149,11 @@ function PrimaryButton(props: { onClick: () => void; disabled?: boolean; childre
   );
 }
 
-function StrengthBars(props: { strengths: Record<string, number>; baseline?: Record<string, number>; researcher: boolean; conditions?: Record<string, Condition> }) {
-  const sorted = [...TOPICS].sort((a, b) => props.strengths[a.id] - props.strengths[b.id]);
+function StrengthBars(props: { strengths: Record<string, number>; baseline?: Record<string, number>; researcher: boolean; conditions?: Record<string, Condition>; orderBy?: Record<string, number> }) {
+  // Sort by a STABLE key (orderBy, e.g. the baseline) so bars don't reshuffle
+  // between rounds — you can track each topic. Falls back to current strength.
+  const key = props.orderBy ?? props.strengths;
+  const sorted = [...TOPICS].sort((a, b) => key[a.id] - key[b.id]);
   return (
     <div className="space-y-3">
       {sorted.map((t) => {
@@ -295,7 +299,8 @@ function Profile(props: {
 /* ---------- Stage 2: Personalized practice (multi-round, live re-measure) ---------- */
 function Practice(props: {
   sessionId: string; age: string;
-  strengths: Record<string, number>; conditions: Record<string, Condition>;
+  strengths: Record<string, number>; baseline: Record<string, number>;
+  conditions: Record<string, Condition>;
   researcher: boolean;
   onAnswer: (topicId: string, correct: boolean) => void;
   onDone: (s: PracticeSummary) => void;
@@ -314,9 +319,13 @@ function Practice(props: {
 
   // Each round's questions are snapshotted at round start from the CURRENT strengths
   // (weakest topics first) — so later rounds re-personalize as the student improves.
+  // Each item is administered ONCE. A round draws only unseen questions
+  // (weakest topic first); repeats would inflate the estimate meaninglessly.
+  const seen = useRef(new Set<string>());
   function buildRound(str: Record<string, number>): Question[] {
-    const pool = [...practicePool()].sort((a, b) => weakness(str[b.topicId]) - weakness(str[a.topicId]));
-    return Array.from({ length: ROUND_LEN }, (_, i) => pool[i % pool.length]);
+    const unseen = practicePool().filter((qq) => !seen.current.has(qq.id));
+    unseen.sort((a, b) => weakness(str[b.topicId]) - weakness(str[a.topicId]));
+    return unseen.slice(0, ROUND_LEN);
   }
   const queue = useRef<Question[] | null>(null);
   if (queue.current === null) queue.current = buildRound(props.strengths);
@@ -329,6 +338,7 @@ function Practice(props: {
   function choose(idx: number) {
     if (picked !== null) return;
     setPicked(idx);
+    seen.current.add(q.id); // administered once — excluded from future rounds
     attempted.current += 1;
     const correct = idx === q.answer;
     props.onAnswer(q.topicId, correct); // live re-measure
@@ -372,7 +382,7 @@ function Practice(props: {
   }
 
   function advance() {
-    if (qi + 1 >= ROUND_LEN) { setAtRoundEnd(true); return; }
+    if (qi + 1 >= queue.current!.length) { setAtRoundEnd(true); return; }
     setQi(qi + 1); setPicked(null); setReward(null); setDisplay("?");
   }
 
@@ -400,17 +410,25 @@ function Practice(props: {
   }
 
   if (atRoundEnd) {
+    const unseenLeft = practicePool().filter((qq) => !seen.current.has(qq.id)).length;
     return (
       <Card>
         <h2 className="font-display text-2xl">Round {round} done — {total.current} points.</h2>
-        <p className="text-sm text-ink-soft">Here's your live picture. Keep going to re-measure and re-focus, or see your full results.</p>
-        <StrengthBars strengths={props.strengths} researcher={props.researcher} conditions={props.conditions} />
-        <div className="grid grid-cols-2 gap-3">
-          <button onClick={finish} className="bg-ground border border-line rounded-lg py-3 text-ink-soft hover:border-accent transition">See my results</button>
-          <PrimaryButton onClick={nextRound}>Practice another round</PrimaryButton>
-        </div>
+        <p className="text-sm text-ink-soft">Your live picture, re-measured from this round. Arrows show change since the diagnostic.</p>
+        <StrengthBars strengths={props.strengths} baseline={props.baseline} orderBy={props.baseline} researcher={props.researcher} conditions={props.conditions} />
+        {unseenLeft > 0 ? (
+          <div className="grid grid-cols-2 gap-3">
+            <button onClick={finish} className="bg-ground border border-line rounded-lg py-3 text-ink-soft hover:border-accent transition">See my results</button>
+            <PrimaryButton onClick={nextRound}>Practice another round</PrimaryButton>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-ink-soft/70">No new questions left to measure with. In the full system the AI generates fresh items each round; here we stop rather than re-serve known ones.</p>
+            <PrimaryButton onClick={finish}>See my results</PrimaryButton>
+          </div>
+        )}
         {props.researcher && (
-          <p className="text-[11px] font-mono text-ink-soft/70">Researcher: the continue/stop choice is the engagement DV; each round re-personalizes from the updated strengths.</p>
+          <p className="text-[11px] font-mono text-ink-soft/70">Researcher: strengths update only from fresh items (each administered once); the continue/stop choice is the engagement DV.</p>
         )}
       </Card>
     );
@@ -423,7 +441,7 @@ function Practice(props: {
     <Card>
       <div className="flex items-center justify-between font-mono text-xs text-ink-soft">
         <span>
-          Round {round} · Q{qi + 1}/{ROUND_LEN} · {topic.name}
+          Round {round} · Q{qi + 1}/{queue.current!.length} · {topic.name}
           {props.researcher && <span className="ml-2 text-accent">[{condition}] s={strength.toFixed(2)}</span>}
         </span>
         <span>Points <b className="text-ink tabular-nums">{total.current}</b></span>
@@ -502,7 +520,7 @@ function Results(props: {
       <p className="text-sm text-ink-soft">
         Measured live across the diagnostic and {r.rounds} practice round{r.rounds === 1 ? "" : "s"}. Arrows show change since the diagnostic.
       </p>
-      <StrengthBars strengths={props.strengths} baseline={props.baseline} researcher={props.researcher} />
+      <StrengthBars strengths={props.strengths} baseline={props.baseline} orderBy={props.baseline} researcher={props.researcher} />
       <div className="pt-2 border-t border-line text-sm text-ink-soft">
         <b className="text-ink">{r.total}</b> points · <b className="text-ink">{r.attempted}</b> questions ·
         chose to keep practicing <b className="text-ink">{r.continues}</b> time{r.continues === 1 ? "" : "s"}.
