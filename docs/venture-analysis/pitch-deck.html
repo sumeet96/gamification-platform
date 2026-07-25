@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-Personalized Gamification — Pitch</title>
+</head>
+<body>
+<style>
+  :root {
+    --ground: #F1F2F7;
+    --surface: #FFFFFF;
+    --ink: #16171F;
+    --ink-soft: #565A6E;
+    --ink-faint: #878BA0;
+    --line: #DCDEEA;
+    --accent: #C77E12;         /* amber — reward/uncertainty, the one bold note */
+    --accent-tint: #FBEFD8;
+    --indigo: #3B47B0;         /* structural secondary, used sparingly */
+    --good: #2E7D62;
+    --bad: #B4482F;
+    --shadow: 0 1px 2px rgba(20,22,35,.06), 0 8px 30px rgba(20,22,35,.07);
+    --font-display: Georgia, "Times New Roman", serif;
+    --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1017;
+      --surface: #171A24;
+      --ink: #ECEDF4;
+      --ink-soft: #A5AABF;
+      --ink-faint: #6E7288;
+      --line: #272B3A;
+      --accent: #F0AA3C;
+      --accent-tint: #2A2213;
+      --indigo: #8C97F2;
+      --good: #4FB894;
+      --bad: #E27A5E;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 34px rgba(0,0,0,.34);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0F1017; --surface: #171A24; --ink: #ECEDF4; --ink-soft: #A5AABF;
+    --ink-faint: #6E7288; --line: #272B3A; --accent: #F0AA3C; --accent-tint: #2A2213;
+    --indigo: #8C97F2; --good: #4FB894; --bad: #E27A5E;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 34px rgba(0,0,0,.34);
+  }
+  :root[data-theme="light"] {
+    --ground: #F1F2F7; --surface: #FFFFFF; --ink: #16171F; --ink-soft: #565A6E;
+    --ink-faint: #878BA0; --line: #DCDEEA; --accent: #C77E12; --accent-tint: #FBEFD8;
+    --indigo: #3B47B0; --good: #2E7D62; --bad: #B4482F;
+    --shadow: 0 1px 2px rgba(20,22,35,.06), 0 8px 30px rgba(20,22,35,.07);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+    overflow: hidden;
+  }
+
+  .deck { position: fixed; inset: 0; }
+
+  .slide {
+    position: absolute; inset: 0;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    padding: clamp(1.6rem, 5vw, 5.5rem);
+    padding-bottom: clamp(3.4rem, 7vw, 6rem);
+    max-width: 1180px; margin: 0 auto;
+    opacity: 0;
+  }
+  .slide.active { display: flex; animation: rise .5s cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .slide.active { animation: none; opacity: 1; }
+    .roll { animation: none !important; }
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: .72rem; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600;
+    display: flex; align-items: center; gap: .7rem; margin-bottom: 1.4rem;
+  }
+  .eyebrow::before { content: ""; width: 26px; height: 2px; background: var(--accent); display: inline-block; }
+
+  h1 {
+    font-family: var(--font-display); font-weight: 700;
+    font-size: clamp(2.1rem, 6vw, 4.4rem); line-height: 1.03;
+    letter-spacing: -.015em; text-wrap: balance; margin: 0 0 1.2rem;
+  }
+  h2 {
+    font-family: var(--font-display); font-weight: 700;
+    font-size: clamp(1.7rem, 4.4vw, 3.1rem); line-height: 1.06;
+    letter-spacing: -.012em; text-wrap: balance; margin: 0 0 1.5rem;
+  }
+  .lead { font-size: clamp(1.05rem, 2vw, 1.4rem); color: var(--ink-soft); max-width: 60ch; }
+  .accent { color: var(--accent); }
+  .serif-em { font-family: var(--font-display); font-style: italic; }
+
+  /* title slide */
+  .title-meta {
+    margin-top: 2.6rem; display: flex; flex-wrap: wrap; gap: .5rem 1.8rem;
+    font-family: var(--font-mono); font-size: .8rem; color: var(--ink-faint);
+    letter-spacing: .02em;
+  }
+  .title-meta b { color: var(--ink-soft); font-weight: 600; }
+
+  /* generic grid of cards */
+  .cols { display: grid; gap: 1.1rem; margin-top: .5rem; }
+  .cols.two { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 720px) { .cols.two { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 1.3rem 1.4rem; box-shadow: var(--shadow);
+  }
+  .card h3 {
+    margin: 0 0 .5rem; font-size: 1.06rem; font-weight: 650; letter-spacing: -.01em;
+    display: flex; align-items: baseline; gap: .6rem;
+  }
+  .card .role {
+    font-family: var(--font-mono); font-size: .66rem; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    padding: .12rem .5rem; border-radius: 999px;
+  }
+  .card p { margin: 0; color: var(--ink-soft); font-size: .96rem; }
+
+  /* numbered loop */
+  .loop { display: grid; gap: .55rem; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+  .loop li {
+    display: grid; grid-template-columns: auto 1fr; gap: .9rem; align-items: baseline;
+    padding: .55rem 0; border-bottom: 1px solid var(--line); color: var(--ink-soft); font-size: 1rem;
+  }
+  .loop li:last-child { border-bottom: 0; }
+  .loop li::before {
+    counter-increment: step; content: counter(step);
+    font-family: var(--font-mono); font-size: .78rem; color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    width: 1.7rem; height: 1.7rem; border-radius: 50%;
+    display: grid; place-items: center; font-weight: 600;
+  }
+  .loop b { color: var(--ink); font-weight: 640; }
+
+  .split { display: grid; grid-template-columns: 1fr .9fr; gap: clamp(1.5rem, 4vw, 3.4rem); align-items: center; }
+  @media (max-width: 860px) { .split { grid-template-columns: 1fr; gap: 1.6rem; } }
+
+  /* mystery box demo */
+  .demo {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+    padding: 1.5rem; box-shadow: var(--shadow); text-align: center;
+  }
+  .seg { display: inline-flex; background: var(--ground); border: 1px solid var(--line); border-radius: 999px; padding: 3px; margin-bottom: 1.3rem; }
+  .seg button {
+    font-family: var(--font-mono); font-size: .74rem; letter-spacing: .08em; text-transform: uppercase;
+    border: 0; background: transparent; color: var(--ink-soft); padding: .4rem .95rem; border-radius: 999px; cursor: pointer;
+  }
+  .seg button.on { background: var(--accent); color: #fff; font-weight: 600; }
+  :root[data-theme="dark"] .seg button.on, .seg button.on { color: #1a1206; }
+
+  .box {
+    width: 150px; height: 150px; margin: 0 auto 1.1rem; border-radius: 18px;
+    background: linear-gradient(150deg, color-mix(in srgb, var(--accent) 22%, var(--surface)), var(--surface));
+    border: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    display: grid; place-items: center; cursor: pointer; position: relative; user-select: none;
+    transition: transform .12s ease;
+  }
+  .box:hover { transform: translateY(-3px); }
+  .box:active { transform: scale(.97); }
+  .box .payout { font-family: var(--font-display); font-weight: 700; font-size: 3.1rem; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .box .hint { font-family: var(--font-mono); font-size: .72rem; color: var(--ink-faint); letter-spacing: .1em; text-transform: uppercase; }
+  .roll { animation: flick .5s steps(9) 1; }
+  @keyframes flick { 0%{opacity:.35} 100%{opacity:1} }
+  .demo .formula { font-family: var(--font-mono); font-size: .74rem; color: var(--ink-faint); margin-top: .4rem; }
+  .demo .verdict { font-size: .92rem; color: var(--ink-soft); min-height: 1.2em; margin-top: .7rem; }
+  .demo .verdict b { color: var(--ink); }
+
+  /* comparison matrix */
+  .matrix { width: 100%; border-collapse: collapse; font-size: .9rem; margin-top: .4rem; }
+  .matrix th, .matrix td { text-align: left; padding: .6rem .7rem; border-bottom: 1px solid var(--line); }
+  .matrix thead th {
+    font-family: var(--font-mono); font-size: .64rem; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600; vertical-align: bottom;
+  }
+  .matrix tbody th { font-weight: 620; color: var(--ink); }
+  .matrix td.c { text-align: center; font-weight: 700; }
+  .matrix .yes { color: var(--good); }
+  .matrix .no { color: var(--ink-faint); }
+  .matrix tr.us { background: var(--accent-tint); }
+  .matrix tr.us th, .matrix tr.us td { border-bottom-color: color-mix(in srgb, var(--accent) 30%, var(--line)); }
+  .matrix tr.us td.c { color: var(--accent); }
+
+  /* stat row */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.1rem; margin-top: .4rem; }
+  @media (max-width: 720px) { .stats { grid-template-columns: 1fr; } }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 1.2rem 1.3rem; box-shadow: var(--shadow); }
+  .stat .n { font-family: var(--font-display); font-weight: 700; font-size: 2.3rem; letter-spacing: -.02em; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .stat .k { font-family: var(--font-mono); font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: .5rem; }
+  .stat p { margin: .5rem 0 0; font-size: .9rem; color: var(--ink-soft); }
+
+  .takeaway {
+    margin-top: 1.8rem; padding-left: 1.1rem; border-left: 3px solid var(--accent);
+    font-family: var(--font-display); font-style: italic; font-size: clamp(1.05rem, 2vw, 1.3rem);
+    color: var(--ink); max-width: 58ch;
+  }
+
+  ul.clean { margin: .3rem 0 0; padding: 0; list-style: none; display: grid; gap: .8rem; }
+  ul.clean li { display: grid; grid-template-columns: auto 1fr; gap: .8rem; color: var(--ink-soft); font-size: 1.02rem; }
+  ul.clean li::before { content: ""; width: 8px; height: 8px; margin-top: .55rem; border-radius: 2px; background: var(--accent); }
+  ul.clean b { color: var(--ink); font-weight: 640; }
+
+  /* chrome */
+  .chrome { position: fixed; left: 0; right: 0; bottom: 0; height: 2.6rem; display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(1rem, 4vw, 2.4rem); font-family: var(--font-mono); font-size: .72rem; color: var(--ink-faint); pointer-events: none; z-index: 5; }
+  .chrome .brand { letter-spacing: .04em; }
+  .chrome .brand b { color: var(--ink-soft); font-weight: 600; }
+  .dots { display: flex; gap: .5rem; pointer-events: auto; }
+  .dots button { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--ink-faint); background: transparent; padding: 0; cursor: pointer; transition: all .2s; }
+  .dots button.on { background: var(--accent); border-color: var(--accent); transform: scale(1.15); }
+  .count { pointer-events: none; }
+  .count b { color: var(--ink-soft); }
+  .progress { position: fixed; top: 0; left: 0; height: 3px; background: var(--accent); width: 0; transition: width .4s cubic-bezier(.2,.7,.2,1); z-index: 6; }
+
+  .nav-arrow { position: fixed; top: 50%; transform: translateY(-50%); background: var(--surface); border: 1px solid var(--line); color: var(--ink-soft); width: 2.5rem; height: 2.5rem; border-radius: 50%; cursor: pointer; display: grid; place-items: center; font-size: 1.1rem; z-index: 5; box-shadow: var(--shadow); transition: color .15s, border-color .15s; }
+  .nav-arrow:hover { color: var(--accent); border-color: var(--accent); }
+  .nav-arrow.prev { left: clamp(.6rem, 2vw, 1.4rem); }
+  .nav-arrow.next { right: clamp(.6rem, 2vw, 1.4rem); }
+  .nav-arrow:disabled { opacity: 0; pointer-events: none; }
+  @media (max-width: 720px) { .nav-arrow { display: none; } }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+</style>
+
+<div class="progress" id="progress"></div>
+
+<main class="deck" id="deck">
+
+  <!-- 0 · TITLE -->
+  <section class="slide active">
+    <div class="eyebrow">Field-Based Training · XLRI · 2026</div>
+    <h1>The tutor's gamification,<br><span class="serif-em accent">not the vendor's.</span></h1>
+    <p class="lead">An AI designs each student's quests and <b class="accent">variable</b> rewards to attack their weak spots — and the teacher approves every move before it reaches a student.</p>
+    <div class="title-meta">
+      <span><b>Sumeet Mohanty</b> · PGDM (GM) Co'26</span>
+      <span>Supervisor <b>Prof. Singh</b></span>
+      <span>Pilot <b>Digital Transformation</b></span>
+    </div>
+  </section>
+
+  <!-- 1 · PROBLEM -->
+  <section class="slide">
+    <div class="eyebrow">The problem</div>
+    <h2>Generic gamification rewards<br>the comfort zone.</h2>
+    <div class="cols two">
+      <div class="card">
+        <h3>Practice drifts to strengths</h3>
+        <p>Everyone gets the same points, badges, and leaderboard — for whatever they already do well. Weak areas stay weak.</p>
+      </div>
+      <div class="card">
+        <h3>The pull decays</h3>
+        <p>Fixed, predictable rewards lose their motivational force with exposure — and, the evidence suggests, with age.</p>
+      </div>
+    </div>
+    <p class="takeaway">Across ~20 course sessions, engagement — not content — is the bottleneck.</p>
+  </section>
+
+  <!-- 2 · WHO -->
+  <section class="slide">
+    <div class="eyebrow">Who</div>
+    <h2>One user. One gatekeeper.</h2>
+    <div class="cols two">
+      <div class="card">
+        <h3>"Aisha", 24 <span class="role">User</span></h3>
+        <p>A PGDM student practicing in short bursts between classes. Wants to feel she's improving on weak topics — without busywork or feeling surveilled.</p>
+      </div>
+      <div class="card">
+        <h3>Prof. Singh <span class="role">Buyer · Gatekeeper</span></h3>
+        <p>Wants classroom engagement and a research artifact. <b style="color:var(--ink)">Will not let any AI proposal reach a student unreviewed.</b> He is the yes/no — not the end-user.</p>
+      </div>
+    </div>
+    <p class="takeaway">Design for the student; sell to the teacher; keep the human in the loop.</p>
+  </section>
+
+  <!-- 3 · SOLUTION (interactive) -->
+  <section class="slide">
+    <div class="eyebrow">How it works</div>
+    <h2>The AI designs the game.<br>The teacher approves it.</h2>
+    <div class="split">
+      <ol class="loop">
+        <li><span><b>Baseline.</b> Everyone starts identical (Phase&nbsp;1).</span></li>
+        <li><span><b>Profile.</b> AI infers each student's weak &amp; strong topics.</span></li>
+        <li><span><b>Design.</b> AI proposes quests + <b>variable, weak-area-weighted</b> rewards — with its reasoning.</span></li>
+        <li><span><b>Approve.</b> Teacher edits / accepts / rejects. Nothing ships unreviewed.</span></li>
+        <li><span><b>Play &amp; log.</b> The reward resolves; every event is captured.</span></li>
+      </ol>
+      <div class="demo">
+        <div class="seg" role="group" aria-label="Topic strength">
+          <button id="segWeak" class="on" onclick="setTopic('weak')">Weak topic</button>
+          <button id="segStrong" onclick="setTopic('strong')">Strong topic</button>
+        </div>
+        <div class="box" id="box" role="button" tabindex="0" aria-label="Open the reward" onclick="openBox()">
+          <div class="payout" id="payout">?</div>
+        </div>
+        <div class="hint" id="hint">Tap to open the reward</div>
+        <div class="formula" id="formula">base = 10 + 40·(1 − strength)</div>
+        <div class="verdict" id="verdict"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · DIFFERENTIATION -->
+  <section class="slide">
+    <div class="eyebrow">Why us</div>
+    <h2>Everyone has a piece.<br>Nobody has the intersection.</h2>
+    <div style="overflow-x:auto">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>AI designs the<br>reward economy</th>
+            <th>Anti-comfort-zone<br>+ variable reward</th>
+            <th>Teacher approves<br>each proposal</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><th>Duolingo</th><td class="c no">~</td><td class="c yes">✓</td><td class="c no">✕</td></tr>
+          <tr><th>Century · Squirrel AI</th><td class="c no">~</td><td class="c no">✕</td><td class="c no">✕</td></tr>
+          <tr><th>AI Quests · SchoolAI</th><td class="c no">✕</td><td class="c no">✕</td><td class="c no">~</td></tr>
+          <tr><th>Kahoot · Quizizz</th><td class="c no">✕</td><td class="c no">✕</td><td class="c no">✕</td></tr>
+          <tr class="us"><th>This platform</th><td class="c">✓</td><td class="c">✓</td><td class="c">✓</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="takeaway">Lead proof — variable reward — has neuroscience <span class="accent">and</span> a billion-user existence proof. Whether <span class="serif-em">personalized</span> beats <span class="serif-em">generic</span> is exactly what the pilot tests.</p>
+  </section>
+
+  <!-- 5 · SIZING / REALITY -->
+  <section class="slide">
+    <div class="eyebrow">Honest sizing</div>
+    <h2>A research artifact,<br>not a go-to-market.</h2>
+    <div class="stats">
+      <div class="stat"><div class="k">Pilot revenue</div><div class="n">₹0</div><p>Category totals are <span class="serif-em">data needed</span> — the correct signal that this is research, not a launch.</p></div>
+      <div class="stat"><div class="k">Powered sample</div><div class="n">~136<span style="font-size:1.1rem;color:var(--ink-faint)">/grp</span></div><p>Needed to <em>confirm</em> a small effect (d≈0.34). We have ~20 students.</p></div>
+      <div class="stat"><div class="k">So the design is</div><div class="n" style="font-size:1.5rem;line-height:1.2;padding-top:.5rem">Within-<br>subject</div><p>Each student is their own control; reward schedule varied across topics.</p></div>
+    </div>
+    <p class="takeaway">Measure <span class="accent">engagement</span> (moves reliably) — not learning-gain (underpowered here). Frame the pilot as feasibility &amp; discovery.</p>
+  </section>
+
+  <!-- 6 · WEDGE + VALIDATION -->
+  <section class="slide">
+    <div class="eyebrow">First step</div>
+    <h2>One classroom. Two weeks.<br>Two tests.</h2>
+    <ul class="clean">
+      <li><span><b>The wedge.</b> One gatekeeper (Prof. Singh) + a captive cohort = course-embedded adoption at <b>zero acquisition cost.</b></span></li>
+      <li><span><b>Test 1 — the reward thesis.</b> A within-subject dry run with 8–15 classmates: does variable + weak-area weighting lift weak-topic attempts vs. fixed points?</span></li>
+      <li><span><b>Test 2 — HITL at scale.</b> Timed review: can the teacher clear 20 AI proposals at ≤30–45s each? If not, the core differentiator needs guardrails.</span></li>
+    </ul>
+    <p class="takeaway">Prove the two riskiest assumptions before building the full economy.</p>
+  </section>
+
+</main>
+
+<button class="nav-arrow prev" id="prev" aria-label="Previous slide" onclick="go(-1)">‹</button>
+<button class="nav-arrow next" id="next" aria-label="Next slide" onclick="go(1)">›</button>
+
+<div class="chrome">
+  <div class="brand"><b>AI-Personalized Gamification</b> — pitch</div>
+  <div class="dots" id="dots"></div>
+  <div class="count"><b id="cur">1</b> / <span id="tot">7</span></div>
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const dotsWrap = document.getElementById('dots');
+  const progress = document.getElementById('progress');
+  const curEl = document.getElementById('cur');
+  document.getElementById('tot').textContent = slides.length;
+  let i = 0;
+
+  slides.forEach((_, n) => {
+    const b = document.createElement('button');
+    b.setAttribute('aria-label', 'Go to slide ' + (n + 1));
+    b.onclick = () => show(n);
+    dotsWrap.appendChild(b);
+  });
+  const dots = Array.from(dotsWrap.children);
+
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle('active', k === i));
+    dots.forEach((d, k) => d.classList.toggle('on', k === i));
+    curEl.textContent = i + 1;
+    progress.style.width = ((i) / (slides.length - 1) * 100) + '%';
+    document.getElementById('prev').disabled = i === 0;
+    document.getElementById('next').disabled = i === slides.length - 1;
+  }
+  function go(d) { show(i + d); }
+
+  window.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); go(1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(-1); }
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(slides.length - 1);
+  });
+  let tx = 0;
+  window.addEventListener('touchstart', e => tx = e.changedTouches[0].clientX, {passive:true});
+  window.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - tx;
+    if (Math.abs(dx) > 55) go(dx < 0 ? 1 : -1);
+  }, {passive:true});
+
+  /* ---- mystery-box reward demo (real formula) ---- */
+  const topics = {
+    weak:   { s: 0.15, label: 'weak' },
+    strong: { s: 0.85, label: 'strong' }
+  };
+  let topic = 'weak';
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function baseReward(s){ return Math.round(10 + 40 * (1 - s)); }
+  function pHit(s){ return 0.5 + 0.5 * s; }
+  function mHi(p){ return (1 - 0.25 * (1 - p)) / p; }
+
+  function setTopic(t){
+    topic = t;
+    document.getElementById('segWeak').classList.toggle('on', t === 'weak');
+    document.getElementById('segStrong').classList.toggle('on', t === 'strong');
+    document.getElementById('payout').textContent = '?';
+    document.getElementById('hint').textContent = 'Tap to open the reward';
+    document.getElementById('verdict').innerHTML = '';
+    const b = baseReward(topics[t].s);
+    document.getElementById('formula').textContent = 'base = 10 + 40·(1 − ' + topics[t].s + ') = ' + b + ' pts';
+  }
+
+  function openBox(){
+    const s = topics[topic].s;
+    const p = pHit(s);
+    const hit = Math.random() < p;
+    const mult = hit ? mHi(p) : 0.25;
+    const val = Math.round(baseReward(s) * mult);
+    const payout = document.getElementById('payout');
+    const verdict = document.getElementById('verdict');
+    document.getElementById('hint').textContent = 'Tap again';
+
+    const settle = () => {
+      payout.textContent = '+' + val;
+      if (topic === 'weak') verdict.innerHTML = 'Big base, <b>genuinely uncertain</b> — the dopamine is in the not-knowing.';
+      else verdict.innerHTML = 'Small and <b>near-flat</b> — comfort zone, low charge.';
+    };
+    if (reduce) { settle(); return; }
+    payout.classList.remove('roll'); void payout.offsetWidth; payout.classList.add('roll');
+    let n = 0;
+    const spin = setInterval(() => {
+      payout.textContent = '+' + Math.round(Math.random() * baseReward(s) * 1.5);
+      if (++n > 8) { clearInterval(spin); settle(); }
+    }, 55);
+  }
+
+  const boxEl = document.getElementById('box');
+  boxEl.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBox(); } });
+
+  setTopic('weak');
+  show(0);
+</script>
+</body>
+</html>
