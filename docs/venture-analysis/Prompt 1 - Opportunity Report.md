@@ -42,13 +42,20 @@ The promising core: **AI-as-designer of per-student gamification, gated by teach
 
 ## 3) Alternatives & competitive landscape
 
-| Type | Example | Why customers use it | What's missing |
-|---|---|---|---|
-| Do-nothing | Plain course quizzes / no gamification | Zero setup; default | No adaptivity, no engagement mechanic, no weak-area targeting |
-| Workaround | Generic quiz-gamification tools (Kahoot/Quizizz-style) `UNKNOWN — confirm what the course uses` | Fun, familiar, easy | Same rewards for all; no AI *design*; no anti-comfort-zone logic; no HITL personalization |
-| Indirect | Adaptive learning / spaced-repetition apps | Personalize *difficulty/sequence* | Adapt content, not the *gamification economy*; no teacher-approval layer; no variable-reward thesis |
-| Indirect | Corporate game-based assessment (pymetrics via BCG; McKinsey Solve/Imbellus) | Infer traits from *play* | Assessment/hiring, not *learning*; not teacher-personalized; not open/pilotable |
-| Direct | LLM-as-*orchestrator* of per-student gamification + HITL | — | **UNKNOWN — the claimed gap (HANDOFF §8). Needs a Scopus/WoS pass to confirm no direct competitor.** |
+*Researched via product-landscape scan, 25 Jul 2026 (substitutes for the stalled Scopus/WoS pass at the **competitive** level; a formal academic novelty claim would still benefit from a DB search). Three test columns capture the actual thesis: does the product (a) let an AI **design the per-student gamification economy**, (b) implement **anti-comfort-zone / variable-reward** logic, (c) route every AI proposal through **teacher HITL approval**?*
+
+| Product / type | What it actually does | (a) AI designs economy? | (b) Anti-comfort-zone / variable reward? | (c) Teacher HITL approval? |
+|---|---|---|---|---|
+| **Duolingo** (Birdbrain model) | Adaptive difficulty + subtle variable rewards (slot-machine-like heart loss), consumer language app | Partial (adapts difficulty/reward *timing*, not a designed economy) | **Variable: yes**; anti-comfort-zone: no | ❌ no teacher; consumer |
+| **Century Tech** | AI + cognitive-neuroscience personalized pathways; strong teacher dashboard (2,000+ schools) | Adapts *content/pathway*, not the gamification economy | ❌ | Teacher *monitors*, doesn't approve AI-designed quests |
+| **Squirrel AI** | Adaptive tutoring, K-12, China market leader | Adapts *content/difficulty* | ❌ | ❌ · ⚠️ China-hosted → **conflicts with our student-data governance rule** |
+| **Classcraft** | Teacher-run classroom RPG gamification | ❌ (teacher-authored, not AI) | ❌ | Teacher-run — but **discontinued 2024 (HMH)**; sustainability signal |
+| **Google/Stanford "AI Quests", Raspberry Pi AI Quests, SchoolAI** | AI + gamified quests with teacher oversight | Fixed curricular quests (e.g., AI literacy), not per-student economy | ❌ | Teacher oversight, not per-proposal approval |
+| **Kahoot / Quizizz** | Quiz gamification | ❌ | ❌ (equal, fixed rewards) | ❌ |
+| Corporate game-assessment (pymetrics via BCG; McKinsey Solve/Imbellus) | Infer traits from *play* | N/A (assessment, not learning) | N/A | N/A — hiring, not classroom |
+| Do-nothing baseline | Plain course quizzes | ❌ | ❌ | N/A |
+
+**Read:** the market has each ingredient *separately* — Duolingo has variable reward, Century/Squirrel have AI adaptivity, AI-Quests/Classcraft have teacher-facing gamification — but **no product found combines all three: AI *designing the per-student gamification economy* + *anti-comfort-zone/variable-reward* logic + *teacher approval of each AI proposal*.** That intersection is the defensible whitespace (and Classcraft's 2024 shutdown is a caution that teacher-facing classroom gamification is hard to sustain commercially — relevant only if a commercial pivot is ever chosen).
 
 ---
 
@@ -184,6 +191,43 @@ Replace "buyers × spend" with **"participants × observable behaviour → analy
 | Conservative | `DATA NEEDED` | `DATA NEEDED` | ₹0 | ~15 students, 0 in 30+ arm | Within-subject weak-vs-strong only; no age inference |
 | Base | `DATA NEEDED` | `DATA NEEDED` | ₹0 | ~20 students + ~5 in 30+ arm | Within-subject powered; age arm exploratory only |
 | Aggressive | `DATA NEEDED` | `DATA NEEDED` | ₹0 (pilot) | ~20 students + ~10 in 30+ arm, +future cohorts pooled | Within-subject + pooled age comparison approaching power |
+
+---
+
+---
+
+## Appendix R1 — Evidence scan on riskiest assumption #1 (web, 25 Jul 2026)
+
+*Assumption #1: "anti-comfort-zone + variable reward beats equal-weight gamification on engagement/learning." Sources are web-fetched, not the 8 project PDFs — flag `[unverified]` until logged in `docs/literature/`. **Verdict: the thesis decomposes into three sub-claims with different strengths — and the "personalized beats generic" piece is genuinely contested, which is good news: it means this is a real open question worth testing, not a solved one.***
+
+**Sub-claim (i) — Variable/uncertain reward > fixed reward → STRONG support.**
+- Variable-ratio schedules produce more, more-persistent activity than fixed — *even when average reward is equal* — because dopamine fires during uncertain anticipation (Skinner lineage; consistent with Fiorillo/Tobler/Schultz 2003 already in [[research-findings]]).
+- Real-world proof at scale: **Duolingo's Birdbrain** deliberately uses variable reward timing + adaptive difficulty; ~55% monthly DAU retention is attributed partly to variable-reward schedules. Confidence: **High (engagement/persistence)**.
+
+**Sub-claim (ii) — Anti-comfort-zone (over-reward weak/harder areas) → PLAUSIBLE, with a guardrail.**
+- "Desirable difficulties" + flow: rewards can operationalise steering students to *the hardest item they can still solve*, which supports engagement and learning.
+- **Guardrail:** excessive *extrinsic* reward can crowd out intrinsic motivation, and over-hard tasks kill engagement. So the anti-comfort-zone gradient must stay inside the "challenging-but-attainable" band, not simply "hardest = most points." Confidence: **Low–Med**.
+
+**Sub-claim (iii) — Personalized/adaptive gamification > one-size-fits-all → CONTESTED (this is the crux).**
+- *Positive pole:* a 2024 fully-online study found personalized gamification **significantly outperformed** OSFA on motivational, behavioural **and** cognitive outcomes. A 2026 systematic review + meta-analysis of gamified **AI-supported** learning (81 studies, 32 meta-analysed) found a **large effect on science learning, SMD = 1.01 (95% CI 0.69–1.33)**, with **adaptive/generative-AI systems showing larger effects** — but engagement effects were highly context-heterogeneous, and effectiveness hinged on **pedagogical alignment**, not personalization alone.
+- *Null pole:* a peer-reviewed study of personalized vs OSFA gamified review assessments found **no significant difference on any motivation construct** (intrinsic motivation F(1,29.9)=0.073, p=0.79; identified/external/amotivation all n.s.), and the personalized condition actually produced **more errors** on the second assessment.
+- *Overall-gamification caveat:* meta-analytic work indicates gamification reliably lifts **intrinsic motivation / autonomy / relatedness** but has **minimal impact on competency/learning outcomes** — i.e. it moves *engagement* more reliably than it moves *learning*.
+
+**Implications (decision-grade):**
+1. **Measure engagement as the primary outcome** (robust, moves reliably); treat learning-gain as secondary (moves weakly, needs power we don't have — see §7C).
+2. The **variable-reward mechanic is the strongest, most defensible pillar** — lead the Monday pitch with it; it has both neuroscience and a billion-user existence proof (Duolingo).
+3. Because "personalized > generic" is contested, **the pilot's contribution is a genuine test, not a foregone conclusion** — frame it that way to the prof, and *design the demo to make the effect measurable* (within-subject, reward-schedule varied across topics).
+4. **Guardrail into the design:** cap the anti-comfort-zone gradient so weak-area items stay attainable, and keep the extrinsic layer light enough not to crowd out intrinsic motivation.
+
+**Confidence updates to earlier sections:** D1 (anti-comfort-zone) stays **Low–Med**; D2 (variable reward) → **Med–High** on engagement; the "personalized beats OSFA" premise underlying assumption #1 is **contested**, so assumption #1's *uncertainty* rating (5) is confirmed as correct.
+
+**Sources (all `[unverified]` pending logging):**
+- Personalized vs OSFA, fully online (2024): https://www.sciencedirect.com/science/article/abs/pii/S1041608024000633
+- Personalization vs OSFA, null result: https://pmc.ncbi.nlm.nih.gov/articles/PMC9838401/
+- Gamified AI-supported learning, systematic review + meta-analysis (2026): https://www.frontiersin.org/journals/education/articles/10.3389/feduc.2026.1754080/full
+- Gamification meta (motivation up, competency minimal): https://link.springer.com/article/10.1007/s11423-023-10337-7
+- Duolingo variable reward / Birdbrain: https://healthmattersandme.substack.com/p/duolingo-analyzing-all-engagement · https://millennial.ae/ai-driven-learning-personalization-how-duolingo-revolutionized-language-education-with-machine-learning/
+- Reward-schedule / desirable-difficulty context: https://link.springer.com/article/10.1186/s41239-020-00231-0
 
 ---
 
