@@ -1,28 +1,29 @@
 import type { Condition } from "@/lib/rewardEngine";
 
 /**
- * Seeded Digital Transformation topics.
+ * Digital Transformation topics.
  *
- * `strength` is seeded here (in the full system it is AI-inferred).
- * `condition` assigns each topic to the fixed or variable reward schedule.
+ * `condition` (fixed | variable) is the hidden experimental manipulation,
+ * counterbalanced 2:2 across topics. It is assigned per-topic and is NEVER
+ * shown to the student (that would prime them and kill the uncertainty effect);
+ * it lives only in the logs and the researcher view. In the real study the
+ * fixed/variable topic assignment would be randomised per student.
  *
- * The 4 topics form a counterbalanced 2x2 (strength x condition) — this is the
- * within-subject isolation design (Prompt 4, P1) baked into the seed data:
- * comparing fixed vs variable at matched strength isolates reward variance;
- * comparing weak vs strong at matched condition isolates anti-comfort-zone.
+ * Note: topic `strength` is NO LONGER seeded here — it is MEASURED in the
+ * diagnostic stage (see src/lib/profile.ts) and then drives the anti-comfort-zone
+ * reward magnitude in the personalized practice stage.
  */
 export interface Topic {
   id: string;
   name: string;
-  strength: number; // [0,1], seeded
   condition: Condition;
 }
 
 export const TOPICS: Topic[] = [
-  { id: "data",     name: "Data & Analytics",  strength: 0.25, condition: "variable" }, // weak  x variable
-  { id: "strategy", name: "Digital Strategy",  strength: 0.8,  condition: "variable" }, // strong x variable
-  { id: "emerging", name: "Emerging Tech",     strength: 0.25, condition: "fixed" },    // weak  x fixed
-  { id: "change",   name: "Change Management", strength: 0.8,  condition: "fixed" },    // strong x fixed
+  { id: "data",     name: "Data & Analytics",  condition: "variable" },
+  { id: "strategy", name: "Digital Strategy",  condition: "fixed" },
+  { id: "emerging", name: "Emerging Tech",     condition: "variable" },
+  { id: "change",   name: "Change Management", condition: "fixed" },
 ];
 
 export function topicById(id: string): Topic | undefined {
