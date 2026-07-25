@@ -3,6 +3,8 @@
 **Prepared for:** Supervisor meeting, Mon 27 Jul 2026 · **Author:** Sumeet Mohanty (PGDM GM Co'26, XLRI) · **Supervisor:** Prof. Singh *(confirm name spelling before circulation)* · **Version:** Week-1 design.
 
 > **Rule applied throughout:** empirical claims cite a source or are tagged `[unverified]` until the PDF is logged in `docs/literature/`. Model prices/limits are **verified 25 Jul 2026** against live pricing pages and change often — re-check before quoting.
+>
+> **Companion visuals:** the build roadmap (phase/week) and the end-to-end app-flow diagram (with edge cases) live in [`roadmap-and-flow.md`](roadmap-and-flow.md).
 
 ---
 
