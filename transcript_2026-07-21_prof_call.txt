@@ -1,0 +1,405 @@
+[  171.9s] Hello, yes, can you hear me sir?
+[  174.9s] You are at the most time, right?
+[  182.9s] Ah, that's completely fine.
+[  184.9s] Even I should down my video because the network is not great, I don't think so.
+[  189.9s] Ah, that's fine.
+[  191.9s] That's fine.
+[  192.9s] Sure.
+[  195.3s] Okay, so I have bonds with three problems that you have sent on the email, right?
+[  200.3s] Yeah.
+[  201.3s] And bonds with your link, consult the project link that you have given, right?
+[  206.3s] Right, I am on dashboard.
+[  207.3s] Right.
+[  208.3s] I was not able to see because it required a login and I did not run and I will try signing up.
+[  214.3s] Right.
+[  215.3s] I could get the idea of the things from the description itself.
+[  218.3s] Yeah.
+[  219.3s] Right.
+[  220.3s] Now, so what I was thinking is why do we combine one and two?
+[  224.3s] Okay.
+[  225.3s] Right.
+[  226.3s] Okay.
+[  227.3s] Okay.
+[  228.3s] So, how do we do the internet strain?
+[  230.3s] Okay.
+[  231.3s] So the idea is team.
+[  233.3s] I think the top one is pretty, but I remember currently last time also.
+[  238.3s] So, the gamification is something that has been out there, right?
+[  243.3s] And if you go to literature a lot, they pursue it hard on gamification.
+[  247.3s] That are what's talking about.
+[  249.3s] How it should be done.
+[  250.3s] How that's heated.
+[  251.3s] What that watch are.
+[  252.3s] Design, different elements, all of those great.
+[  256.3s] What we can do is we can talk about as gamification design where we can.
+[  262.3s] Where we can hyper-personalize the data.
+[  267.3s] What does that mean hyper-personalization is a thing which talks about.
+[  271.3s] So, normally how personalization works is.
+[  274.3s] Let's say you log into next steps.
+[  276.3s] Okay.
+[  277.3s] Now, there are people who have similar type of interest.
+[  281.3s] So all of those people who have similar type of interest are grouped together.
+[  285.3s] And they will be shown similar type of content.
+[  288.3s] Normally traditionally personalization used to work that way.
+[  291.3s] So, they will divide into 5, 10, 30 groups.
+[  295.3s] And people who are of similar interest will see similar type of thing, right?
+[  299.3s] Now, what happened recently last 5 to 8 years because of AI.
+[  303.3s] We are trying to move in towards what we call hyper-personalization.
+[  306.3s] And this is especially with very recent last 2 years.
+[  309.3s] Agentic AI and all that.
+[  311.3s] We are moving in hyper-personalization which means that for every individual.
+[  315.3s] And complete personalization.
+[  318.3s] And then the choice is not based on their overall demographic and grouping into groups.
+[  324.3s] But rather their own individual behavior and their own preferences and their own history.
+[  331.3s] Now, how does it happen is.
+[  334.3s] Earlier, if this was ever attempted anywhere, this was mostly rule based.
+[  339.3s] Right?
+[  340.3s] Rule based means if you do this, so this, if you do that, so that.
+[  343.3s] And there was no dynamic sort of dynamic, decision-based or dynamic.
+[  352.3s] There was no, you know, add-hub with Asian way.
+[  356.3s] Right? Everything was being decided.
+[  358.3s] Now, with AI, what has happened is.
+[  360.3s] We can do case by case analysis on scale.
+[  364.3s] Okay?
+[  365.3s] Now, let's come to how this connects all of this connected to given decision.
+[  370.3s] How it was designed.
+[  372.3s] Let's say you log in to any given file app or you have, you said, you have advices, you have given file.
+[  378.3s] What happens more or less, everyone has to.
+[  381.3s] Teams sort of bus, teams sort of leaderboards, teams sort of badges that they can get.
+[  387.3s] Everything is similar.
+[  388.3s] Right?
+[  389.3s] Of what they can achieve, what they cannot achieve.
+[  391.3s] And even if there are variants, there are maybe a couple of various people, various advance.
+[  397.3s] What is not happening is not everyone is getting West according to their needs or what they are good at or bad.
+[  403.3s] Right?
+[  404.3s] So, for example, if we talk about education system, they are gamifying a particular.
+[  411.3s] Let's say we are preparing for that.
+[  414.3s] Okay?
+[  415.3s] There are 20 modules.
+[  416.3s] And they will verify that all 20 modules are kept at equal weight.
+[  421.3s] Right?
+[  422.3s] It's not the AI or no one is trying to identify if this person may be good at to match what bad at work.
+[  429.3s] Or they may be good at English and bad at reasoning.
+[  433.3s] Right?
+[  434.3s] And the design doesn't dynamically create questions for them or give them more points to do what they are bad at.
+[  442.3s] Right?
+[  443.3s] These kind of design can be done if you integrate with AI.
+[  446.3s] So, what I am trying to suggest is, if you see your second thing that you have said to me,
+[  454.3s] the second AI or augmented knowledge book, there is a link.
+[  458.3s] Right?
+[  459.3s] Inside the link also, under the selected one, there is a TMG chatbot.
+[  463.3s] Yes.
+[  464.3s] Right?
+[  465.3s] So, what I am trying to say is, can we deny a system which has a chatbot is slightly overview of something, right?
+[  473.3s] Yes.
+[  474.3s] This is a very straightforwardly at what is for lunch.
+[  478.3s] Or this is the overview of a menu.
+[  480.3s] Of a menu?
+[  481.3s] Yes.
+[  482.3s] What students here have done, I have had a couple of them which they build overview of a student.
+[  490.3s] Okay?
+[  491.3s] So, why don't they create a chatbot which can give us an overview of a student and it will design questions for them.
+[  500.3s] So, there are two parts to this entire design, what I am proposing is, that one part is the gamified platform
+[  508.3s] that the students can use.
+[  510.3s] Right?
+[  511.3s] Or any one, basically, the gamified platform itself, where you have badges, quests, leaderboard, and all of that.
+[  517.3s] Right.
+[  518.3s] Now, how does someone acquire a quest or a badge, or what is the quest that someone will get?
+[  524.3s] Traditionally, it's pre-decided based on fixed scenarios.
+[  528.3s] Now, what we are saying is, we don't fix it.
+[  530.3s] There is a chatbot or there is the AI layer at the back end, right?
+[  535.3s] Which designs this according to their past performance.
+[  538.3s] So, the student is, let's say, very good at something, right?
+[  542.3s] You don't get so many points if you give more quizzes or you do more practice question of that area.
+[  547.3s] Your points will keep on diminishing if the AI can find out that you are very good at this area.
+[  551.3s] But rather, there is some area which you are not very good at.
+[  554.3s] And you get more quests regarding that area.
+[  556.3s] Or you get more points when you complete practice question of that area.
+[  561.3s] Like this, we can design a system that has a AI layer at the back end and works according to the reach of the schoolman.
+[  568.3s] And we can even take it one step further and have it sort of human in the loop kind of a system,
+[  574.3s] because AI can make mistakes, right?
+[  577.3s] So, what we are saying is that there are human layer as well, so approval.
+[  581.3s] So, AI designs, AI gets the reason.
+[  584.3s] So, there is an experimental layer, so AI will design.
+[  587.3s] AI will reason why this has to run this way.
+[  589.3s] It will be approved by a human due to the entire history or profile of that student.
+[  595.3s] And humans can approve, okay, this is a good quest, this is a good design.
+[  598.3s] Go ahead and the student will find out that this is how this has been done.
+[  603.3s] So, this is something that I like, okay?
+[  606.3s] First of all, whatever I have proposed, are you able to understand,
+[  609.3s] are there any questions in this particular type of software or project that we are talking about?
+[  614.3s] So, what I understand is, whatever interaction with the platform or gamified product that the person or student would have,
+[  629.3s] it would at first, so how I am dissecting it step by step, at first, it might be similar
+[  638.3s] or it might be according to a profile they fill out, so it will customize according to that.
+[  645.3s] And as and when the person goes through the quest, confirm around how the person plays
+[  655.3s] and the point system, reward system is dependent upon, let us say this person is expert at this,
+[  662.3s] so maybe there is some kind of reward, but higher reward is in the tasks they will gain more skill in.
+[  670.3s] They will gain new skills in.
+[  672.3s] Yes.
+[  673.3s] Right.
+[  674.3s] Yes.
+[  675.3s] Yes. So, we can even divide it accordingly.
+[  677.3s] Like, for example, phase one is your baseline.
+[  680.3s] The baseline for everyone is same.
+[  682.3s] That is the phase one tasks for everyone is same.
+[  684.3s] But once you complete phase one, task ten is to task not designs for you specifically by the tasks then that is then all of that.
+[  693.1s] So, this will need, so this will need a combination of both.
+[  696.1s] You will need to apply verification concepts, right, which you have learnt that by you.
+[  701.1s] And you will have to create a AI layer, AI tool, which will do this design.
+[  707.1s] And what I want is, if we can have a, cut up a layer at the back where these some advocates can also see,
+[  713.1s] and like, for example, as a text student, or two other students are saying,
+[  716.1s] I can open each of those their profiles and I can have a overview of the degree view of that student,
+[  723.1s] what they are doing, what they have got till now, where the AI is, how AI perceive them,
+[  727.1s] what are the strengths, weaknesses and all of that.
+[  730.1s] Right.
+[  731.1s] And whenever the, where it can even suggest that, for this student, this is what we are taking.
+[  735.1s] And humans can intervene, if required, the blesses of the doesn't make sense,
+[  738.1s] they can change it, they can ask the, they can have a conversation with the AI also,
+[  742.1s] chat about that thing where they can ask it to redesign this part of that part like that.
+[  748.1s] So, this could be a good project for you, also to show.
+[  754.1s] Okay.
+[  755.1s] So, just for the point of view also, this is a very good project I think, right.
+[  759.1s] This can be, I mean, developed, I can even try it out in my classrooms.
+[  763.1s] Right.
+[  764.1s] Right.
+[  765.1s] I can, for example, we can, I can do a simple 10.
+[  768.1s] So, let's say, with digital transformation course, I have 20 sessions.
+[  772.1s] Right.
+[  773.1s] For every session, I will ask the AI to give, to create some MCQs.
+[  777.1s] And, I mean, phase one will be same for everyone, and depending on that,
+[  781.1s] I may ask the phase two, phase three, final, leader one or something,
+[  784.1s] I can have a, I mean, just could be put on also, or even if I can become,
+[  789.1s] correct it to evaluation pipe, what do you mean from the bottom line?
+[  792.1s] Yeah.
+[  793.1s] It can be evaluated by one, and here, it will sort of act as a dynamic kind of survey,
+[  800.1s] if we utilize those data points.
+[  803.1s] Yes.
+[  804.1s] Yes, yes.
+[  805.1s] So, that will, that would be there.
+[  807.1s] And we can think of writing a paper on it that, I mean,
+[  811.1s] it's the case study kind of a thing, where we have designed the module,
+[  815.1s] and we will talk about the different layers, what those, what the,
+[  818.1s] for those layers are, and we will talk about how we implemented the class two,
+[  822.1s] we can collect some data on the satisfaction and leveling of students,
+[  826.1s] right.
+[  827.1s] And, that can all be converted into a paper.
+[  833.7s] So, let's say, I'll first, I have to look into the knowledge layer of what we will be building
+[  844.7s] of other, like, instead of the platform, I would look at knowledge layer,
+[  849.7s] and what can be pushed out to students, or are, let's say,
+[  855.7s] the said customers of the planet.
+[  857.7s] So, how should I go out there?
+[  860.7s] So, there is a course that I am starting next term,
+[  865.7s] which is gamification itself.
+[  868.7s] Okay.
+[  869.7s] So, I have a course that is starting next term, which is, I think,
+[  873.7s] when September's mid-disk starting.
+[  876.7s] Okay.
+[  877.7s] And, what you can do is, the book that I am going to describe there,
+[  881.7s] the name of the book is gamification for dummies.
+[  884.7s] Okay.
+[  886.9s] You can find the PDF of that, I think, it's really available online.
+[  890.9s] Yeah.
+[  891.9s] Okay, it's just different gamification for dummies, you see.
+[  894.9s] If you're not, we can always, what's happening, I will forward you.
+[  897.9s] Sure.
+[  898.9s] Okay.
+[  899.9s] You can build the knowledge layer with that book.
+[  902.9s] Understood.
+[  903.9s] So, the knowledge layer of that particular thing could be
+[  908.3s] that book itself.
+[  909.3s] That's the gamification itself.
+[  911.3s] I went to a lot of paper, one recent paper, 2025,
+[  915.3s] was one of the, like, most extensive literature.
+[  921.3s] I have read and I couldn't process so much.
+[  925.3s] So, that's why I was asking what exactly should I focus on?
+[  929.3s] Don't worry about it.
+[  931.3s] The thing is, the publication, no,
+[  933.3s] I'm not keeping as a priority.
+[  935.3s] Everything ever happens.
+[  937.3s] Good for you.
+[  938.3s] Good for me, but I don't think it's very important for you also.
+[  940.3s] Am I right?
+[  941.3s] Right.
+[  942.3s] And that's right.
+[  943.3s] For you, the project is more important, right?
+[  944.3s] Yeah.
+[  945.3s] Yeah.
+[  946.3s] So, I would want to, it's possible I would want to convert this into
+[  951.3s] publication because for me, also, that's useful in some ways.
+[  954.3s] But let's not pressure ourselves with that.
+[  956.3s] All right.
+[  957.3s] This could be a learning experience also.
+[  959.3s] And for you, the main problem of the main objective is project.
+[  962.3s] Let's do that.
+[  963.3s] And if possible, we'll convert into a paper as well.
+[  966.3s] But I'm not putting that as a pressure point.
+[  971.3s] But that doesn't mean that you don't have to work on that.
+[  974.3s] You will have to work, right?
+[  975.3s] We'll talk about all of that.
+[  977.3s] But let's keep it open for now.
+[  979.3s] Let's try to do something interesting.
+[  981.3s] And then we can go viral from that.
+[  985.3s] Okay.
+[  986.3s] And do we need any resources for that?
+[  991.3s] I think see, you can host on what style I've already seen.
+[  996.3s] You haven't done that.
+[  997.3s] Yeah.
+[  998.3s] So you could use Firebase at the batch and first of all,
+[ 1001.3s] you can host on what style.
+[ 1003.3s] And I think Google AI Studio Gips.
+[ 1006.3s] Enough.
+[ 1007.3s] Three.
+[ 1008.3s] I mean, if you need somewhere, you can generate the Google AI Studio.
+[ 1013.3s] And a lot of three is there.
+[ 1015.3s] Yeah.
+[ 1016.3s] I have you guys in enough usage here and there.
+[ 1022.3s] So if you need to create and discuss.
+[ 1024.3s] But try to let's put the beginning.
+[ 1026.3s] Let's try to keep it under the free tier.
+[ 1030.3s] Yes.
+[ 1031.3s] If we see something happening good, then I can discuss and about getting.
+[ 1034.3s] That is something.
+[ 1035.3s] Sure.
+[ 1036.3s] Sure.
+[ 1037.3s] So majorly, I have tested a few platforms.
+[ 1041.3s] And I have realized that this, what was the model?
+[ 1045.3s] I just forgot the model.
+[ 1047.3s] The Chinese model, whatever that is.
+[ 1050.3s] Yeah.
+[ 1051.3s] That is great for movement development.
+[ 1054.3s] Sure.
+[ 1055.3s] I understand.
+[ 1056.3s] Yeah.
+[ 1058.3s] Okay.
+[ 1059.3s] Then I will all of that.
+[ 1060.3s] I'll give you up to you.
+[ 1061.3s] Right.
+[ 1062.3s] I would want you to update me on this once you do the image.
+[ 1064.3s] Right now, this call means more on a problem statement kind of a thing.
+[ 1069.3s] Right.
+[ 1070.3s] What we are doing to do next time we meet my expectation would be that people have some sort of a plan.
+[ 1074.3s] I would like to start the knowledge that I have to be there.
+[ 1077.3s] Yeah.
+[ 1078.3s] Yeah.
+[ 1079.3s] Yeah.
+[ 1080.3s] So talk about what layer the architecture of the entire.
+[ 1082.3s] Yes.
+[ 1083.3s] The second layer is you get to talk about what models what you are using.
+[ 1085.3s] And then we can have.
+[ 1086.3s] I'm just tell me a little bit of pie here.
+[ 1088.3s] We use this and not that.
+[ 1089.3s] Right.
+[ 1090.3s] So all of that.
+[ 1091.3s] The first thing market changes every week.
+[ 1092.3s] Right.
+[ 1093.3s] Every week.
+[ 1094.3s] There is building.
+[ 1095.3s] So the last month, we were in cloud history.
+[ 1097.3s] Best now.
+[ 1098.3s] Now this month or day.
+[ 1099.3s] I want to less come up.
+[ 1100.3s] And now we are thinking everyone.
+[ 1101.3s] So.
+[ 1102.3s] If you keep on changing.
+[ 1103.3s] So whatever I will tell you will be probably a few weeks old at least.
+[ 1107.3s] It's so.
+[ 1108.3s] I mean, it's as far as I always.
+[ 1110.3s] I mean, I may have only latest thing also, but I just say it's been changed.
+[ 1113.3s] So I will leave it up to you to the source and tell me that you can always be.
+[ 1116.3s] Also that by this and not that.
+[ 1117.3s] And then we can proceed.
+[ 1118.3s] And of course, I will once we get into the design also.
+[ 1123.3s] Then if you are anywhere, there is something that you want to discuss in more detail.
+[ 1127.3s] You want some suggestion or some.
+[ 1129.3s] Discussion is needed.
+[ 1130.3s] I'm always there for that.
+[ 1131.3s] But we can do a meeting weekly or twice a week.
+[ 1138.3s] Yeah.
+[ 1139.3s] For the start.
+[ 1140.3s] Kind of.
+[ 1141.3s] Because there is some architecture design and then.
+[ 1146.3s] Very.
+[ 1147.3s] Cool modeling.
+[ 1148.3s] So I would say we could connect next week directly because this would take time.
+[ 1154.3s] This would take some brainstorming.
+[ 1156.3s] Again.
+[ 1157.3s] Sure.
+[ 1158.3s] Yeah.
+[ 1159.3s] Sure.
+[ 1160.3s] So next week also Monday or Tuesday.
+[ 1162.3s] I'm free after that again.
+[ 1163.3s] I'm staying my classes not there.
+[ 1164.3s] So probably Monday or Tuesday at the afternoon, one of these days.
+[ 1167.3s] We can decide in fact, how that will be better because that way I block my talent.
+[ 1172.3s] Tuesday or what is the next week Monday or Tuesday?
+[ 1177.3s] Let's do next week Monday.
+[ 1181.3s] Monday.
+[ 1182.3s] Monday.
+[ 1183.3s] So Monday, Tuesday or Tuesday.
+[ 1184.3s] It's not fine.
+[ 1185.3s] Okay.
+[ 1186.3s] Perfect.
+[ 1187.3s] Yeah.
+[ 1188.3s] So I will just block my calendar.
+[ 1190.3s] Yeah.
+[ 1191.3s] Okay.
+[ 1192.3s] Monday, Thursday, Tuesday, Tuesday.
+[ 1193.3s] It's said just in case sometimes I'll transfer for you or for me as well.
+[ 1196.3s] You can always exchange method on what seven days a week.
+[ 1199.3s] But for now, at least it's Monday, Thursday, Tuesday.
+[ 1202.3s] Okay.
+[ 1203.3s] Done.
+[ 1204.3s] All right.
+[ 1205.3s] Okay.
+[ 1206.3s] So meanwhile also be very question.
+[ 1207.3s] You can always call me in the any directory of my phone.
+[ 1210.3s] It's not that I'm going to talk in between for once.
+[ 1213.3s] Yeah.
+[ 1214.3s] If you have something to WhatsApp, you can.
+[ 1216.3s] You're calling me.
+[ 1217.3s] I'm mostly up to six.
+[ 1218.3s] I pick up till eight.
+[ 1219.3s] Even nine.
+[ 1220.3s] I'm okay.
+[ 1221.3s] Eight.
+[ 1222.3s] So.
+[ 1223.3s] And in WhatsApp, always is there.
+[ 1224.3s] Yeah.
+[ 1225.3s] It's the small thing you want to just discuss.
+[ 1227.3s] And I mean, it's not not necessary.
+[ 1230.3s] Also, if you think, I mean, if you're about to plan it on your own, it's even good.
+[ 1234.3s] It's better.
+[ 1235.3s] Right.
+[ 1236.3s] But yeah.
+[ 1237.3s] So it's not that I won't be able only on on next week.
+[ 1238.3s] You can always WhatsApp or something.
+[ 1241.3s] Oh my.
+[ 1242.3s] Okay.
+[ 1243.3s] So yeah, if you have any other question, we can do that.
+[ 1246.3s] Otherwise, I think that's what this was.
+[ 1247.3s] What I wanted to talk about.
+[ 1249.3s] This is what came to my mind.
+[ 1251.3s] Right.
+[ 1252.3s] That's I think that's enough for now.
+[ 1255.3s] But if when I start design.
+[ 1257.3s] Yeah.
+[ 1258.3s] Yeah.
+[ 1259.3s] If things come up, I'll reach out to you.
+[ 1262.3s] Yes.
+[ 1263.3s] With a lot of thinking.
+[ 1264.3s] A lot of things are required.
+[ 1265.3s] So I think it's retake sometimes from your end.
+[ 1267.3s] Also to saying to plan to sort.
+[ 1269.3s] It's so yeah.
+[ 1270.3s] Okay then.
+[ 1271.3s] We'll meet next week.
+[ 1272.3s] Sure.
+[ 1273.3s] Sure.
+[ 1274.3s] Okay.
+[ 1275.3s] Thanks a lot.
+[ 1276.3s] Bye.
+[ 1284.2s] Bye.
+[ 1289.9s] I'm done.
+[ 1290.9s] Oh.
+[ 1291.9s] Wait.
+[ 1292.9s] First, I have to set up.
