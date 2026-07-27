@@ -1,4 +1,4 @@
-# Roadmap & App Flow — Visual Companion
+# Roadmap and App Flow: Visual Companion
 
 Two canonical diagrams for the AI-Personalized Gamification project. Companion to `2026-07-27_architecture-and-model-comparison.md`. Renders on GitHub.
 
@@ -6,11 +6,11 @@ Two canonical diagrams for the AI-Personalized Gamification project. Companion t
 
 ## 1. Build roadmap (phase / week)
 
-Where the project is and where it goes. **Week 1 is done** — and the interactive prototype was built *ahead* of schedule (the reward economy + two-phase loop already exist client-side; weeks 2–8 turn that into the real backend + AI + human-in-the-loop system).
+Where the project is and where it goes. Week 1 is done, and the interactive prototype was built ahead of schedule: the reward economy and two-phase loop already exist client-side, and weeks 2 to 8 turn that into the real backend, AI, and human-in-the-loop system.
 
 ```mermaid
 gantt
-    title AI-Personalized Gamification — Build Roadmap
+    title AI-Personalized Gamification Build Roadmap
     dateFormat YYYY-MM-DD
     axisFormat %d %b
     todayMarker off
@@ -34,25 +34,25 @@ gantt
     Engagement/satisfaction logging + classmate dry run   :c2, 2026-09-15, 14d
 
     section Pilot · Sept+
-    Classroom pilot — Digital Transformation course       :milestone, p1, 2026-09-29, 0d
+    Classroom pilot, Digital Transformation course        :milestone, p1, 2026-09-29, 0d
 ```
 
-**Two meanings of "phase" (don't conflate):**
-- *Build phases* = the roadmap sections above (Foundation → Data+AI → HITL → Pilot).
-- *Student phases* = **Phase 1** (identical diagnostic baseline) → **Phase 2** (AI-personalized), switched per student by the trigger (prod: N=3 sessions, ≥1 item per top-level topic). Shown in the flow below.
+Two meanings of "phase," which shouldn't be conflated:
+- Build phases are the roadmap sections above (Foundation, then Data+AI, then human-in-the-loop, then Pilot).
+- Student phases are Phase 1 (the identical diagnostic baseline) and then Phase 2 (AI-personalized), switched per student by the trigger (in production, N=3 sessions with at least one item per top-level topic). This is shown in the flow below.
 
 ---
 
 ## 2. End-to-end app flow (with edge cases)
 
-The full student journey plus the production human-in-the-loop path. **Amber nodes are the edge cases** you'd otherwise miss.
+The full student journey plus the production human-in-the-loop path. The amber nodes are the edge cases you'd otherwise miss.
 
 ```mermaid
 flowchart TD
     Start([Student starts]) --> Entry["Entry: name + age bracket"]
     Entry --> D
 
-    subgraph P1["PHASE 1 · Diagnostic — identical for all"]
+    subgraph P1["PHASE 1 · Diagnostic, identical for all"]
       D["Answer diagnostic MCQ"] --> Measure[/"live strength update<br/>(share correct, shrunk to 0.5)"/]
       Measure --> Dmore{"more diagnostic<br/>questions?"}
       Dmore -- yes --> D
@@ -63,7 +63,7 @@ flowchart TD
     Trig -- "not yet" --> D
     Trig -- yes --> Build
 
-    subgraph P2["PHASE 2 · Personalized practice — multi-round"]
+    subgraph P2["PHASE 2 · Personalized practice, multi-round"]
       Build["Build round: weakest topic first<br/>fresh items, then missed as REVIEW"] --> Q["Show question"]
       Q --> A{"Answer?"}
 
@@ -112,11 +112,11 @@ flowchart TD
 ```
 
 ### Edge cases captured (checklist)
-- **Wrong fresh answer** → no reward, item enters the **MISSED** pool.
-- **Review re-attempt** → keeps the weak topic in rotation; **correct = mastered/cleared**, **wrong = stays**; neither pays points nor moves the measurement.
-- **Fresh pool exhausted** → rounds become **Review-only** ("Review weak areas").
-- **Everything cleared + mastered** → the loop **stops honestly** (prod would AI-generate fresh items).
-- **Voluntary stop at any round end** → this *is* the engagement dependent variable.
-- **Phase-2 trigger not yet met** → student stays in baseline.
-- **Production HITL** → AI proposals are async; **teacher can reject** (loops back to the designer) so only **approved** quests reach a student. MCQs are pre-generated and DB-served (rate-limit-proof).
-- **Hidden condition** → fixed/variable is never shown to the student (only the researcher view / logs).
+- A wrong fresh answer earns no reward, and the item enters the MISSED pool.
+- A review re-attempt keeps the weak topic in rotation: correct means mastered and cleared, wrong means it stays, and neither pays points nor moves the measurement.
+- Once the fresh pool is exhausted, rounds become Review-only ("Review weak areas").
+- When everything is cleared and mastered, the loop stops honestly (in production it would AI-generate fresh items).
+- A voluntary stop at any round end is itself the engagement dependent variable.
+- If the Phase-2 trigger isn't yet met, the student stays in the baseline.
+- In the production human-in-the-loop path, AI proposals are async and the teacher can reject one (which loops back to the designer), so only approved quests reach a student. MCQs are pre-generated and DB-served, which keeps it rate-limit-proof.
+- The hidden condition (fixed or variable) is never shown to the student; it appears only in the researcher view and the logs.

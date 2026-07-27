@@ -1,11 +1,11 @@
-# Literature — Citation Index
+# Literature: Citation Index
 
 Reference papers backing any claim in project documents. **CLAUDE.md hard rule:** every claim destined for the paper must cite a source here, or be flagged `[unverified]`. A claim stays `[unverified]` until its PDF (or, for paywalled sources, a verified citation) is logged below.
 
 ## Status
-- **Project PDFs (Priority 1):** ✅ 7 in folder (copied 26 Jul 2026). *Note: `HANDOFF.md` §10 listed 8 — verify whether the two "ICT-Driven" entries were one paper double-named or one is still missing.*
-- **Research-extension set (Priority 2):** ✅ Tondello, JMIR-Aging, Pittenger present; Fiorillo is **citation-only** (paywalled, no PDF needed).
-- **Theory canon (Priority 3):** ✅ 4 open papers present (Ryan & Deci, MDA, Deterding, Hamari); the rest are **books → citation-only** (Skinner, Werbach & Hunter, Chou, Csikszentmihalyi, Vygotsky) and Sailer 2017 (paywalled → citation-only).
+- Project PDFs (Priority 1): 7 in folder (copied 26 Jul 2026). Note: `HANDOFF.md` §10 listed 8, so verify whether the two "ICT-Driven" entries were one paper double-named or one is still missing.
+- Research-extension set (Priority 2): Tondello, JMIR-Aging, and Pittenger are present; Fiorillo is citation-only (paywalled, no PDF needed).
+- Theory canon (Priority 3): 4 open papers present (Ryan & Deci, MDA, Deterding, Hamari). The rest are books, kept citation-only (Skinner, Werbach & Hunter, Chou, Csikszentmihalyi, Vygotsky), along with Sailer 2017 (paywalled, citation-only).
 
 ## Research-extension sources (back architecture doc §5)
 
@@ -16,7 +16,7 @@ Reference papers backing any claim in project documents. **CLAUDE.md hard rule:*
 | Pittenger, D. J. 2005 — "Cautionary Comments Regarding the Myers-Briggs Type Indicator," *Consulting Psychology Journal: Practice and Research* 57(3), 210–221 | `10.1037/1065-9293.57.3.210` | ☑ `Pittenger_2005_MBTI_cautionary.pdf` *(third-party rehost; cite the canonical venue)* | MBTI reliability critique (retest reclassification, weak predictive validity, Barnum effect) |
 | Fiorillo, Tobler & Schultz 2003 — "Discrete Coding of Reward Probability and Uncertainty by Dopamine Neurons," *Science* 299:1898–1902 | `10.1126/science.1077349` | ☐ paywalled — **citation-only OK** | Core mechanic: dopamine encodes reward *uncertainty*, maximal at P≈0.5 |
 
-## Priority 1 — project PDFs (from Claude.ai project; `HANDOFF.md` §10)
+## Priority 1: project PDFs (from Claude.ai project; `HANDOFF.md` §10)
 
 | # | Source | PDF here? | Supports |
 |---|---|---|---|
@@ -29,7 +29,7 @@ Reference papers backing any claim in project documents. **CLAUDE.md hard rule:*
 | 7 | Workplace-gamification / constructs | ☑ `0566.pdf` | Construct definitions; the novelty-gap claim |
 | 8 | Mandatory-telework paper (voluntariness/surveillance) | ☐ **verify** | Consent/ethics framing for the pilot — confirm whether this was a distinct 8th paper or a duplicate of #1 |
 
-## Priority 3 — theory canon behind the briefing
+## Priority 3: theory canon behind the briefing
 
 **Papers present in folder:**
 
@@ -44,4 +44,4 @@ Reference papers backing any claim in project documents. **CLAUDE.md hard rule:*
 **Paywalled → citation-only:** Sailer et al. 2017 (*Computers in Human Behavior* — game elements → SDT need satisfaction).
 
 ## The book
-Duggan & Shoup — *Gamification for Dummies* (Wiley) — feeds the **AI knowledge layer**, not the experimental design. Overdue from prof since 23 Jul; needed for weeks 2–3, not Monday.
+Duggan & Shoup, *Gamification for Dummies* (Wiley), feeds the AI knowledge layer, not the experimental design. It's overdue from the prof since 23 Jul, and it's needed for weeks 2 to 3, not Monday.
