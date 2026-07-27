@@ -44,3 +44,6 @@ logs/
 # OS
 Thumbs.db
 .DS_Store
+
+# Claude Code — personal settings + re-clonable third-party design skills
+.claude/
