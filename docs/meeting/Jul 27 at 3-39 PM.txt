@@ -1,0 +1,149 @@
+It depends only on quiz. Quiz is one of those things. See, what you need to do is you need
+to have a dashboard kind of a thing where quiz is one part of it. See, I had applied
+gamification in many of my classes. What I had done is one of the classes, we would have
+a crossword puzzle, right? So, take a set of 20 words, okay? And from 20 words and their
+definitions and you give their definition cross across. Have you filled a crossword puzzle?
+Right, right, yeah. So, something similar could be there. So, that also gives you a point.
+It could be quiz. There were sometimes videos that you have to watch, article that you have
+to read and then answer immediately. So, there are generic quiz, there are specific quiz, right?
+So, we will build that entire thing eventually. I am not asking you to build everything now.
+So, we can start with the quiz part, but start with the dashboard, right? In the dashboard,
+have a point where you can see your points, at least for now, and where you can give quizzes.
+And as we go on, that dashboard will keep on expanding. The second part is, see that the
+adaptability we have to do, point and all, we don't need to change actually a lot. Because if
+you change that, no, it's difficult for, one thing you have to understand for any system,
+for participants, if it becomes too complicated to understand what is happening, the motivation
+goes down, right? Because they will be like, okay, I got 20 points now, but 35 with this question,
+this question I knew, why did I get only 15 in all of those? Right? So, what we rather do is,
+we have to, two things we do in terms of variability. One is the difficulty of questioning. So,
+we show them a difficulty level. We say we are giving you easy difficulty right now. The more
+they answer the correct ones, gradually the difficulty will be increased. If they answer
+incorrect, the variability will go down, back. That is how it will happen. The second part is,
+if we can build in a time feature. So, initially, let's say I'll give 10 seconds per question,
+but as they are doing better, I can go to eight seconds, five seconds, three seconds even, right?
+Or maybe five minimum we keep, but yeah, something like that. So, we can fine tune both, right? So,
+time versus, and we can let them choose also. Do we want to just work on time or difficulty or both?
+Something like this. Or both will keep last. Both will be a little complicated for coding,
+point of view, but at least we can give them a control. Do you want to have time-based
+variability or do you want to have difficulty level-based variability? Right? So, if they choose
+time-based, they need to set a difficulty and only on that difficulty, they will be time-based
+variability. If they choose this difficulty level, then time will be fixed, let's say 10 seconds,
+and only then there it will happen. So, this creates a feeling of, it's not just one quiz you
+are giving, it's like a whole game you can play and there are even levels. The better I do, I can
+work at more and more and more, but points will get fixed. For example, every question, there is
+20 points. Okay? Now, if you are playing on speed, then you are getting 10 seconds to write correct
+answer. If you correctly answer 20 points, if you incorrectly answer, we need to also give some
+negative, so that there is interest and there is some stake that is there. Okay?
+Some of those kind of a thing, right? And we can do some generic quiz, we can do some other type
+of quizzes. For example, in quiz also we can have 3-4 modes. One could be a rapid round, one could
+be a normal progression, right? Something like that. So, these things you can build and as I said,
+as we go on, it will not be just a quiz, it will be like a crossword puzzle. Okay? And also there
+are couple of modes, we match the following, we can do type, filling the plans, choose the
+right word kind of a thing, right? There are some games like where you have metrics of letters
+and you have to find words, right? So, for example, 10 definitions are written, there are words,
+different from crossword. The idea is same, but find words based on description.
+So, let me show you if I can find out an image or something like that. Something like this,
+let me share my screen. It's something like this. So, if you see this dictionary is there,
+word search puzzle. Something like this. So, they have to find the word here. So,
+all of this creates this, it will create, first of all, it's not only one thing that they are
+doing, so they will not get bored, right? So, they have multiple stuff and all of them will
+have different states. Some will be easier, will give them less points, some will be harder,
+will give them more points and that feeling of high and low, that variability will be created.
+Okay. So, maybe in the next iteration, you can start with the dashboard. On the dashboard,
+have some points. You can even think of having two, three types of points if you want, right?
+One could be, let's say, your overall activity till now, right? I mean, let's say we can show
+them one point that if no negative marking was there, how much point would you have accumulated?
+Then there is an actual point which is plus and negative and both, right? And once you give to a
+dashboard, I will tell you more once it starts developing. I mean, I've read and seen a lot of
+portals, so ideas automatically come when you start seeing it. But start with a simple dashboard
+with some points and two, three options of, let's say, I give one quiz and quiz also have two or
+three types, right? One is a rapid round and one is a normal quiz and I get two difficult, what do
+I want to vary, difficulty level or time, right? So, like this, you can at least start within the
+first iteration. Right. Within this, what, so one of the things that I was looking at was
+how many variables, so we need to test what is working and what may or may not work and
+that's why I just kept one variable in this. Even the points is not the exact variable because
+points more or less would stay the same. The variability one is between two, so it will
+give you a score of total of 40. Once it will give you 10, once it will give you 30, so it is just
+very hard coded thing. But the thing I was trying to target here was does the student
+keep on going to further rounds to improve themselves? So, similarly, what is the direction
+or what is the variable we will be testing in the other categories? That is something I would have
+to determine, right? So, see, this is not that variable kind of project. So, I think we have read
+some articles where we have seen some surveys and all and that is where you are coming from.
+See, in this case, we are not doing the search like that way. So, the ones that you are mentioning
+there, it's a design of, so we can do that as well. What we'll have to do in that case is
+we have to find out, like you said, am I testing their performance, am I testing their engagement,
+something like that. But in this case, what I am planning is something different. Rather than
+testing all of this, what we are doing is we are trying to propose a gamified version of the entire
+thing. What that means is we will have to design the entire thing, test it out and show that
+the generative AI can be used for adaptive learning. Now, do we want to have a pre-posed
+sort of all of that we can think of, but those will be survey ways. So, that is separate from
+the design. So, that doesn't affect our design decision, frankly, because it will be survey
+ways. So, what this means is your survey will ask that, for example, how interesting it was
+or we do a pre-post means we ask them, we give them a physical quiz before and we give them a
+physical quiz or test after and we compare these scores. And all of that we can do, but that is
+separate from your design of the portal. Right, understood. So, I would like to base
+the whole quiz slash whatever games I would be building on some course content directly.
+This was directly AI generated questions, very base level. So, how would I do that and if you
+have some material that I should just take? You can start with any book, right? Find any
+PDF on any topic doesn't matter. You can take a simple book also because that is what we wanted
+to based on that material should be uploaded behind and some book or something people upload
+based on that it can be designed. Yes, yes. So, just take any book. You can take even an
+1110 standard book which you can find a PDF online maybe. Okay, that works, yes.
+All right, what other question did I have? Just give me a second.
+So,
+see you can call me in between also. Let's say you are doing somewhere, you can just drop me a
+message in the evening, I can call you back. You have my number, right? Yeah, I have. So,
+anytime you feel something you want to discuss, you want to talk about something, whatever,
+you can always drop me a message and we can connect online also. So, don't take it like
+while we are doing weekly calls. Yes, that is for a more detailed discussion. So, you can note down
+stuff and all the point that you want to have. So, normally that is the expectation that we'll
+talk about for half an hour, 30 minutes, 40 minutes, right? But in between also you feel
+that there is some small stuff. You can always WhatsApp if it's something that you think can be
+done on WhatsApp and if it's really 5 minutes, 10 minutes call, we can always connect in the
+evenings normally. I mean just drop me a message, I will tell you the time around which I'll call
+you and I will call you around that time. Yes. That way we can always call you. Yeah, I had to
+build something to have a direction and why not this and that but now onwards I would definitely
+ask what else is there. No, no, that's fine. As we go on this will get more clear, right?
+Initially it will be that we might even change in between some stuff and all of that will happen,
+right? So, that's not a big problem and I mean this type of, I mean we operate in that way only,
+right? Normally that is how work gets done. So, I mean feel free to call or something like that if
+you have. Sure, sir. Sir, one of the things that I was wondering, so
+yes, there would be a back, like the document that would be used by AI to build the test
+but should, so as we have moved to a dashboard, dashboard would be individual for a student
+and I guess it would be a combined one for the teacher as well. Now within this,
+should there be, like in the last time we discussed that there should be a thing to,
+so that teacher can sign off on the question that goes into the.
+Eventually we will have to build all of that. Okay. Eventually we will add that layer as well
+but for now we can skip that because that is more of a management and government's point of view,
+right? Now the core region we need to build. Yes, yes. So, for this iteration you can skip
+but you can note it down somewhere. This is something that is required eventually. That's
+what I was noting down because it is something that is there. So, yeah. So, actually the portal
+would be, the entire thing would have multiple login, so student login, faculty login and then
+there will be courses, structure and they will have to, I mean, approve, not approve all of that
+but we can skip that complexity for now. We can just say that, okay, but yeah, eventually we have
+to build somewhere where teacher logs in and looks at all the questions. Maybe we can skip
+the course part altogether because we are not building a portal, it's just for experimentation.
+So, we don't need to build a core structure but yeah, one, some place where we can
+you know, approve what is approved. For this particular thing, we can do this even manually
+or without a proper terminal. So, that we can decide, that's why I am saying that. Exactly,
+we can decide later how do we want to do it. Right, right. Okay, what else was there?
+Yeah, other than that, I don't think, also I would make that decision. I am still not sure if
+I should go with a proper SQL type of database because that would make things easier
+to query as well as like keep in the back end. Fine, that's fine. SQL is fine.
+JSON is fine. Both are fine. Have SQL. See, if you go with Firebase for all the, it contains,
+it keeps data in a JSON, right? Yes. And if you contain something else other than SQL,
+so you can, I mean, I am okay with either one. Just choose one and tell the, whenever you are
+prompting this, tell them also what kind of database you are using. For example, let's say
+we are using Firebase, so automatically it will create a JSON. JSON, yes. Right, okay. Now,
+that will be all because now I have to think about it a little. In the other direction now,
+I was thinking it throughout the whole thing as a research direction that only one variable we have
+to target. Now, it would be more of different things, different things gamified that would be
+shown to the student and they can interact with any one or each of them and then we decide on the
+scores. Okay, that is something I have to work on and I will plan it accordingly. Yeah.
+Okay, we can meet next week same time, I think. Okay, okay. And we can maybe make this a reoccurring
+thing, right? Unless I have something, I will let you know, unless I am travelling or, oh no,
+next Monday I am travelling. Okay, next Monday I am not here. But Tuesday we can do,
+Tuesday we can do same time. Okay, okay. I will just reschedule this call again.
+Ah, for Tuesday. Yeah, sure, sure. Thanks, thanks a lot, sir. Okay, bye-bye.
+Bye.
+Bye.

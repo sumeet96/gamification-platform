@@ -1,0 +1,137 @@
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Play, Zap, Clock } from 'lucide-react'
+import { useGame } from '@/lib/game/game-context'
+
+/** Animate a number from its current display value toward `target`. */
+function useCountUp(target: number) {
+  const [display, setDisplay] = useState(0)
+  const ref = useRef(0)
+  useEffect(() => {
+    let raf = 0
+    const tick = () => {
+      const cur = ref.current
+      const next = cur + (target - cur) * 0.15
+      if (Math.abs(target - next) < 0.5) {
+        ref.current = target
+        setDisplay(target)
+        return
+      }
+      ref.current = next
+      setDisplay(Math.round(next))
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target])
+  return display
+}
+
+export default function Home() {
+  const router = useRouter()
+  const { session } = useGame()
+
+  const net = useCountUp(session.net)
+  const potential = useCountUp(session.potential)
+  const accuracy = session.answered > 0 ? Math.round((session.correct / session.answered) * 100) : 0
+
+  return (
+    <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-8">
+      <div className="mx-auto max-w-2xl">
+        {/* Header Greeting */}
+        <div className="mb-8 text-center">
+          <h1 className="text-4xl font-black text-white mb-2">Welcome back, Player!</h1>
+          <p className="text-slate-400 text-lg">
+            {session.roundsPlayed === 0
+              ? 'Pick a mode and play your first round.'
+              : "Ready to sharpen your mind? Let's keep it going! 🔥"}
+          </p>
+        </div>
+
+        {/* Point Counters */}
+        <div className="grid grid-cols-2 gap-4 mb-8">
+          <div className="relative rounded-2xl bg-gradient-to-br from-emerald-500/20 via-emerald-600/10 to-emerald-700/5 border border-emerald-500/40 p-6 shadow-xl">
+            <p className="text-emerald-300/80 text-sm font-semibold uppercase tracking-wider mb-2">Net Points</p>
+            <p className="text-5xl font-black text-emerald-300 mb-1">{net.toLocaleString()}</p>
+            <p className="text-emerald-400/60 text-xs">after negative marking</p>
+          </div>
+          <div className="relative rounded-2xl bg-gradient-to-br from-amber-500/20 via-amber-600/10 to-amber-700/5 border border-amber-500/40 p-6 shadow-xl">
+            <p className="text-amber-300/80 text-sm font-semibold uppercase tracking-wider mb-2">Potential</p>
+            <p className="text-5xl font-black text-amber-300 mb-1">{potential.toLocaleString()}</p>
+            <p className="text-amber-400/60 text-xs">without penalties</p>
+          </div>
+        </div>
+
+        {/* Stats Row (real session data) */}
+        <div className="grid grid-cols-3 gap-3 mb-8">
+          <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-4 text-center">
+            <p className="text-slate-400 text-xs uppercase font-semibold mb-1">Rounds</p>
+            <p className="text-2xl font-black text-white">{session.roundsPlayed}</p>
+            <p className="text-slate-500 text-xs mt-1">played</p>
+          </div>
+          <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-4 text-center">
+            <p className="text-slate-400 text-xs uppercase font-semibold mb-1">Accuracy</p>
+            <p className="text-2xl font-black text-white">{accuracy}%</p>
+            <p className="text-slate-500 text-xs mt-1">{session.answered} answered</p>
+          </div>
+          <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-4 text-center">
+            <p className="text-slate-400 text-xs uppercase font-semibold mb-1">Kept going</p>
+            <p className="text-2xl font-black text-white">{session.continues}</p>
+            <p className="text-slate-500 text-xs mt-1">extra rounds</p>
+          </div>
+        </div>
+
+        {/* Play Mode Cards */}
+        <div className="space-y-3 mb-8">
+          <button
+            onClick={() => router.push('/game-setup?mode=rapid')}
+            className="w-full group relative overflow-hidden rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 p-1 shadow-lg hover:shadow-2xl transition-all duration-300"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-pink-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            <div className="relative bg-gradient-to-r from-purple-600/95 to-pink-600/95 rounded-xl px-6 py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-white/20 p-2 group-hover:bg-white/30 transition-colors">
+                    <Zap className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-black text-white text-lg">Rapid Round</h3>
+                    <p className="text-purple-200 text-sm">Quick fire · 10 questions</p>
+                  </div>
+                </div>
+                <Play className="w-5 h-5 text-white group-hover:translate-x-1 transition-transform" />
+              </div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => router.push('/game-setup?mode=normal')}
+            className="w-full group relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 to-cyan-600 p-1 shadow-lg hover:shadow-2xl transition-all duration-300"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            <div className="relative bg-gradient-to-r from-blue-600/95 to-cyan-600/95 rounded-xl px-6 py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-white/20 p-2 group-hover:bg-white/30 transition-colors">
+                    <Clock className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-black text-white text-lg">Normal Mode</h3>
+                    <p className="text-blue-200 text-sm">Deeper dive · 20 questions</p>
+                  </div>
+                </div>
+                <Play className="w-5 h-5 text-white group-hover:translate-x-1 transition-transform" />
+              </div>
+            </div>
+          </button>
+        </div>
+
+        <div className="text-center">
+          <p className="text-slate-400 text-sm">Set your challenge lever in the next step</p>
+        </div>
+      </div>
+    </main>
+  )
+}
