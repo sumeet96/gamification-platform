@@ -76,12 +76,12 @@ two accounts — a plain `unique` on the raw column would not catch that collisi
 |---|---|---|
 | `id` | `bigserial` PK | Row identity, also gives a stable global ordering as a tiebreaker on `created_at`. |
 | `session_id` | `text` not null | A client-generated UUID that identifies one browser session (created once, persisted in `sessionStorage`, reused for every event until the tab's storage is cleared). This is the closest thing today to a "who did this" key. |
-| `student_id` | `text`, nullable, FK → `students.id` | Set from the signed session cookie server-side (`getCurrentStudent()` in `app/api/events/route.ts`), never from the request body — a client-supplied id would be forgeable and would corrupt the dataset. Still `null` for unauthenticated visitors, and null is the fallback if the FK insert fails (see Gaps §7). |
+| `student_id` | `text`, nullable, FK → `students.id` | Set from the signed session cookie server-side (`getCurrentStudent()` in `app/api/events/route.ts`), never from the request body — a client-supplied id would be forgeable and would corrupt the dataset. `/` was gated on 28 Jul 2026, so a null value in ordinary play should no longer occur; it is the fallback if the FK insert fails (see Gaps §7), the signature of the cross-tab mismatch guard (Gaps §8), or a leftover row from pre-gate testing. |
 | `event_type` | `text` not null | One of `session_start`, `round_start`, `question_answered`, `round_continue`, `round_stop` — the state-machine markers described in §4. |
 | `game_type` | `text` | Which game produced the event; currently always `'quiz'`. Placeholder for future game types (crossword, word-search). |
 | `mode` | `text` | Student-chosen pacing: `rapid` or `normal`. |
 | `lever` | `text` | Student-chosen adaptivity lever: `adaptive` (difficulty ramps with performance) or `time` (fixed difficulty, shrinking time limit). This is the paper's key independent variable. |
-| `round` | `int` | 0-based round counter within the session. |
+| `round` | `int` | Round counter within the session, **1-based as written** (`roundNo = session.roundsPlayed + 1`) and restarting at 1 in every new session. It is therefore not unique across sessions: any lifetime round count must aggregate on `(session_id, round)`, never on `round` alone. Verified against live rows 28 Jul 2026. |
 | `question_id` | `text` | FK-by-value into `questions.id` (no DB-level constraint — see Gaps). Null for non-`question_answered` events. |
 | `difficulty_level` | `int` | The difficulty (1–5) the question was actually served at, at the moment of the event. |
 | `time_limit` | `int` | Seconds allowed for this question, only meaningful when `lever = 'time'`. |
@@ -278,6 +278,36 @@ order by session_id, round, created_at;
 ```
 
 That last query is a workaround, not a clean answer — see Gaps §2.
+
+Validated against live data 28 Jul 2026 (99 rows, 2 students) — lifetime per-student stats for the
+dashboard (replaces `sessionStorage`-only totals, which reset on logout):
+
+```sql
+-- Lifetime gameplay stats for one student. Parameterize $1 = student_id and
+-- $2 = the current "points for a correct answer" constant (POINTS_CORRECT from
+-- lib/game/engine.ts, passed in from the caller rather than hardcoded here — see
+-- Gap 5, points_delta/net_after carry no scoring-version marker, so "potential"
+-- can only be computed correctly for whichever scoring rule is live *right now*).
+-- Returns exactly one row, all zeros, for a student with no events yet.
+select
+  coalesce(sum(points_delta) filter (where event_type = 'question_answered'), 0)::int as net,
+  (count(*) filter (where event_type = 'question_answered') * $2::int)::int as potential,
+  count(*) filter (where event_type = 'question_answered')::int as answered,
+  count(*) filter (where event_type = 'question_answered' and is_correct)::int as correct,
+  count(*) filter (where event_type = 'question_answered' and is_correct = false)::int as wrong,
+  -- round is 0-based per session.roundsPlayed but the value written to events.round
+  -- is 1-based and only unique WITHIN a session_id, so the grain for "one round" is
+  -- the pair, not round alone — two different sessions both have a round = 1.
+  count(distinct (session_id, round)) filter (where event_type = 'question_answered')::int as rounds_played,
+  count(*) filter (where event_type = 'round_continue')::int as continues,
+  count(distinct session_id)::int as sessions
+from events
+where student_id = $1
+```
+
+`accuracy` is deliberately not a column here — leave `correct / answered` (zero-guarded) to the
+caller, matching how `app/results/page.tsx` already computes it client-side, so there's one
+formatting convention (rounding, percentage vs. ratio) rather than a second one baked into SQL.
 
 ## 5. Known gaps
 

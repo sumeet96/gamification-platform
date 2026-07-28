@@ -1,6 +1,6 @@
 # User Journey: Student Experience (28 Jul 2026, updated same day for authentication)
 
-As of commit e0b3fd9 plus the authentication work added later on 28 Jul 2026, the application is a single-session adaptive learning quiz that now sits behind a login. A student signs up or logs in before reaching the quiz screens, plays through a single unbroken session, and their score persists only while the browser tab is open — but the identity behind that session now persists in the database. None of the auth flow described below has been exercised against a live database or a real browser session; it is built and reviewed, not yet manually tested.
+As of commit e0b3fd9 plus the authentication work added later on 28 Jul 2026, the application is a single-session adaptive learning quiz that now sits entirely behind a login. Since the same day's route-gate correction, a student signs up or logs in before reaching anything at all — not just the quiz screens, the dashboard too — plays through a single unbroken session, and their score persists only while the browser tab is open, while the identity behind that session persists in the database. The signup and login flows have been exercised manually at least once against a real database, and the route gate was confirmed with live HTTP requests against a running server; there is still no automated test of any of this.
 
 ---
 
@@ -8,15 +8,15 @@ As of commit e0b3fd9 plus the authentication work added later on 28 Jul 2026, th
 
 ### 1. You sign up or log in
 
-You arrive at the dashboard first (`/`), which is not gated — you can look at it without an account. But the moment you try to play (clicking into `/game-setup`, `/quiz`, or `/results`), `proxy.ts` checks for a valid session cookie and, if you don't have one, redirects you straight to `/login`.
+The journey now starts here, not at the dashboard. Since a route-gate correction made later on 28 Jul 2026, the gate is deny-by-default: the only pages reachable without a session are `/login` and `/signup` (plus the auth API underneath them and Next.js' own internal assets). Land on `/` — the dashboard — or anywhere else without a valid session cookie, and `proxy.ts` redirects you straight to `/login`. There is no way to look at the dashboard, your stats, or any game screen before you have an account. (If you're already signed in and navigate to `/login` or `/signup` anyway, you're redirected the other way, straight to `/`.)
 
-**If you're new,** you go to `/signup` and fill in your name, email, phone, password, date of birth, gender, education level, and (optionally) your learning goals. Two checkboxes gate submission: a generic terms-of-service checkbox (cosmetic — nothing server-side reads it), and a required consent checkbox: "I agree that my gameplay data may be used in anonymized research." Leaving that unchecked, or submitting an invalid email or a password under 8 characters, blocks the form with an inline error message. On success, the server hashes your password, creates your account, and signs you in immediately — you land back on the dashboard.
+**If you're new,** you go to `/signup` and fill in your name, email, phone, password, date of birth, gender, education level, and (optionally) your learning goals. Two checkboxes gate submission: a generic terms-of-service checkbox (cosmetic — nothing server-side reads it), and a required consent checkbox: "I agree that my gameplay data may be used in anonymized research." Leaving that unchecked, or submitting an invalid email or a password under 8 characters, blocks the form with an inline error message. If your retyped password doesn't match, that error now appears directly beneath the retype-password field rather than at the top — only whole-submission problems (a duplicate email, a server error) still surface at the top of the form. On success, the server hashes your password, creates your account, and signs you in immediately — you land on the dashboard for the first time.
 
-**If you already have an account,** you go to `/login` and enter your email and password. A wrong password or an unrecognized email produce the same generic message ("Invalid email or password") — the app deliberately doesn't tell you which one was wrong. On success you're signed in and returned to the dashboard.
+**If you already have an account,** you go to `/login` and enter your email and password. A wrong password or an unrecognized email produce the same generic message ("Invalid email or password") — the app deliberately doesn't tell you which one was wrong. On success you're signed in and taken to the dashboard.
 
 Either way, logging in or signing up starts a clean slate: the app mints a brand-new session (clearing any leftover score, round count, or continues from before) so your gameplay is never mixed with whatever happened on this browser before you signed in.
 
-Once signed in, the dashboard shows your name in the header along with a small logout control. Logging out clears your session cookie, starts a fresh anonymous session on this browser, and sends you back to `/login`.
+Once signed in, the dashboard shows your name in the header. The logout control now sits below it in its own right-aligned row, styled as a frosted-glass pill with a visible hover state — it used to overlap the welcome heading and was nearly invisible against the background. Logging out clears your session cookie, starts a fresh anonymous session on this browser, and sends you back to `/login`, same as landing on any gated page without one.
 
 ### 2. The dashboard
 
@@ -37,7 +37,9 @@ You see:
 - A recap of your choice: "Rapid Round (10 questions)" or "Normal (20 questions)".
 - A clear statement of the points rules: **+20 for correct, −10 for wrong**. There's real downside to guessing.
 - Two large, clickable cards for your **Challenge Lever**. You pick exactly one:
-  - **Adaptive Difficulty**: questions get harder after you answer correctly (difficulty goes up by 1), and easier after you're wrong (difficulty goes down by 1). Difficulty is locked to a range of 1 to 5. All questions start at level 3.
+  - **Adaptive Difficulty**: questions get harder after you answer correctly (difficulty goes up by 1), and easier after you're wrong (difficulty goes down by 1). Difficulty is locked to a range of 1 to 5 and starts at **2** (`START_DIFFICULTY`), so three
+    consecutive correct answers reach the ceiling. Difficulty resets to 2 at the start of every
+    round; it is not carried across rounds, sessions, or accounts.
   - **Time Pressure**: you start with 10 seconds to answer. Each correct answer shaves 2 seconds off the timer for the next question. Each wrong answer or timeout leaves the timer as is. The timer never drops below 5 seconds. Difficulty stays at level 3 for all questions.
   
   You cannot pick both. You cannot pick neither.
@@ -104,9 +106,9 @@ Most of the time, you'll see the "Keep Going" button and feel the pull to keep p
 
 ```mermaid
 graph TD
-    Z0["Land on Dashboard<br/>(not gated)"] -->|Click Play Quiz,<br/>no session cookie| Z1["Redirected to /login<br/>by proxy.ts"]
-    Z1 -->|Have account| Z2["Log In"]
-    Z1 -->|New here| Z3["Sign Up<br/>+ research consent"]
+    Z1["Land on any route<br/>no session cookie"] -->|proxy.ts redirects<br/>(deny-by-default)| Z1b["/login"]
+    Z1b -->|Have account| Z2["Log In"]
+    Z1b -->|New here| Z3["Sign Up<br/>+ research consent"]
     Z2 -->|Success:<br/>fresh session| A
     Z3 -->|Success:<br/>fresh session| A
     A["Dashboard<br/>Net Points + Stats"] -->|Play Quiz| B["Choose Mode<br/>Rapid or Normal"]
@@ -121,10 +123,10 @@ graph TD
     H -->|Yes| I["Results Screen<br/>Score + Peak Stat"]
     I -->|Keep Going| D
     I -->|Back to Dashboard| A
-    A -->|Logout| Z1
+    A -->|Logout| Z1b
     
-    style Z0 fill:#1a1a2e
-    style Z1 fill:#472a1a
+    style Z1 fill:#1a1a2e
+    style Z1b fill:#472a1a
     style Z2 fill:#16213e
     style Z3 fill:#16213e
     style A fill:#1a1a2e
@@ -145,7 +147,7 @@ graph TD
 - **Login**: `/app/login/page.tsx` — email/password form, posts to `POST /api/auth/login`, calls `resetSession()` and redirects to `/` on success.
 - **Signup**: `/app/signup/page.tsx` — registration form plus the required research-consent checkbox, posts to `POST /api/auth/signup`, calls `resetSession()` and redirects to `/` on success.
 - **Auth API**: `/app/api/auth/signup/route.ts`, `/login/route.ts`, `/logout/route.ts`, `/me/route.ts` — credential checking, password hashing (`/lib/auth/password.ts`), and the signed session cookie (`/lib/auth/session.ts`).
-- **Route gate**: `/proxy.ts` — redirects unauthenticated visitors away from `/quiz`, `/game-setup`, and `/results`.
+- **Route gate**: `/proxy.ts` — deny-by-default as of the 28 Jul 2026 correction. Only `/login`, `/signup`, the auth API, and Next.js internals are reachable without a session; every other page, including `/`, redirects unauthenticated visitors to `/login`, and every other API route returns a 401 instead.
 - **Dashboard**: `/app/page.tsx` — renders the entry screen, fetches session state from `sessionStorage`, fetches the signed-in student's name from `GET /api/auth/me`, displays the stats, and provides the "Play Quiz" entry point and the logout control.
 - **Mode selection**: `/app/game-setup/page.tsx` — shows the Rapid / Normal choice and the Adaptive / Time Pressure toggle. Validates that exactly one challenge is selected, then sets up the session and navigates to the quiz.
 - **Quiz screen**: `/app/quiz/page.tsx` — manages question sequencing, answer validation, scoring, and timeout logic. Updates the session state after each answer and drives the adaptive-difficulty or time-pressure logic.

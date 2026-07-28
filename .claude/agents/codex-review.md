@@ -2,7 +2,7 @@
 name: codex-review
 description: Second-opinion code review from OpenAI Codex (gpt-5.6-terra by default) on the current uncommitted diff. Use after `reviewer` on anything risky — scoring logic, DB writes, auth — to catch what a single model family misses. Escalates to gpt-5.6-sol only when the request explicitly says so. Diffs only; Codex never writes code in this project.
 tools: Bash, Read
-model: haiku
+model: sonnet
 color: orange
 ---
 
@@ -51,11 +51,30 @@ codex exec -m gpt-5.6-terra review --base main
 codex exec -m gpt-5.6-terra review --commit <sha>
 ```
 
-To steer the review, pass instructions as the prompt argument, for example:
+### Steering the review — read this, the obvious form does not work
+
+**`--uncommitted` cannot be combined with a prompt argument.** On codex-cli 0.145.0 this fails at
+argument parsing with `the argument '--uncommitted' cannot be used with '[PROMPT]'`. Verified
+28 Jul 2026. So this is invalid:
 
 ```
-codex exec -m gpt-5.6-terra review --uncommitted "Focus on scoring correctness and negative marking. Ignore styling."
+codex exec -m gpt-5.6-terra review --uncommitted "Focus on scoring correctness."   # FAILS
 ```
+
+Steering only works with `--base` or `--commit`:
+
+```
+codex exec -m gpt-5.6-terra review --base main "Focus on scoring correctness. Ignore styling."
+codex exec -m gpt-5.6-terra review --commit <sha> "Focus on the events insert path."
+```
+
+So you have a choice, and you must state which one you took in your report:
+- **Unsteered review of uncommitted work** — `--uncommitted` alone. Codex reviews cold and tends to
+  return thin, generic output. Say so; do not present it as a considered pass.
+- **Steered review** — ask the orchestrator to commit first, then use `--commit <sha>` with the
+  steering prompt. This is the better review, and worth requesting when the diff is risky.
+
+Do not retry the invalid combination in a different argument order. Both orderings fail.
 
 When escalation is explicitly requested, swap the model and nothing else:
 

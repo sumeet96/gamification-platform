@@ -23,6 +23,7 @@ export default function Signup() {
   const [consent, setConsent] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [confirmPasswordError, setConfirmPasswordError] = useState('')
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -32,9 +33,10 @@ export default function Signup() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setConfirmPasswordError('')
 
     if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match.')
+      setConfirmPasswordError('Passwords do not match.')
       return
     }
     if (!consent) {
@@ -304,6 +306,9 @@ export default function Signup() {
                   required
                 />
               </div>
+              {confirmPasswordError && (
+                <p className="mt-2 text-sm text-red-300">{confirmPasswordError}</p>
+              )}
             </div>
           </div>
 

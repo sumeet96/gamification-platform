@@ -29,10 +29,40 @@ function useCountUp(target: number) {
   return display
 }
 
+/** Lifetime totals from GET /api/stats — see app/api/stats/route.ts. */
+interface LifetimeStats {
+  net: number
+  potential: number
+  answered: number
+  correct: number
+  wrong: number
+  rounds_played: number
+  continues: number
+  sessions: number
+}
+
+const ZERO_STATS: LifetimeStats = {
+  net: 0, potential: 0, answered: 0, correct: 0, wrong: 0, rounds_played: 0, continues: 0, sessions: 0,
+}
+
+/** Pulsing placeholder for a stat that hasn't loaded yet — never a bare 0 that would
+ *  later jump to the real value. */
+function StatSkeleton({ className = 'h-8 w-12' }: { className?: string }) {
+  return <span className={`inline-block rounded bg-slate-700/50 animate-pulse ${className}`} />
+}
+
 export default function Home() {
   const router = useRouter()
-  const { session, resetSession } = useGame()
+  // Only resetSession is needed here now. The dashboard's numbers come from
+  // /api/stats (lifetime, server-side); per-tab session state deliberately no
+  // longer feeds this screen.
+  const { resetSession } = useGame()
   const [studentName, setStudentName] = useState<string | null>(null)
+  // Lifetime stats read from the DB (app/api/stats) — what the dashboard displays.
+  // `session` above still exists and still drives gameplay/round-numbering/event
+  // logging untouched; it is no longer what the dashboard shows.
+  const [stats, setStats] = useState<LifetimeStats>(ZERO_STATS)
+  const [statsStatus, setStatsStatus] = useState<'loading' | 'error' | 'ready'>('loading')
   // "Signed in" is tracked separately from "we know the name". A DB blip or cold
   // start on the name lookup must not hide the only logout control — on a shared
   // classroom laptop that leaves the current student unable to sign out, and the
@@ -60,6 +90,34 @@ export default function Home() {
     return () => { cancelled = true }
   }, [])
 
+  // Fetch lifetime totals fresh on every mount — including the remount that happens
+  // when the student navigates back to "/" from /results, which is what makes the
+  // post-round numbers show up without a manual refresh.
+  useEffect(() => {
+    let cancelled = false
+    setStatsStatus('loading')
+    ;(async () => {
+      try {
+        const res = await fetch('/api/stats')
+        if (!res.ok) {
+          if (!cancelled) setStatsStatus('error')
+          return
+        }
+        const data = await res.json().catch(() => null)
+        if (cancelled) return
+        if (data?.ok) {
+          setStats(data)
+          setStatsStatus('ready')
+        } else {
+          setStatsStatus('error')
+        }
+      } catch {
+        if (!cancelled) setStatsStatus('error')
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   const logout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' })
@@ -72,64 +130,112 @@ export default function Home() {
     }
   }
 
-  const net = useCountUp(session.net)
-  const potential = useCountUp(session.potential)
-  const accuracy = session.answered > 0 ? Math.round((session.correct / session.answered) * 100) : 0
+  // Target stays 0 until the fetch resolves, so the count-up only ever animates once,
+  // from 0 to the real lifetime total — it never runs during loading, because the
+  // numeral itself isn't rendered until statsStatus is 'ready' (see below).
+  const net = useCountUp(stats.net)
+  const potential = useCountUp(stats.potential)
+  const accuracy = stats.answered > 0 ? Math.round((stats.correct / stats.answered) * 100) : 0
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-8">
       <div className="mx-auto max-w-2xl">
         {/* Header Greeting */}
-        <div className="mb-8 text-center relative">
+        <div className="mb-8">
           {signedIn && (
-            <button
-              onClick={logout}
-              className="absolute right-0 top-0 flex items-center gap-2 text-slate-400 hover:text-slate-200 transition-colors text-sm font-semibold"
-            >
-              <LogOut className="w-4 h-4" />
-              Log out
-            </button>
+            <div className="flex justify-end mb-4">
+              <button
+                onClick={logout}
+                className="group flex items-center gap-2 rounded-xl bg-slate-800/60 border border-slate-700/50 px-4 py-2 shadow-lg backdrop-blur-sm text-sm font-semibold text-slate-300 hover:bg-rose-500/10 hover:border-rose-500/40 hover:text-rose-300 transition-all duration-300"
+              >
+                <LogOut className="w-4 h-4 transition-colors group-hover:text-rose-300" />
+                Log out
+              </button>
+            </div>
           )}
-          <h1 className="text-4xl font-black text-white mb-2">
-            Welcome back{studentName ? `, ${studentName}` : ''}!
-          </h1>
-          <p className="text-slate-400 text-lg">
-            {session.roundsPlayed === 0
-              ? 'Pick a mode and play your first round.'
-              : "Ready to sharpen your mind? Let's keep it going! 🔥"}
-          </p>
+          <div className="text-center">
+            <h1 className="text-4xl font-black text-white mb-2">
+              Welcome back{studentName ? `, ${studentName}` : ''}!
+            </h1>
+            <p className="text-slate-400 text-lg">
+              {/* Branches on lifetime rounds, not the per-tab session: a returning
+                  student on a new device has an empty sessionStorage but a real
+                  history, and should not be greeted as a first-timer. While stats
+                  are still loading, use the neutral returning-player line. */}
+              {statsStatus === 'ready' && stats.rounds_played === 0
+                ? 'Pick a mode and play your first round.'
+                : "Ready to sharpen your mind? Let's keep it going! 🔥"}
+            </p>
+          </div>
         </div>
 
-        {/* Point Counters */}
+        {/* Point Counters (lifetime, from /api/stats) */}
         <div className="grid grid-cols-2 gap-4 mb-8">
           <div className="relative rounded-2xl bg-gradient-to-br from-emerald-500/20 via-emerald-600/10 to-emerald-700/5 border border-emerald-500/40 p-6 shadow-xl">
             <p className="text-emerald-300/80 text-sm font-semibold uppercase tracking-wider mb-2">Net Points</p>
-            <p className="text-5xl font-black text-emerald-300 mb-1">{net.toLocaleString()}</p>
+            <p className="text-5xl font-black text-emerald-300 mb-1">
+              {statsStatus === 'loading' ? (
+                <StatSkeleton className="h-11 w-24" />
+              ) : statsStatus === 'error' ? (
+                '—'
+              ) : (
+                net.toLocaleString()
+              )}
+            </p>
             <p className="text-emerald-400/60 text-xs">after negative marking</p>
           </div>
           <div className="relative rounded-2xl bg-gradient-to-br from-amber-500/20 via-amber-600/10 to-amber-700/5 border border-amber-500/40 p-6 shadow-xl">
             <p className="text-amber-300/80 text-sm font-semibold uppercase tracking-wider mb-2">Potential</p>
-            <p className="text-5xl font-black text-amber-300 mb-1">{potential.toLocaleString()}</p>
+            <p className="text-5xl font-black text-amber-300 mb-1">
+              {statsStatus === 'loading' ? (
+                <StatSkeleton className="h-11 w-24" />
+              ) : statsStatus === 'error' ? (
+                '—'
+              ) : (
+                potential.toLocaleString()
+              )}
+            </p>
             <p className="text-amber-400/60 text-xs">without penalties</p>
           </div>
         </div>
 
-        {/* Stats Row (real session data) */}
-        <div className="grid grid-cols-3 gap-3 mb-8">
+        {statsStatus === 'error' && (
+          <p className="text-center text-slate-500 text-xs mb-4">
+            Couldn&apos;t load your stats right now — try refreshing in a bit.
+          </p>
+        )}
+
+        {/* Stats Row (lifetime totals, from /api/stats) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
           <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-4 text-center">
             <p className="text-slate-400 text-xs uppercase font-semibold mb-1">Rounds</p>
-            <p className="text-2xl font-black text-white">{session.roundsPlayed}</p>
+            <p className="text-2xl font-black text-white">
+              {statsStatus === 'loading' ? <StatSkeleton /> : statsStatus === 'error' ? '—' : stats.rounds_played}
+            </p>
             <p className="text-slate-500 text-xs mt-1">played</p>
           </div>
           <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-4 text-center">
             <p className="text-slate-400 text-xs uppercase font-semibold mb-1">Accuracy</p>
-            <p className="text-2xl font-black text-white">{accuracy}%</p>
-            <p className="text-slate-500 text-xs mt-1">{session.answered} answered</p>
+            <p className="text-2xl font-black text-white">
+              {statsStatus === 'loading' ? <StatSkeleton /> : statsStatus === 'error' ? '—' : `${accuracy}%`}
+            </p>
+            <p className="text-slate-500 text-xs mt-1">
+              {statsStatus === 'ready' ? `${stats.answered} answered` : 'answered'}
+            </p>
           </div>
           <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-4 text-center">
             <p className="text-slate-400 text-xs uppercase font-semibold mb-1">Kept going</p>
-            <p className="text-2xl font-black text-white">{session.continues}</p>
+            <p className="text-2xl font-black text-white">
+              {statsStatus === 'loading' ? <StatSkeleton /> : statsStatus === 'error' ? '—' : stats.continues}
+            </p>
             <p className="text-slate-500 text-xs mt-1">extra rounds</p>
+          </div>
+          <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-4 text-center">
+            <p className="text-slate-400 text-xs uppercase font-semibold mb-1">Sessions</p>
+            <p className="text-2xl font-black text-white">
+              {statsStatus === 'loading' ? <StatSkeleton /> : statsStatus === 'error' ? '—' : stats.sessions}
+            </p>
+            <p className="text-slate-500 text-xs mt-1">played</p>
           </div>
         </div>
 

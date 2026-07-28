@@ -1,6 +1,6 @@
 # HANDOFF: Gamified Adaptive Learning Platform (FBT Research Project)
 
-**Prepared:** 22 Jul 2026. **Updated:** 28 Jul 2026 (post-pivot rebuild). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot. This doc now records both the original vision (history) and the current state.
+**Prepared:** 22 Jul 2026. **Updated:** 28 Jul 2026 (post-pivot rebuild; authentication wired same day, commit b569cc5). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot, and a same-day follow-up (commit b569cc5) wired real authentication. This doc now records both the original vision (history) and the current state.
 
 ---
 
@@ -41,6 +41,18 @@
 - Event logging API (app/api/events) to store per-question interactions.
 - Login and signup UI scaffolded for future wiring (not yet functional).
 
+**Follow-up (28 Jul 2026, commit b569cc5): authentication wired.** Under the scaffolded UI, `events.student_id` was always null, which ruled out per-student analysis (learning curves, cross-session comparison, any link to roster or demographic data) and was the top-ranked gap in the data-layer review. Real email+password authentication now closes it: every event carries the student's id.
+
+Built with no new dependencies: `node:crypto` scrypt for password hashing (per-password salt, stored as `salt:hash` in hex, verified with `timingSafeEqual`), and a stateless HMAC-SHA256 signed session cookie (httpOnly, sameSite lax, secure in production, 30 days; `SESSION_SECRET` is required server-side with no fallback). `package.json` is unchanged. A root-level `proxy.ts` (Next 16's successor to `middleware.ts`) gates `/quiz`, `/game-setup`, and `/results`.
+
+New table `students`, keyed by an opaque id rather than the email, so no direct identifier reaches the event log. `events.student_id` is now a nullable foreign key to it, indexed alongside `(session_id, round)`. Migration `db/001_add_students.sql`, establishing the convention `NNN_short_name.sql`, re-runnable.
+
+Two decisions matter more for the research design than the implementation: `student_id` is read from the session cookie inside `/api/events`, never from the request body, because a client-supplied id would be forgeable and would corrupt the dataset undetectably; and signup persists `dob` (age as a future covariate) and records research consent as `consented_at`, enforced server-side rather than trusted from the client.
+
+Six defects were found by review and fixed before commit. The one worth keeping on record: `resetSession()` had no call sites, so on a shared classroom laptop one `session_id` could span two students, with round numbers and the persistence counter bleeding across them. It now runs on login, signup, and logout.
+
+**Status, stated plainly:** reviewed, type-checked, and building, but not yet exercised against a live database or a real browser session. `db/001_add_students.sql` has not been applied to Neon yet.
+
 ## 4. The agreed product (from the 21 Jul call) — SUPERSEDED
 
 ⚠️ **SUPERSEDED by §3 (27 Jul pivot).** The design below is the original vision from the 21 Jul call. It is now parked. Refer to §3 for the current product definition.
@@ -69,6 +81,7 @@ Core mechanics agreed:
 - **Provider abstraction:** all LLM calls go through a thin adapter (Vercel AI SDK style) so switching provider is a config change. The fallback chain is Gemini paid, then a retry, then an alternate provider. Data-governance rule: student-derived data must never fail over to Chinese-hosted endpoints (an IRB/consent risk). Open-model fallback only via US/EU-hosted providers (for example, OpenRouter pinned) or restricted to non-student-data calls (MCQ drafting from course material is fine; profiling a named student is not).
 - **Database: Neon serverless Postgres (as of 28 Jul rebuild).** Event logs (session, round, per-question interactions, score, adaptivity feedback) are queryable in SQL and directly serve the DSR dataset. Schema in `db/schema.sql`. Previously planned Supabase; switched to Neon for simpler provisioning. Either would serve the deployment.
 - **Front-end: Next.js 16 / React 19 / Tailwind v4** (v0 scaffolding, rebuilt 28 Jul). Router-based screens (dashboard, game-setup, quiz, results) use React Context (sessionStorage-backed) for game state persistence across nav.
+- **Auth (added 28 Jul 2026, commit b569cc5):** email+password login/signup, no new dependencies — `node:crypto` scrypt for password hashing and a stateless HMAC-SHA256 signed session cookie. New `students` table (opaque primary key, not the email) so `events.student_id` is populated from the session instead of always null. `proxy.ts` gates `/quiz`, `/game-setup`, `/results`. Reviewed and type-checked; not yet tested against a live database or a real browser session.
 - **Hosting: Vercel Hobby tier.** Fine for an academic pilot; no change.
 
 ### 5b. Dev tooling (what Sumeet codes with), decided via structured comparison 22 Jul
@@ -125,8 +138,11 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - **Prof's papers on hand (project PDFs):** Singh & Dev 2023 AJIS (ICT interventions, relatedness, engagement; moderated mediation non-significant; intellectual engagement null); Singh & Verma 2020 ACIS (gamification taxonomy/theory); Singh & Singh 2021 ACIS (gamification in hybrid teacher PD, SDT plus goal theories); the MCDM chatbot-ranking paper (Delphi + CRITIC + WASPAS/EDAS); the mandatory-telework paper; Klock et al. 2020 IJHCS (tailored gamification); Alioto & Persico (corporate training gamification). Note: several PDFs are scanned/image-based, so text was extracted via OCR; verify any quoted passage against the source.
 - **Likely paper framing:** a Design Science Research case study (artifact plus classroom deployment plus engagement/satisfaction data). Ethics topics to raise before the pilot: consent/voluntariness for interaction telemetry, the IRB/institutional review timeline, and scale reuse from the AJIS paper.
 
-## 10. Open items and risks (updated 28 Jul post-rebuild)
+## 10. Open items and risks (updated 28 Jul, post-auth)
 
+- [x] **Resolved 28 Jul 2026 (commit b569cc5):** anonymous event log. `events.student_id` was always null under the mockup login/signup UI, which made per-student analysis impossible. Real authentication now populates it from the session cookie. Still not verified against a live database.
+- [ ] New residual risk: shared devices. A student who does not log out on a shared classroom laptop leaves the session live for whoever uses it next; nothing currently forces logout.
+- [ ] New residual risk: the signup form has a cosmetic terms-of-service checkbox sitting next to the real, server-enforced research-consent checkbox. The two could be confused; needs a UI fix before the pilot.
 - [ ] Confirm hosting is Vercel and identify the "Chinese model" (the transcript garbled both).
 - [ ] Get the *Gamification for Dummies* PDF.
 - [ ] Pitch Gemini paid Tier 1 to the prof (privacy plus reliability framing, about ₹500-800/pilot); verify live Tier 1 pricing and rate limits first.
@@ -137,43 +153,59 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - [ ] Scope-creep risk: build one artifact (platform plus AI designer plus HITL) and resist adding orchestration extras. The hour budget is ~400-450 total.
 - [ ] The Scopus/WoS systematic search is still pending if the paper goes ahead.
 
-## 11. File inventory (as of 28 Jul 2026 rebuild)
+## 11. File inventory (as of 28 Jul 2026, commit b569cc5; `git ls-files` reconciled)
+
+**Orchestration (tracked as of df8fe57):**
+- `.claude/agents/` — scout, builder, reviewer, codex-review, gemini-bulk, db-engineer, scribe, researcher.
+- `.claude/commands/checkpoint.md`, `.claude/commands/resume.md` — session lifecycle commands. Other `.claude/` contents (personal settings, third-party skills) stay untracked.
 
 **Architecture and docs:**
 - `CLAUDE.md` — working brief (updated 28 Jul).
 - `HANDOFF.md` — this file.
-- `docs/architecture/2026-07-27_architecture-and-model-comparison.md` — pre-pivot deliverable (27 Jul); being replaced by post-pivot architecture notes.
-- `docs/architecture/roadmap-and-flow.md` — pre-pivot; being updated/replaced.
-- `docs/architecture/agent-orchestration.md` — orchestration rules added 28 Jul (in git index, not yet committed).
+- `docs/architecture/2026-07-27_architecture-and-model-comparison.md` — pre-pivot deliverable (27 Jul); superseded by the post-pivot notes below.
+- `docs/architecture/2026-07-28_architecture-as-built.md` — post-pivot architecture, written after the rebuild.
+- `docs/architecture/data-layer.md` — event-log and schema design notes (data-layer review that flagged the null `student_id` gap, since resolved by b569cc5).
+- `docs/architecture/roadmap-and-flow.md` — pre-pivot; superseded.
+- `docs/architecture/agent-orchestration.md` — orchestration rules (28 Jul).
 - `docs/design/v0-dashboard-brief.md` — v0 scaffolding brief.
+- `docs/design/user-journey.md` — user-journey notes.
 - `docs/meeting/Jul 27 at 3-39 PM.m4a` — supervisor call audio (27 Jul pivot).
 - `docs/meeting/Jul 27 at 3-39 PM.txt` — call transcript.
 - `docs/meeting/2026-07-27_supervisor-briefing.md` — pre-pivot briefing.
+- `docs/CURRENT_STATE.md` — written by `/checkpoint`; hand-maintained, not edited by scribe passes.
 
 **Application code (Next 16 / React 19 / Tailwind v4):**
 - `app/page.tsx` — dashboard (entry point).
 - `app/game-setup/page.tsx` — quest selection and adaptivity-lever picker.
 - `app/quiz/page.tsx` — main game loop (questions, scoring, adaptivity feedback).
 - `app/results/page.tsx` — round results and persistence prompt.
-- `app/login/page.tsx`, `app/signup/page.tsx` — auth UI (scaffolded, not wired).
-- `app/api/events/route.ts` — event logging API (POST to log session/round/per-question interactions).
+- `app/login/page.tsx`, `app/signup/page.tsx` — auth UI, wired to real endpoints as of b569cc5 (previously scaffolded only).
+- `app/api/auth/login/route.ts`, `app/api/auth/signup/route.ts`, `app/api/auth/logout/route.ts`, `app/api/auth/me/route.ts` — auth endpoints (added 28 Jul, commit b569cc5).
+- `app/api/events/route.ts` — event logging API; `student_id` now read from the session cookie, not the request body.
 - `app/api/questions/route.ts` — MCQ serving API (DB pool + seed-bank fallback).
 - `app/layout.tsx`, `app/globals.css` — layout and base styles.
+- `proxy.ts` — Next 16's successor to `middleware.ts`; gates `/quiz`, `/game-setup`, `/results` behind a valid session (added b569cc5).
 
-**Game engine and state:**
+**Game engine, state, and auth:**
 - `lib/game/engine.ts` — core game logic (scoring, adaptivity ramp/clock, round progression).
 - `lib/game/game-context.tsx` — React Context for game state (survives route nav via sessionStorage).
 - `lib/game/questions.ts` — question data fetch and normalization.
 - `lib/log/logEvent.ts` — event logging to `/api/events` (or console if DB unavailable).
 - `lib/db/client.ts` — Neon Postgres client.
+- `lib/auth/password.ts` — scrypt hashing and `timingSafeEqual` verification (added b569cc5).
+- `lib/auth/session.ts` — HMAC-SHA256 signed session cookie, `resetSession()` (added b569cc5).
+- `lib/auth/current-student.ts` — reads the authenticated student id from the session cookie server-side (added b569cc5).
 - `lib/utils.ts` — utility functions.
 
 **Database and config:**
 - `db/schema.sql` — Neon Postgres schema (questions, events tables).
-- `.env.local.example` — environment variable template (Neon credentials, Gemini key).
-- `package.json`, `package-lock.json` — Next 16 / React 19 / Tailwind v4 dependencies.
+- `db/001_add_students.sql` — adds the `students` table and the `events.student_id` FK; establishes the `NNN_short_name.sql` migration convention (added b569cc5, not yet applied to Neon).
+- `.env.local.example` — environment variable template (Neon credentials, Gemini key, `SESSION_SECRET`); restored in b569cc5 after being lost in a move rather than a copy.
+- `package.json`, `package-lock.json` — Next 16 / React 19 / Tailwind v4 dependencies; unchanged by the auth work (no new dependencies).
 - `tsconfig.json`, `next.config.mjs`, `postcss.config.mjs` — build config.
 - `components.json` — shadcn/ui config (for future component scaffolds).
+- `GIT_SETUP.sh` — repo setup script.
+- `README.md` — project readme.
 
 **Content generation:**
 - `scripts/generate-questions.mjs` — Gemini-powered MCQ generator from course PDFs (reads `COURSE_PDFS` env, outputs to `db/schema.sql` seed or API).

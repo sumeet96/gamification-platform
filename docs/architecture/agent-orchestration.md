@@ -22,7 +22,7 @@ decides who does what, reads the summaries, and decides the next move.
 | `scout` | Haiku | Finds things. "Where is X / what does Y do" → file:line pointers | No |
 | `builder` | Sonnet | Implements one scoped change, verifies it, reports | Yes |
 | `reviewer` | Opus | Adversarial defect hunt on the diff | No |
-| `codex-review` | Haiku bridge | Runs OpenAI Codex CLI for a second-opinion review | No |
+| `codex-review` | Sonnet bridge | Runs OpenAI Codex CLI for a second-opinion review | No |
 | `gemini-bulk` | Haiku bridge | Offloads large text generation to the Gemini CLI | Yes (output files) |
 | `db-engineer` | Sonnet | Schema, migrations, SQL, event-log design | Yes |
 | `scribe` | Sonnet | Updates HANDOFF.md and docs/ | Yes (docs only) |
@@ -36,18 +36,29 @@ except the first time the `agents/` directory is created.
 
 Cost and latency scale with model size, so the work is tiered by how much judgment it needs:
 
-- **Haiku** — mechanical work with a clear success test: locating code, shelling out to another CLI.
-  Cheap and fast, and there is nothing subtle to get wrong.
+- **Haiku** — mechanical work with a clear success test: locating code, or shelling out to another
+  CLI and handing back what it produced. Cheap and fast, and there is nothing subtle to get wrong.
 - **Sonnet** — the workhorse. Implementation, schema design, research synthesis, documentation.
   Real judgment, bounded scope.
 - **Opus** — reserved for review and for the orchestrator itself. Finding a subtle scoring bug is
   exactly where the extra capability pays for itself.
 
-`scribe` started on Haiku and was moved to Sonnet on 28 Jul 2026. Writing docs looked like
-transcription, but a doc that describes what code does is not transcription — the first Haiku run
-asserted that a mid-round page refresh wipes session state, which is wrong, and it did so after two
-tool calls. The lesson generalizes: the tier should follow how much the agent has to *work out*, not
-how mechanical the output format looks.
+Two agents were moved up a tier on 28 Jul 2026, both for the same underlying reason.
+
+`scribe` started on Haiku. Writing docs looked like transcription, but a doc that describes what code
+does is not transcription — the first Haiku run asserted that a mid-round page refresh wipes session
+state, which is wrong, and it did so after two tool calls.
+
+`codex-review` started on Haiku too, on the theory that a bridge only shells out to another CLI and
+relays the answer. That undersold the job. The bridge is also supposed to open each file Codex cites
+and discard findings that are wrong about the code, which is judgement work. On the authentication
+diff, Codex returned almost nothing and the Haiku bridge relayed that as a clean bill of health,
+while the Opus reviewer working from the same files found a HIGH-severity defect. A bridge that
+cannot tell a genuine all-clear from a thin response is worse than no second opinion, because it
+reads as confirmation.
+
+The lesson generalizes: the tier should follow how much the agent has to *work out*, not how
+mechanical the output format looks.
 
 `model: inherit` is the default if you omit the field, which means the subagent uses whatever the
 main session is using. That is usually wrong for cheap work — set the model explicitly.

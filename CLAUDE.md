@@ -17,6 +17,7 @@ A gamified adaptive-learning dashboard. The mechanic is fixed points (+20 correc
 - **All LLM calls through one provider-agnostic adapter** (Vercel AI SDK pattern). Fallback: Gemini → retry → alternate. **Hard rule: student-derived data never goes to Chinese-hosted endpoints.** Non-student calls (MCQ drafts from course material) may use cheap open-model providers.
 - **Rate-limit-proof by design:** MCQs pre-generated from session PDFs and served from DB; no live LLM calls on the critical path. Queue + backoff + cache.
 - **DB: Neon serverless Postgres** — SQL queryable event logs for the DSR dataset; schema in `db/schema.sql`. Vercel Hobby hosting. Front-end: Next.js 16 / React 19 / Tailwind v4.
+- **Auth (28 Jul 2026, commit b569cc5):** real email+password login/signup now exist; `events.student_id` is populated from the session cookie instead of always null. Not yet tested against a live database.
 - **Dev tools:** Claude Code = primary builder. v0 free = frontend scaffolds. Antigravity = free overflow agent. DeepSeek/Qwen via OpenRouter = code review 2nd opinion. Codex = diffs-only review, never the builder. Cursor and Emergent are deliberately excluded.
   - _Revised 28 Jul 2026:_ the original "mini model, $10/mo cap" rule is superseded. `gpt-5.1-codex-mini` was retired by OpenAI (API 404s), and Codex now runs on pay-per-token API-key auth: **`gpt-5.6-terra` for routine diff review, `gpt-5.6-sol` only when explicitly requested.** Cost control moved from model choice to usage discipline: one run per invocation, scoped diffs, no retry fan-out. Watch the credit balance.
 - Knowledge layer: course PDFs → MCQ generator (`scripts/generate-questions.mjs`). No hardcoded questions; all sourced from Prof. Singh's content.
@@ -39,7 +40,7 @@ reports.
   files in the main conversation.**
 - `builder` (sonnet) — one scoped code change, verified, reported in <300 words.
 - `reviewer` (opus, read-only) — adversarial defect hunt on the diff.
-- `codex-review` (haiku bridge → `codex exec review`) — second opinion from **`gpt-5.6-terra`** by
+- `codex-review` (sonnet bridge → `codex exec review`) — second opinion from **`gpt-5.6-terra`** by
   default, passed explicitly with `-m`. **Escalates to `gpt-5.6-sol` only when you say so** in the
   request; it will never upgrade on its own judgment. Requires API-key auth (Sol is blocked on
   ChatGPT-account auth). Diffs only, never a builder, one run per invocation, scoped diffs.

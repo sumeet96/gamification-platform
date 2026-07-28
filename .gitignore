@@ -51,3 +51,15 @@ Thumbs.db
 .claude/*
 !.claude/agents/
 !.claude/commands/
+
+# Windows reserved device names captured as real files. Git Bash treats `> nul`
+# as a redirect to a file called `nul` rather than the null device, and git then
+# cannot index it ("short read while indexing nul"), which blocks every commit.
+nul
+NUL
+
+# Agent skills installed from third-party repos (Neon's, etc). The vendored
+# copies are re-installable from skills-lock.json, which IS tracked — same
+# reasoning as package-lock.json. .neon is local CLI state.
+.agents/
+.neon

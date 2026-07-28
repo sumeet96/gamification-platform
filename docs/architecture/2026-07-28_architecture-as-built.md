@@ -18,7 +18,7 @@ On 27 Jul the supervisor pivoted the project from its original AI-personalized q
 
 ## One-paragraph summary
 
-A gamified adaptive-learning dashboard where students choose a challenge lever (adaptive difficulty or time pressure) and play rounds of multiple-choice questions with fixed +20 points for correct answers, −10 for wrong. Difficulty adapts per answer in adaptive mode; in time mode, difficulty is fixed at level 3 and the countdown tightens instead. State persists in browser sessionStorage across route navigation within a tab. Questions come from a Neon Postgres database or fall back to a hardcoded seed bank when the database is unavailable. Events (session start, round start, question answered, round continue/stop) are logged client-side and posted asynchronously to the server, which inserts them into Neon when connected, attributed to the logged-in student via a signed session cookie. As of 28 Jul 2026, email/password authentication is implemented — signup, login, logout, and a route gate on the game screens — though not yet exercised against a live database or a real browser session. There is still no teacher dashboard, no AI-generated quests, and no per-student personalization.
+A gamified adaptive-learning dashboard where students choose a challenge lever (adaptive difficulty or time pressure) and play rounds of multiple-choice questions with fixed +20 points for correct answers, −10 for wrong. Difficulty adapts per answer in adaptive mode; in time mode, difficulty is fixed at level 3 and the countdown tightens instead. State persists in browser sessionStorage across route navigation within a tab. Questions come from a Neon Postgres database or fall back to a hardcoded seed bank when the database is unavailable. Events (session start, round start, question answered, round continue/stop) are logged client-side and posted asynchronously to the server, which inserts them into Neon when connected, attributed to the logged-in student via a signed session cookie. As of 28 Jul 2026, email/password authentication is implemented — signup, login, logout, and a route gate that, after a same-day correction, denies every route by default except `/login`, `/signup`, the auth API, and Next.js internals. The signup and login flows have been exercised manually at least once against a real database, and the gate itself was verified with live HTTP requests against a running server; there is still no automated test of any of it. There is still no teacher dashboard, no AI-generated quests, and no per-student personalization.
 
 ---
 
@@ -35,7 +35,7 @@ graph TB
     end
 
     subgraph Gate["proxy.ts (Next 16 route gate)"]
-        Proxy["Gates /quiz, /game-setup, /results<br/>redirects to /login if no valid<br/>session cookie"]
+        Proxy["Deny by default.<br/>Public: /login, /signup, auth API,<br/>Next.js internals.<br/>Pages redirect to /login;<br/>APIs return 401 JSON."]
     end
 
     subgraph Server["Server (Next.js API routes)"]
@@ -88,17 +88,27 @@ graph TB
 
 | Route | File | Purpose | State |
 |-------|------|---------|-------|
-| `/` | `app/page.tsx` | Dashboard; shows session totals (net, potential, accuracy, rounds, continues), the signed-in student's name (fetched from `/api/auth/me`) and a logout control, and links to game-setup | Built, not exercised against a live login |
+| `/` | `app/page.tsx` | Dashboard; shows session totals (net, potential, accuracy, rounds, continues), the signed-in student's name (fetched from `/api/auth/me`) and a logout control, and links to game-setup. Gated by `proxy.ts` — unauthenticated visitors are redirected to `/login`. | Manually exercised against a live database and login |
 | `/game-setup` | `app/game-setup/page.tsx` | Chooses mode (rapid/normal) and lever (adaptive/time), sets fixedDifficulty for time mode. Gated by `proxy.ts` — unauthenticated visitors are redirected to `/login`. | Built, not exercised end to end |
 | `/quiz` | `app/quiz/page.tsx` | Renders questions and collects answers, manages the round loop. Gated by `proxy.ts`. | Built, not exercised end to end |
 | `/results` | `app/results/page.tsx` | Displays round summary and offers "Keep Going → Next Round" (persist lever, continue) or "Back to Dashboard". Gated by `proxy.ts`. | Built, not exercised end to end |
-| `/login` | `app/login/page.tsx` | Email/password form posting to `POST /api/auth/login`; on success calls `resetSession()` and redirects to `/`. | Built, not exercised against a live database or browser session |
-| `/signup` | `app/signup/page.tsx` | Full registration form (name, email, phone, password, dob, gender, education, learning goals) plus a required research-consent checkbox, posting to `POST /api/auth/signup`; on success calls `resetSession()` and redirects to `/`. | Built, not exercised against a live database or browser session |
+| `/login` | `app/login/page.tsx` | Email/password form posting to `POST /api/auth/login`; on success calls `resetSession()` and redirects to `/`. A signed-in visitor who navigates here is redirected to `/` instead. | Manually exercised against a live database |
+| `/signup` | `app/signup/page.tsx` | Full registration form (name, email, phone, password, dob, gender, education, learning goals) plus a required research-consent checkbox, posting to `POST /api/auth/signup`; on success calls `resetSession()` and redirects to `/`. Password-mismatch errors now render beneath the retype-password field; whole-submission errors (duplicate email, server error) still render at the top. A signed-in visitor who navigates here is redirected to `/` instead. | Manually exercised against a live database |
 
-Login and signup are reachable both via in-page links and, as of 28 Jul 2026, via `proxy.ts`
-redirecting any unauthenticated visitor who hits `/quiz`, `/game-setup`, or `/results`. The
-dashboard (`/`) itself is not gated — a student can still land there without being signed in, and
-the greeting/logout control simply does not appear.
+As of a same-day correction made after the first end-to-end test on 28 Jul 2026, `proxy.ts` denies
+every route by default. The only paths reachable without a valid session are `/login`, `/signup`,
+the auth API (`/api/auth/login`, `/api/auth/signup`), and Next.js internals (`/_next/static`,
+`/_next/image`, `/favicon.ico`). Everything else — `/`, `/game-setup`, `/quiz`, `/results`,
+`/api/events`, `/api/questions` — requires a session. Unauthenticated requests to a page redirect to
+`/login`; unauthenticated requests to any other API route return a 401 JSON response instead of a
+redirect. This replaces the earlier version of the gate, which covered only `/quiz`, `/game-setup`,
+and `/results` and left the dashboard reachable while signed out.
+
+This correction was prompted by the first live end-to-end test: with `/` open, a student could play
+a full round anonymously, writing events with a null `student_id`. Logging in afterwards correctly
+started a clean session and discarded that anonymous local score, which looked like scores being
+silently lost. Gating `/` removes the anonymous-play path rather than trying to merge it into an
+account after the fact — see `data-layer.md` for why merging was rejected.
 
 ### Game engine (`lib/game/engine.ts`) — pure, testable, reusable
 
@@ -201,8 +211,11 @@ returns `null` on any malformed input rather than throwing.
 
 **Route gate** (`proxy.ts`): this is Next 16's renamed `middleware.ts` successor — proxy always
 runs on the Node.js runtime, which is what lets it use `node:crypto`-based cookie verification (via
-`lib/auth/session.ts`) directly, unlike edge middleware. It gates `/quiz`, `/game-setup`, and
-`/results`, redirecting to `/login` if `readSession()` returns null for the request's cookie.
+`lib/auth/session.ts`) directly, unlike edge middleware. As of a same-day correction on 28 Jul 2026,
+it denies every route by default: only `/login`, `/signup`, the auth API, and Next.js internals are
+public. A page request with no valid session (`readSession()` returns null) redirects to `/login`;
+an API request with no valid session returns a 401 JSON body instead of redirecting. A signed-in
+visitor to `/login` or `/signup` is redirected to `/`.
 
 **The point of it:** `app/api/events/route.ts` reads the session via `getCurrentStudent()`
 (`lib/auth/current-student.ts`, which wraps `next/headers`'s `cookies()`) and writes `student_id`
@@ -253,15 +266,32 @@ These are features whose absence is planned; they are mentioned in CLAUDE.md or 
 - Questions API returns `{ source: 'db' }` or `{ source: 'seed' }` depending on connection.
 - Events API accepts POST requests and inserts to Neon when connected, attributing `student_id` from the session cookie via `getCurrentStudent()`, and retries with a null `student_id` on an FK violation.
 - Auth routes (signup, login, logout, me) match the design described above: password hashing with scrypt, timing-safe comparison, a dummy-hash check on login so an unknown email doesn't respond measurably faster, and a signed, httpOnly session cookie.
-- `proxy.ts` gates `/quiz`, `/game-setup`, and `/results` and redirects to `/login` when `readSession()` returns null.
 - `resetSession()` is called from the login, signup, and logout handlers, and mints a fresh `session_id`.
 - Five routes exist as described; login and signup are reachable both from in-page links and via the `proxy.ts` redirect.
 - The persistence loop ("Keep Going") increments continues and skips game-setup, carrying the lever choice forward.
 - The code was reviewed and type-checked, and `npm run build` passes.
 
+### Verified by live HTTP requests against a running server
+
+This is a stronger claim than code inspection or manual browser use — these were confirmed with
+direct HTTP requests, not just by reading the code or clicking through a browser:
+
+- `proxy.ts` denies every route by default. `/login`, `/signup`, the auth API, and Next.js internals
+  are reachable without a session; every other route is not.
+- An unauthenticated page request redirects to `/login`; an unauthenticated API request
+  (`/api/events`, `/api/questions`) returns a 401 JSON body rather than a redirect.
+- A signed-in visitor to `/login` or `/signup` is redirected to `/`.
+
+### Verified manually against a live database (browser + real signup/login, no automated test)
+
+- Signup and login have each been exercised at least once against a real database: an account was
+  created, the session cookie was set, and the resulting session reached the dashboard.
+
 ### Not verified (no test evidence or manual test data)
 
-- **Auth end to end:** signup, login, logout, and the `proxy.ts` redirect have not been exercised against a live database or a real browser session — no manual test run, no live cookie inspected, no confirmation the redirect actually fires in a browser.
+- The full auth flow beyond the single manual pass above — repeated logins, logout, expiry, and the
+  full breadth of validation error paths have not been exercised, and none of this is covered by an
+  automated test.
 - Whether the FK-violation retry path in `/api/events` (Gap 7 in `data-layer.md`) has ever actually triggered, or is verified only by reading the error-handling code.
 - Behavior on page refresh (does sessionStorage hydrate correctly, or is state lost?).
 - Whether a timeout in time mode is correctly committed as a wrong answer and costs −10 points (quiz UI logic is complex; this would require tracing through a quiz playthrough).
@@ -294,7 +324,7 @@ Three tables exist in Neon (see `docs/architecture/data-layer.md` for full schem
 - **Frontend:** React 19, Tailwind CSS v4.
 - **Styling:** Aurora Glass theme (animated gradient mesh, frosted glass, celebratory animations). See `app/layout.tsx` and component files.
 - **State:** sessionStorage (browser) + React context (in-memory).
-- **Auth:** Email/password, `node:crypto` scrypt hashing, signed session cookie, `proxy.ts` route gate. Added 28 Jul 2026; not yet exercised against a live database or browser session.
+- **Auth:** Email/password, `node:crypto` scrypt hashing, signed session cookie, `proxy.ts` route gate (deny-by-default as of a same-day correction). Added 28 Jul 2026; signup, login, and the gate have each been exercised at least once against a live database and, for the gate, with live HTTP requests — the rest of the auth surface has not been tested.
 
 ---
 
