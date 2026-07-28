@@ -17,18 +17,21 @@ The immediate next task is agreed and scoped: extend the PDF diagnostic into a m
 
 ## Working tree
 
-Branch `main`, pushed through `408bd54`. Uncommitted:
+Branch `main`, **clean and fully pushed**. Nothing uncommitted, nothing stashed.
 
 ```
- M .env.local.example        GEMINI_MODEL guidance rewritten (see Decisions)
- M CLAUDE.md                 auth line + GPT-5.6-as-adversary + codex steering note
- M HANDOFF.md                deny-by-default gate, /api/stats, round 1-based correction
- M docs/CURRENT_STATE.md     this file
-?? scripts/inspect-pdf.mjs   new PDF diagnostic (working, already used in anger)
+fa38a2a  Add source-document diagnostic; record the question-pipeline design
+408bd54  Gate the whole app behind login; show lifetime stats from the database
+b569cc5  Wire email+password auth so events carry a real student_id
 ```
 
-All documentation and tooling — no application code changed since `408bd54`. Safe to commit as one
-"docs + source diagnostic" commit.
+`fa38a2a` carries `scripts/inspect-pdf.mjs`, the design captured in this file, and the Gemini model
+guidance in `.env.local.example`. A follow-up commit records the same decisions permanently in
+`HANDOFF.md` §3a and `CLAUDE.md`. **No application code has changed since `408bd54`** — the recent
+commits are auth, gating/stats, and docs+tooling only.
+
+`.env.local` (gitignored) holds `DATABASE_URL`, `SESSION_SECRET`, `GEMINI_API_KEY`, and an
+intentionally **empty** `GEMINI_MODEL` awaiting the verified Flash-Lite model id.
 
 ## In progress right now
 
@@ -144,12 +147,15 @@ New requirements:
 
 ## Next 3 actions
 
-1. **Commit the uncommitted docs + `inspect-pdf.mjs`**, then open a fresh session (this was the
-   agreed sequence — checkpoint, new session, then build).
-2. **Dispatch `builder`** to write `scripts/inspect-source.mjs` per the spec in "In progress" above.
-   Requires LibreOffice installed (`soffice --version` to check); no npm dependencies.
+1. **Check LibreOffice is installed** before anything else — `soffice --version` (on Windows it may
+   need the full path, e.g. `"C:/Program Files/LibreOffice/program/soffice.exe" --version`). It is
+   the single prerequisite for the whole ingestion design. If it is missing, install it first; the
+   builder brief changes if it is unavailable.
+2. **Dispatch `builder`** to write `scripts/inspect-source.mjs` per the spec in "In progress" above —
+   PDF + DOCX + PPTX, preserving the existing three-way verdict and OCR-detection logic. No npm
+   dependencies; `package.json` must not change.
 3. **Add the `format` column** to `questions` via `db-engineer` (additive migration,
-   `NNN_short_name.sql` convention, plus `db/schema.sql`) — cheap now, awkward later.
+   `NNN_short_name.sql` convention, reflected in `db/schema.sql`) — cheap now, awkward later.
 
 ## Do not redo
 

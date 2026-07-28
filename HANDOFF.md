@@ -1,6 +1,6 @@
 # HANDOFF: Gamified Adaptive Learning Platform (FBT Research Project)
 
-**Prepared:** 22 Jul 2026. **Updated:** 28 Jul 2026 (post-pivot rebuild; authentication wired same day, commit b569cc5; app gated end to end and lifetime stats added same day, commit 408bd54). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot, a same-day follow-up (commit b569cc5) wired real authentication, and a further same-day commit (408bd54) closed the login gate and wired lifetime stats. All three commits are pushed to `origin/main`. This doc now records both the original vision (history) and the current state.
+**Prepared:** 22 Jul 2026. **Updated:** 29 Jul 2026 (question-generation pipeline design decisions, 28-29 Jul; see §3a). Previous update: 28 Jul 2026 (post-pivot rebuild; authentication wired same day, commit b569cc5; app gated end to end and lifetime stats added same day, commit 408bd54). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot, a same-day follow-up (commit b569cc5) wired real authentication, and a further same-day commit (408bd54) closed the login gate and wired lifetime stats. All three commits are pushed to `origin/main`. This doc now records both the original vision (history) and the current state.
 
 ---
 
@@ -62,6 +62,28 @@ A data-model correction came out of this work: `events.round` is 1-based as writ
 Eight defects were found and fixed across two review rounds before commit.
 
 **Status, stated plainly:** the application has now run end to end against a live Neon database for the first time — schema applied (3 tables, foreign key in place), real accounts created, real gameplay recorded. All three of 28 Jul's commits (e0b3fd9, b569cc5, 408bd54) are pushed to `origin/main`. There is still no automated test of any kind; correctness so far rests on manual review and this one live run.
+
+## 3a. Question-generation pipeline: design decisions (28-29 Jul 2026, not yet built)
+
+The pipeline itself does not exist yet. `scripts/inspect-pdf.mjs` (committed in `fa38a2a`) is the first piece of it. Everything below is a design decision taken during the 28-29 Jul 2026 planning work, recorded before any of the rest is built.
+
+**The direction decision.** Sumeet proposed building the pipeline first against a Grade 11 mathematics textbook, on the reasoning that maths is the hardest case and everything else becomes easy by comparison. On examination this holds for *infrastructure* only: notation-capable storage, a renderer, and multimodal ingestion are strict supersets of what plain prose needs. It does not hold for the AI layer: maths questions test procedure, management questions test understanding, so the generation prompt, the difficulty rubric, and the validation approach do not transfer from one domain to the other. Maths-first risked roughly 60-100 hours on a capability the pilot may never need, against a total budget of ~400-450 hours and a mid-September pilot. **Decision: build against clean text documents first; treat mathematics as a later generalisation proof**, run once the pilot path already works. That ordering is also the stronger research claim — demonstrated generalisation across subject domains, rather than an untested design goal carried into the pilot.
+
+**The constraint behind the decision.** Prof. Singh writes his lecture material only days before term begins, and has told Sumeet to use any document to build the pipeline against. The real requirement this creates is not "handle mathematics" but "ingest an unfamiliar document within days, unattended." Automation, idempotency, and robustness to malformed input matter more than notation support.
+
+**Architecture decisions:**
+
+- **LibreOffice is the single rendering backend** for PDF, DOCX, and PPTX (`soffice --headless --convert-to pdf`), chosen over an npm ZIP/OOXML library because it also produces the page and slide **images** needed for the multimodal read, which an OOXML library would not give without a second tool. It is a system dependency, installed on the machine rather than a package; `package.json` is unaffected.
+- **Two ingestion channels per document.** Structure and text come from the native format (Word heading levels, PowerPoint speaker notes); the visual read comes from the rendered version. Converting everything to PDF first was rejected because it would destroy the heading hierarchy that makes DOCX the easiest format to ingest.
+- **A normalized `ContentUnit`** is the interface between format adapters and the rest of the pipeline: `{source_doc, unit_kind: slide|section|page, unit_ref, title, text, notes, image_path?}`. Everything downstream of this is format-agnostic, so adding a new source type later is one adapter, not a pipeline change.
+- **Chunking is format-dependent.** A slide is already a chunk, so PPTX needs no chunking strategy. DOCX chunks on headings. Only PDF needs an inferred chunk boundary, because PDF carries no reliable structure of its own.
+- **PDF is treated as a container, not a format** — it can be a clean export, a scan, or a scan with broken OCR underneath. `scripts/inspect-source.mjs` (not yet built) is a **permanent mandatory gate** in the pipeline for this reason, not a one-off troubleshooting script.
+- **Generate only self-contained questions.** The model reads charts and diagrams in the source material to write questions, but a question must not require the student to see the image to answer it. This captures the pedagogical value of B-school visuals while keeping every question plain text — no asset storage, no image rendering in the quiz UI. Chart-reading questions that do require the image remain a later, additive feature via an `asset_path` column.
+- **Add a `format` column to `questions`** (`plain` | `latex` | `markdown`, default `plain`) now, before it is needed, so that mathematics support later is an additive change rather than a migration plus a render-path rewrite.
+
+**Source-material findings.** A 728-page mathematics textbook (140 MB) was tested against this design and found unusable: it is a scan with a poor OCR layer, dense enough (~2,500 characters per page) that a naive pipeline would report success while producing garbage. The mathematics is destroyed rather than degraded — superscripts lost, set braces randomised, set-membership symbols collapsed to plain letters. It is also a watermarked commercial practice guide rather than the NCERT textbook, which would be a problem for a published paper's methods section. NCERT publishes Class 11 Mathematics free and official at ncert.nic.in, digitally typeset and split per chapter — the correct source if the mathematics generalisation proof is attempted later.
+
+Expected pilot document formats are PPTX mostly, plus DOCX and PDF.
 
 ## 4. The agreed product (from the 21 Jul call) — SUPERSEDED
 
@@ -148,8 +170,9 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - **Prof's papers on hand (project PDFs):** Singh & Dev 2023 AJIS (ICT interventions, relatedness, engagement; moderated mediation non-significant; intellectual engagement null); Singh & Verma 2020 ACIS (gamification taxonomy/theory); Singh & Singh 2021 ACIS (gamification in hybrid teacher PD, SDT plus goal theories); the MCDM chatbot-ranking paper (Delphi + CRITIC + WASPAS/EDAS); the mandatory-telework paper; Klock et al. 2020 IJHCS (tailored gamification); Alioto & Persico (corporate training gamification). Note: several PDFs are scanned/image-based, so text was extracted via OCR; verify any quoted passage against the source.
 - **Likely paper framing:** a Design Science Research case study (artifact plus classroom deployment plus engagement/satisfaction data). Ethics topics to raise before the pilot: consent/voluntariness for interaction telemetry, the IRB/institutional review timeline, and scale reuse from the AJIS paper.
 
-## 10. Open items and risks (updated 28 Jul, post end-to-end run)
+## 10. Open items and risks (updated 29 Jul)
 
+- [ ] **Next build: the question-generation pipeline** (design decisions recorded 28-29 Jul 2026 in §3a, nothing built yet beyond `scripts/inspect-pdf.mjs`, committed in `fa38a2a`). LibreOffice is now a prerequisite for the ingestion design and needs to be present on the dev/build machine before the format adapters are written.
 - [x] **Resolved 28 Jul 2026 (commit b569cc5):** anonymous event log. `events.student_id` was always null under the mockup login/signup UI, which made per-student analysis impossible. Real authentication now populates it from the session cookie.
 - [x] **Resolved 28 Jul 2026 (commit 408bd54):** the dashboard itself was unauthenticated. `proxy.ts` only gated `/quiz`, `/game-setup`, and `/results`, so an unauthenticated visitor landed on the dashboard and could reach the game. Now deny-by-default, and both fixes have been exercised end to end against a live Neon database: schema applied, real accounts created, real gameplay recorded.
 - [ ] New residual risk: shared devices. A student who does not log out on a shared classroom laptop leaves the session live for whoever uses it next; nothing currently forces logout.
@@ -166,7 +189,7 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - [ ] Scope-creep risk: build one artifact (platform plus AI designer plus HITL) and resist adding orchestration extras. The hour budget is ~400-450 total.
 - [ ] The Scopus/WoS systematic search is still pending if the paper goes ahead.
 
-## 11. File inventory (as of 28 Jul 2026, commit 408bd54; `git ls-files` reconciled)
+## 11. File inventory (as of 29 Jul 2026; `git ls-files` reconciled)
 
 **Orchestration (tracked as of df8fe57):**
 - `.claude/agents/` — scout, builder, reviewer, codex-review, gemini-bulk, db-engineer, scribe, researcher.
@@ -225,6 +248,7 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 
 **Content generation:**
 - `scripts/generate-questions.mjs` — Gemini-powered MCQ generator from course PDFs (reads `COURSE_PDFS` env, outputs to `db/schema.sql` seed or API).
+- `scripts/inspect-pdf.mjs` — first piece of the question-generation pipeline (commit `fa38a2a`); checks a source PDF for OCR quality/text density before it enters the pipeline. Design decisions for the rest of the pipeline are in §3a; not yet built beyond this script.
 
 **Callouts:**
 - `supabase/migrations/0001_events.sql` — legacy Supabase migration (pre-pivot; Neon schema is in `db/schema.sql`).
