@@ -11,6 +11,14 @@ export type EventType =
 export interface GameEvent {
   session_id: string
   event_type: EventType
+  // The student id the *client* believes it is playing as (from the last successful
+  // /api/auth/me fetch this tab made). Never trusted as the identity to write — the
+  // server always attributes from the session cookie. This is only a mismatch signal:
+  // if it disagrees with the cookie (a second student logged in on another tab, this
+  // tab's identity going stale), the server downgrades the row to a null student_id
+  // instead of writing it to whoever the cookie now belongs to. Omitted when the
+  // client doesn't know its student id yet (or the lookup failed) — never a guess.
+  client_student_id?: string | null
   game_type?: string | null
   mode?: string | null
   lever?: string | null

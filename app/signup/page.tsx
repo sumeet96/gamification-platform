@@ -3,9 +3,11 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { User, Mail, Lock, Phone, Calendar, Award, ArrowRight, ChevronLeft } from 'lucide-react'
+import { useGame } from '@/lib/game/game-context'
 
 export default function Signup() {
   const router = useRouter()
+  const { resetSession } = useGame()
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -18,7 +20,9 @@ export default function Signup() {
     educationLevel: '',
     learningGoals: '',
   })
+  const [consent, setConsent] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -27,19 +31,50 @@ export default function Signup() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+    setError('')
+
     if (formData.password !== formData.confirmPassword) {
-      alert('Passwords do not match!')
+      setError('Passwords do not match.')
+      return
+    }
+    if (!consent) {
+      setError('Please agree to the research consent to continue.')
       return
     }
 
     setIsLoading(true)
-    
-    // Simulate signup
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
-    setIsLoading(false)
-    router.push('/')
+
+    try {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: `${formData.firstName} ${formData.lastName}`.trim(),
+          email: formData.email,
+          phone: formData.phone,
+          password: formData.password,
+          dob: formData.dateOfBirth,
+          gender: formData.gender,
+          education: formData.educationLevel,
+          learningGoals: formData.learningGoals,
+          consent,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) {
+        setError(data.error || 'Signup failed. Please try again.')
+        setIsLoading(false)
+        return
+      }
+      // Fresh session for the newly created student — never inherit whatever
+      // session_id was sitting in this browser beforehand.
+      resetSession()
+      router.push('/')
+      router.refresh()
+    } catch {
+      setError('Something went wrong. Please try again.')
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -65,6 +100,13 @@ export default function Signup() {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Error */}
+          {error && (
+            <div className="rounded-xl bg-red-500/10 border border-red-500/40 px-4 py-3 text-sm text-red-300">
+              {error}
+            </div>
+          )}
+
           {/* Name Row */}
           <div className="grid grid-cols-2 gap-4">
             {/* First Name */}
@@ -281,6 +323,20 @@ export default function Signup() {
               <a href="#" className="text-emerald-400 hover:text-emerald-300 transition-colors">
                 Privacy Policy
               </a>
+            </span>
+          </label>
+
+          {/* Research Consent Checkbox */}
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={consent}
+              onChange={(e) => setConsent(e.target.checked)}
+              className="w-5 h-5 rounded accent-emerald-500 mt-0.5"
+              required
+            />
+            <span className="text-slate-400 text-sm leading-relaxed">
+              I agree that my gameplay data may be used in anonymized research.
             </span>
           </label>
 

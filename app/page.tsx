@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Play, Zap, Clock } from 'lucide-react'
+import { Play, Zap, Clock, LogOut } from 'lucide-react'
 import { useGame } from '@/lib/game/game-context'
 
 /** Animate a number from its current display value toward `target`. */
@@ -31,7 +31,46 @@ function useCountUp(target: number) {
 
 export default function Home() {
   const router = useRouter()
-  const { session } = useGame()
+  const { session, resetSession } = useGame()
+  const [studentName, setStudentName] = useState<string | null>(null)
+  // "Signed in" is tracked separately from "we know the name". A DB blip or cold
+  // start on the name lookup must not hide the only logout control — on a shared
+  // classroom laptop that leaves the current student unable to sign out, and the
+  // next student's play gets attributed to them. Only a confirmed 401 ("no
+  // session") flips this to false; reaching this page is not itself proof of a
+  // session, but a failed/erroring lookup is not proof of its absence either, so
+  // we stay optimistic until the server explicitly says there's no session.
+  const [signedIn, setSignedIn] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/auth/me')
+        if (res.status === 401) {
+          if (!cancelled) setSignedIn(false)
+          return
+        }
+        const data = await res.json().catch(() => null)
+        if (!cancelled && data?.ok) setStudentName(data.name || null)
+      } catch {
+        /* offline / transient — stay optimistic, logout control still renders */
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+    } finally {
+      // Mint a fresh session for whoever logs in next on this device — a stale
+      // sessionId must never carry over to a different student_id.
+      resetSession()
+      router.push('/login')
+      router.refresh()
+    }
+  }
 
   const net = useCountUp(session.net)
   const potential = useCountUp(session.potential)
@@ -41,8 +80,19 @@ export default function Home() {
     <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-8">
       <div className="mx-auto max-w-2xl">
         {/* Header Greeting */}
-        <div className="mb-8 text-center">
-          <h1 className="text-4xl font-black text-white mb-2">Welcome back, Player!</h1>
+        <div className="mb-8 text-center relative">
+          {signedIn && (
+            <button
+              onClick={logout}
+              className="absolute right-0 top-0 flex items-center gap-2 text-slate-400 hover:text-slate-200 transition-colors text-sm font-semibold"
+            >
+              <LogOut className="w-4 h-4" />
+              Log out
+            </button>
+          )}
+          <h1 className="text-4xl font-black text-white mb-2">
+            Welcome back{studentName ? `, ${studentName}` : ''}!
+          </h1>
           <p className="text-slate-400 text-lg">
             {session.roundsPlayed === 0
               ? 'Pick a mode and play your first round.'

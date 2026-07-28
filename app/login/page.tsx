@@ -3,22 +3,42 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Mail, Lock, ArrowRight } from 'lucide-react'
+import { useGame } from '@/lib/game/game-context'
 
 export default function Login() {
   const router = useRouter()
+  const { resetSession } = useGame()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError('')
     setIsLoading(true)
-    
-    // Simulate login
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
-    setIsLoading(false)
-    router.push('/')
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) {
+        setError(data.error || 'Invalid email or password.')
+        setIsLoading(false)
+        return
+      }
+      // Fresh session on every successful login, even re-logging in as the same
+      // student — no continuity across a login, per the study's session_id design.
+      resetSession()
+      router.push('/')
+      router.refresh()
+    } catch {
+      setError('Something went wrong. Please try again.')
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -39,6 +59,13 @@ export default function Login() {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4 mb-6">
+          {/* Error */}
+          {error && (
+            <div className="rounded-xl bg-red-500/10 border border-red-500/40 px-4 py-3 text-sm text-red-300">
+              {error}
+            </div>
+          )}
+
           {/* Email Input */}
           <div className="relative group">
             <label className="block text-sm font-semibold text-slate-300 mb-2">
