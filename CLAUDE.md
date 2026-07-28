@@ -17,9 +17,10 @@ A gamified adaptive-learning dashboard. The mechanic is fixed points (+20 correc
 - **All LLM calls through one provider-agnostic adapter** (Vercel AI SDK pattern). Fallback: Gemini → retry → alternate. **Hard rule: student-derived data never goes to Chinese-hosted endpoints.** Non-student calls (MCQ drafts from course material) may use cheap open-model providers.
 - **Rate-limit-proof by design:** MCQs pre-generated from session PDFs and served from DB; no live LLM calls on the critical path. Queue + backoff + cache.
 - **DB: Neon serverless Postgres** — SQL queryable event logs for the DSR dataset; schema in `db/schema.sql`. Vercel Hobby hosting. Front-end: Next.js 16 / React 19 / Tailwind v4.
-- **Auth (28 Jul 2026, commit b569cc5):** real email+password login/signup now exist; `events.student_id` is populated from the session cookie instead of always null. Not yet tested against a live database.
+- **Auth (28 Jul 2026, commits b569cc5 + 408bd54):** real email+password login/signup; `events.student_id` is populated from the session cookie, never the request body. The whole app is gated (`proxy.ts`, deny-by-default) — only `/login`, `/signup` and the login/signup/logout API routes are public. Dashboard reads lifetime totals from `GET /api/stats`. Exercised end to end against live Neon on 28 Jul; still no automated tests of any kind.
 - **Dev tools:** Claude Code = primary builder. v0 free = frontend scaffolds. Antigravity = free overflow agent. DeepSeek/Qwen via OpenRouter = code review 2nd opinion. Codex = diffs-only review, never the builder. Cursor and Emergent are deliberately excluded.
   - _Revised 28 Jul 2026:_ the original "mini model, $10/mo cap" rule is superseded. `gpt-5.1-codex-mini` was retired by OpenAI (API 404s), and Codex now runs on pay-per-token API-key auth: **`gpt-5.6-terra` for routine diff review, `gpt-5.6-sol` only when explicitly requested.** Cost control moved from model choice to usage discipline: one run per invocation, scoped diffs, no retry fan-out. Watch the credit balance.
+  - _Added 28 Jul 2026:_ **GPT-5.6's role in this project is adversary, not author.** Gemini Flash-class models generate bulk content such as question drafts; GPT-5.6 is used to attack and validate that output, and for anything requiring schema-guaranteed JSON via Structured Outputs. It is not the bulk generator — that would spend premium tokens on exactly the high-volume, low-stakes work cheap models are for.
 - Knowledge layer: course PDFs → MCQ generator (`scripts/generate-questions.mjs`). No hardcoded questions; all sourced from Prof. Singh's content.
 - Total budget ~400–450 hours over 6 months and near-zero cash (~$0–15/mo dev, <$10/mo runtime during pilot). One artifact. Resist scope creep.
 
@@ -44,6 +45,9 @@ reports.
   default, passed explicitly with `-m`. **Escalates to `gpt-5.6-sol` only when you say so** in the
   request; it will never upgrade on its own judgment. Requires API-key auth (Sol is blocked on
   ChatGPT-account auth). Diffs only, never a builder, one run per invocation, scoped diffs.
+  **codex-cli 0.145.0 rejects `--uncommitted` combined with a steering prompt** (found 28 Jul 2026);
+  steered reviews must use `--base` or `--commit <sha>` instead, or the review silently runs
+  unsteered.
 - `gemini-bulk` (haiku bridge → `gemini`) — bulk generation from course material. **Never student data.**
 - `db-engineer` (sonnet) — schema, migrations, event-log design. Additive migrations only.
 - `scribe` (sonnet) — HANDOFF.md and docs/. Moved up from haiku on 28 Jul after a haiku run

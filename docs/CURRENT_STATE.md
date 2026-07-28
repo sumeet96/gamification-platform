@@ -1,129 +1,186 @@
-# Current state — 28 Jul 2026
+# Current state — 29 Jul 2026
 
 ## Where we are
 
-The game (dashboard → game-setup → quiz → results) is built and runs locally. Email+password
-authentication was wired today so `events.student_id` is finally populated — before this, every
-logged event was anonymous and no per-student analysis was possible. All auth code is committed,
-reviewed, type-checked, and builds clean. **It has never been run against a live database or in a
-browser.** An agent orchestration setup (`.claude/agents/`, `/checkpoint`, `/resume`) was also built
-and committed, and all project docs were brought in line with the 27 Jul pivot, which they had never
-reflected.
+The game runs end to end against live Neon, behind real email+password auth, with every event
+attributed to a student and the dashboard reading lifetime totals from the database. Three commits
+are pushed to `origin/main`. That work is **done and not the current focus.**
 
-The interrupted task is Neon setup. `SESSION_SECRET` is in `.env.local`, but **there is no Neon
-project yet** — `DATABASE_URL` is unset, so no schema exists anywhere. Until a database is connected,
-signup returns a clean `500 database not configured` and no events are persisted (the game itself
-still plays, on the seed bank, with events going to the browser console).
+The current focus is the **question-generation pipeline**, which does not exist yet in any usable
+form. `scripts/generate-questions.mjs` is a first-draft stub: it reads only the first 12,000
+characters (~4 pages) of a PDF and defaults to a two-generations-stale Gemini model. The design for
+the real pipeline was worked out in conversation on 28–29 Jul and is captured below — **it exists
+nowhere else, so treat this section as the spec.**
+
+The immediate next task is agreed and scoped: extend the PDF diagnostic into a multi-format
+`scripts/inspect-source.mjs`, to be dispatched to `builder` from a fresh session.
 
 ## Working tree
 
-Branch `main`, clean — nothing uncommitted, nothing stashed. Not pushed to any remote.
+Branch `main`, pushed through `408bd54`. Uncommitted:
 
 ```
-b569cc5  Wire email+password auth so events carry a real student_id
-df8fe57  Add agent orchestration; bring docs in line with the 28 Jul rebuild
-e0b3fd9  Rebuild as adaptive learning game (Next16/React19/TW4) + Neon data layer
+ M .env.local.example        GEMINI_MODEL guidance rewritten (see Decisions)
+ M CLAUDE.md                 auth line + GPT-5.6-as-adversary + codex steering note
+ M HANDOFF.md                deny-by-default gate, /api/stats, round 1-based correction
+ M docs/CURRENT_STATE.md     this file
+?? scripts/inspect-pdf.mjs   new PDF diagnostic (working, already used in anger)
 ```
 
-`.env.local` holds `DATABASE_URL`, `SESSION_SECRET`, `GEMINI_API_KEY`, `GEMINI_MODEL` (gitignored,
-correct). Note: `.env.local.example` was accidentally destroyed earlier by being *moved* rather than
-copied to `.env.local`; it has been restored and now documents `SESSION_SECRET`.
+All documentation and tooling — no application code changed since `408bd54`. Safe to commit as one
+"docs + source diagnostic" commit.
 
 ## In progress right now
 
-**Creating the Neon project and connecting it.** No database exists yet. Steps: sign up at neon.tech
-(free tier, no card), create a project in AWS `ap-south-1` (Mumbai — nearest region, and latency
-matters during a live classroom), open Connection Details, toggle **Pooled connection**, copy that
-string into `DATABASE_URL=` in `.env.local`.
+**Nothing is mid-edit.** The next action is a `builder` dispatch, deliberately deferred to a fresh
+session so the build starts with a clean context window.
 
-Then, on a **brand-new empty database, run `db/schema.sql`, NOT the migration.** `schema.sql` is the
-full canonical schema and already contains `students`, `events` with its foreign key, and every
-index. `db/001_add_students.sql` is only for upgrading a database that predates the `students`
-table — its `alter table events` would fail on an empty database because `events` does not exist yet.
+### The task: `scripts/inspect-source.mjs`
 
-`psql` is NOT installed on this machine, so use the Neon web SQL editor: paste the file contents in
-and Run. Both files are re-runnable.
+Extend `scripts/inspect-pdf.mjs` into a diagnostic covering **PDF, DOCX and PPTX**. Point it at a
+file or a folder of course material; get a readiness report before any ingestion is built.
 
-Verify it landed:
+`inspect-pdf.mjs` already works and its logic must be preserved:
+- Directory argument lists PDFs largest-first instead of crashing (an `existsSync` check passes for
+  directories — that bug is fixed, don't reintroduce it).
+- Per-page character counts, near-empty page count, bytes/page.
+- **Three-way verdict**, including `TEXT LAYER PRESENT BUT UNRELIABLE` for OCR-of-a-scan — detected
+  via OCR tells (`zv` for `w`, run-together words, digits fused into words), space ratio < 0.12, and
+  `^` present while true superscripts are absent.
+- Math-notation signals, and a mid-document sample page printed for human reading.
 
-```sql
-select
-  (select count(*) from information_schema.tables where table_name = 'students') as students_table,
-  (select count(*) from pg_constraint where conname = 'events_student_id_fkey') as fk,
-  (select count(*) from pg_indexes where tablename = 'events'
-     and indexname in ('events_student_idx','events_session_round_idx')) as new_indexes;
-```
+New requirements:
+- DOCX: report heading hierarchy depth and section count (Word stores heading levels — this is the
+  free `topic` source).
+- PPTX: report slide count, how many slides carry **speaker notes**, and text-per-slide.
+- Folder mode: walk a directory of mixed course material and print a per-file readiness table.
+- Keep the "verdict + why + sample" shape. The point of this tool is to stop a bad source entering
+  the pipeline silently.
 
-Expected result: `1, 1, 2`.
+## Decisions made (28–29 Jul 2026)
 
-If the user would rather not use the web editor, the agreed fallback is to write a small migration
-runner using `@neondatabase/serverless` (already a dependency — no new package needed). It was
-offered and not yet accepted.
+- **LibreOffice is the rendering backend** — `soffice --headless --convert-to pdf` handles PDF, DOCX
+  and PPTX, so one free system tool covers every format. Chosen over a ZIP/OOXML npm library because
+  it also produces the page/slide **images** needed for the multimodal read, which would otherwise
+  need a second tool. It is a system dependency, not an npm one; `package.json` stays unchanged.
+- **Two channels per document.** Structure and text come from the **native** format (Word heading
+  levels, PowerPoint speaker notes); the visual comes from the **rendered** version. Converting
+  everything to PDF first would destroy the heading hierarchy that makes DOCX easy.
+- **Normalized `ContentUnit`** is the interface between adapters and pipeline:
+  `{source_doc, unit_kind: slide|section|page, unit_ref, title, text, notes, image_path?}`.
+  Everything downstream is format-agnostic; a new source type is one adapter, not a pipeline change.
+- **A slide is already a chunk.** PPTX needs no chunking strategy — the professor authored each slide
+  as one idea. DOCX chunks on headings. Only PDF needs inferred boundaries.
+- **PDF is a container, not a format.** It can be a clean export, a scan, or a scan with broken OCR.
+  So `inspect-source` is a **permanent mandatory gate** in the pipeline, not a one-off troubleshooting
+  script. A PDF failing the quality check routes to the multimodal path instead of silently
+  producing garbage.
+- **Generate only self-contained questions (type "a").** The model *reads* charts and diagrams to
+  write questions, but questions must not *require* the student to see the image. This gets the full
+  pedagogical value of B-school visuals while keeping every question plain text — no asset storage,
+  no image rendering in the quiz UI. Type "b" (chart-reading questions) stays additive for later via
+  an `asset_path` column.
+- **Add a `format` column to `questions`** (`plain` | `latex` | `markdown`, default `plain`) *before*
+  it is needed. The quiz renderer switches on it; today every row is `plain` and no renderer ships.
+  ~10 lines now, avoids a migration plus a render-path rewrite when maths arrives.
+- **Clean text documents first; mathematics as a later generalisation proof.** Sumeet's argument for
+  maths-first (hardest case → everything else is easy) holds for *infrastructure* (notation storage,
+  renderer, multimodal ingestion) but **not for the AI layer** — maths questions test procedure,
+  management questions test understanding, so prompts, difficulty rubrics and validation don't
+  transfer. Maths-first risks 60–100 hours on capability the pilot may never need. Running the same
+  pipeline over a maths textbook *after* the pilot path works is a stronger DSR claim anyway
+  (demonstrated generalisation, not an untested design goal).
+- **Gemini model is two generations stale.** As of 21 Jul 2026: **Gemini 3.6 Flash** ($1.50/$7.50 per
+  1M) and **Gemini 3.5 Flash-Lite** ($0.30/$2.50). **Flash-Lite is the right default for bulk MCQ
+  generation** — schema-constrained work, 5x cheaper. Confirm the exact API model string in AI Studio
+  (product names ≠ API ids) and set `GEMINI_MODEL` in `.env.local` rather than editing the script
+  fallback. Google no longer publishes universal RPM limits; they are project-specific in the console.
+- **GPT-5.6 is the adversary, not the author** (already in CLAUDE.md): Gemini Flash generates question
+  drafts cheaply; GPT-5.6 attacks and validates them, and provides schema-guaranteed JSON via
+  Structured Outputs (`response_format: json_schema`, `strict: true`) — which removes the regex
+  JSON-parsing fallback currently in the generator.
 
-## Decisions made this session
+## Source material — findings
 
-- **Orchestrator + subagent model adopted** — two prior sessions died of context exhaustion. Main
-  session holds the plan and delegates; agents live in `.claude/agents/`.
-- **`scribe` moved haiku → sonnet** — haiku scribes fabricated three claims across three documents
-  (a page-refresh behaviour, a claim the engine was unit- and property-tested when no test framework
-  exists, and two entries calling MCQ generation unbuilt when `scripts/generate-questions.mjs`
-  implements it). Docs derived from code need reasoning, not transcription.
-- **Codex CLI upgraded 0.65.0 → 0.145.0 and switched to API-key auth** — `gpt-5.1-codex-mini` was
-  retired by OpenAI (API 404). Auth is now an API key with prepaid credits, no subscription.
-- **`codex-review` defaults to `gpt-5.6-terra`; Sol only when the user asks by name** — the agent is
-  explicitly forbidden from escalating on its own judgement about how important a diff looks. This
-  supersedes CLAUDE.md's old "mini model, $10/mo cap" rule.
-- **Auth: email+password, zero new dependencies** — `node:crypto` scrypt for hashing, HMAC-SHA256
-  signed stateless cookie for sessions. `package.json` is unchanged.
-- **`students.id` is opaque, not the email** — so no direct identifier ever reaches the event log and
-  the dataset can be analysed without touching PII.
-- **`student_id` is read from the session cookie, never the request body** — a client-supplied id
-  would be forgeable and would corrupt the dataset undetectably. The body may carry
-  `client_student_id`, but only as a cross-tab mismatch signal that can null out attribution; it can
-  never set it.
-- **Demographics are persisted** (`dob` for the age covariate) with a required, server-enforced
-  consent checkbox recorded as `consented_at`.
+- **Course content does not exist yet.** Prof. Singh writes lecture material days before term begins
+  (pilot from ~mid-Sept 2026). He has said to use *any* document to build the pipeline. The real
+  requirement this creates is not "handle maths" but **"ingest an unfamiliar document in a few days,
+  unattended"** — i.e. automation, idempotency and robustness matter more than notation support.
+- Expected formats when it arrives: **PPTX mostly, plus DOCX and PDF**. B-school decks are
+  visual-heavy (frameworks, 2×2s, charts) — the pedagogical content is often *in* the visual, and
+  speaker notes often hold the actual explanation.
+- **The 140 MB maths book is unusable and should not be the starting document.** 728 pages, ~207 KB
+  per page. `inspect-pdf.mjs` initially reported TEXT-BASED (2,524 chars/page) — that verdict was
+  **wrong**, and the script has since been fixed. It is a **scan with a poor OCR layer**: `answer` →
+  `anszver`, `MATHEMATICS` → `MATHEM/ :ICS`, `[NCERT]` → `INCERi]`. The mathematics is destroyed, not
+  degraded — superscripts gone (`x²` → `x'^`), set braces randomised to `[ ) | \`, `∈` collapsed to
+  `e`/`s`, variables substituted (`x` → `j`, `a:`). No model can recover the intended equations.
+- That file is also a **watermarked commercial practice guide** ("Read Your Flow Find Your for Free
+  eBooks" header; `Type II ON EQUAL SETS` / `EXAMPLE` / `SOLUTION` structure), not the NCERT
+  textbook. A methods section reading "generated from a watermarked copy of a commercial textbook"
+  is a problem for a published DSR paper. **NCERT publishes Class 11 Mathematics free and official at
+  ncert.nic.in** (16 chapters, per-chapter PDFs, digitally typeset) — cleaner, legal, and the
+  per-chapter split provides topic structure for free.
 
 ## Open questions / blocked on
 
-- **Nothing has been tested end to end.** Blocked on the migration being applied. This is the single
-  most valuable next step — it is the only thing that would actually prove the auth works.
-- **A cosmetic terms-of-service checkbox sits next to the real research-consent checkbox** on the
-  signup form, and nothing server-side reads it. For a consent form that is a problem an ethics
-  reviewer would notice. Decision needed: delete it or make it mean something.
-- **`scripts/generate-questions.mjs` defaults to `gemini-2.0-flash`** — an old model to be
-  standardising on. Should be revisited before the real question bank is generated.
-- **Shared-device protocol for the pilot.** Code now resets the session on login/signup/logout, but a
-  student who walks away without logging out still leaves the next person's events attributed to
-  them. This is a classroom-protocol matter, not a code one.
-- **Cross-tab `BroadcastChannel` reset** is the stronger fix for the two-tab identity problem; only
-  the server-side mismatch guard is built. Deliberately deferred, not forgotten.
+- **Difficulty is model-assigned and uncalibrated, and the adaptive lever depends entirely on it.**
+  Still the biggest threat to the paper. Fix: compute each item's empirical p-value from `events` and
+  compare against the assigned label. Run a pilot-of-the-pilot (5–6 people, one session) to calibrate
+  *before* the real cohort — recalibrating mid-pilot changes what the difficulty scale means partway
+  through the dataset.
+- **Adaptive difficulty saturates.** `START_DIFFICULTY = 2`, caps at 5, resets each round, so a strong
+  student is at the ceiling from question 4 and the lever stops differentiating. Options: start at 3,
+  widen the scale, or carry difficulty across rounds within a session.
+- **The quiz badge reads "Level 5"** (`app/quiz/page.tsx:189`) which looks like a persistent player
+  level; it is the current question's difficulty. Suggested relabel: `Difficulty 5/5`. Not yet done.
+- **A cosmetic terms-of-service checkbox sits beside the real research-consent checkbox** on signup and
+  nothing server-side reads it. An ethics reviewer would notice.
+- **Shared-device protocol for the pilot** — code resets the session on login/signup/logout, but a
+  student who walks away without logging out leaves the next person's events attributed to them.
+- **`potential` in `/api/stats`** is `answered × POINTS_CORRECT` — correct only under one flat scoring
+  rule. Phase 2 variable rewards will need the `scoring_version` column already flagged in
+  `data-layer.md`.
 
 ## Next 3 actions
 
-1. **Apply the migration.** Paste `db/001_add_students.sql` into the Neon SQL editor and run it, then
-   run the verification query above and confirm `1, 1, 2`.
-2. **End-to-end test.** `npm run dev`, sign up as a test student, play one round, then check every
-   row carries a non-null `student_id`:
-   ```sql
-   select event_type, student_id, session_id, round, is_correct, points_delta
-   from events order by created_at desc limit 10;
-   ```
-3. **Decide the consent-form fix** (delete the cosmetic ToS checkbox or wire it), and consider
-   pushing `main` — two commits exist locally and nothing has been pushed to a remote.
+1. **Commit the uncommitted docs + `inspect-pdf.mjs`**, then open a fresh session (this was the
+   agreed sequence — checkpoint, new session, then build).
+2. **Dispatch `builder`** to write `scripts/inspect-source.mjs` per the spec in "In progress" above.
+   Requires LibreOffice installed (`soffice --version` to check); no npm dependencies.
+3. **Add the `format` column** to `questions` via `db-engineer` (additive migration,
+   `NNN_short_name.sql` convention, plus `db/schema.sql`) — cheap now, awkward later.
 
 ## Do not redo
 
-- **Do not re-verify `data-layer.md`'s claims against the code** — every claim was checked line by
-  line against `lib/db/client.ts`, both API routes, `logEvent.ts`, the seed bank and the generator.
-  It was clean.
-- **Do not re-review the auth code from scratch.** Two full Opus review passes were done. Six defects
-  were found and fixed; the last pass returned "safe to commit" with three LOW residuals, two of
-  which were then fixed. The identity path was additionally verified by hand.
-- **Do not try `gpt-5.1-codex-mini`, `gpt-5.1-codex`, or `gpt-5.1-codex-max`** — all retired, the API
-  returns 404. Only the `gpt-5.6-*` family works.
-- **Do not use `psql`** — it is not installed on this machine.
+- **Do not re-verify the auth code or `data-layer.md`.** Two full Opus review passes plus a Codex
+  pass; eight defects found and fixed; every doc claim checked line by line against source.
+- **Do not point any generator at the 140 MB maths book.** Its text layer is dense enough (2,524
+  chars/page) to look healthy while being unusable. That is the trap, and it has already been walked
+  into once.
+- **Do not try to repair a broken OCR text layer.** The information is gone, not obscured. Use a
+  multimodal read of the page images, or find a cleaner source.
+- **Do not add an npm ZIP/OOXML library for PPTX/DOCX.** LibreOffice was chosen deliberately over
+  that route; `package.json` stays unchanged.
+- **Do not build asset storage or image rendering for questions yet.** The type-(a) decision exists
+  specifically to avoid that subsystem.
+- **Do not try `gpt-5.1-codex-mini` / `-codex` / `-codex-max`** — retired, API 404. Only `gpt-5.6-*`.
+- **Do not pass a steering prompt with `--uncommitted` to codex** — rejected at argument parsing on
+  codex-cli 0.145.0. Use `--base` or `--commit <sha>`. Both argument orderings fail.
+- **Do not use `psql`** — not installed. Use the Neon web SQL editor.
 - **Do not add bcrypt, argon2, or an auth library.** The zero-dependency `node:crypto` approach is
-  built, reviewed and working; `package.json` is deliberately unchanged.
-- **Do not trust the `codex-review` arm as independent confirmation on its own.** On the auth diff it
-  returned no findings while the Opus reviewer found a HIGH; its value is still unproven.
+  built and reviewed.
+- If `git add` fails with `short read while indexing nul`, a Windows reserved device name was captured
+  as a real file by a `> nul` redirect in Git Bash. `rm -f ./nul`; both are gitignored now.
+
+## Session-hygiene note
+
+The 28 Jul session reached 270k tokens (27% of 1M) across roughly 20 subagent dispatches; **over 1.1M
+tokens ran inside agent windows and never entered the main conversation** — the orchestration setup is
+measurably working, roughly 5x. Two things learned worth keeping:
+
+- **Batch config edits.** `CLAUDE.md`, memory files and agent definitions sit early in the context, so
+  editing them mid-session invalidates the cached prefix and makes that turn ~20x more expensive than
+  a cache hit. That session edited them ~15 times, scattered. Batch them instead.
+- **Checkpoint at task boundaries, not token thresholds.** Start a fresh session when the *subject*
+  changes. The 28 Jul session had at least four clean boundaries and used two.

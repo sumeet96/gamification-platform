@@ -1,6 +1,6 @@
 # HANDOFF: Gamified Adaptive Learning Platform (FBT Research Project)
 
-**Prepared:** 22 Jul 2026. **Updated:** 28 Jul 2026 (post-pivot rebuild; authentication wired same day, commit b569cc5). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot, and a same-day follow-up (commit b569cc5) wired real authentication. This doc now records both the original vision (history) and the current state.
+**Prepared:** 22 Jul 2026. **Updated:** 28 Jul 2026 (post-pivot rebuild; authentication wired same day, commit b569cc5; app gated end to end and lifetime stats added same day, commit 408bd54). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot, a same-day follow-up (commit b569cc5) wired real authentication, and a further same-day commit (408bd54) closed the login gate and wired lifetime stats. All three commits are pushed to `origin/main`. This doc now records both the original vision (history) and the current state.
 
 ---
 
@@ -51,7 +51,17 @@ Two decisions matter more for the research design than the implementation: `stud
 
 Six defects were found by review and fixed before commit. The one worth keeping on record: `resetSession()` had no call sites, so on a shared classroom laptop one `session_id` could span two students, with round numbers and the persistence counter bleeding across them. It now runs on login, signup, and logout.
 
-**Status, stated plainly:** reviewed, type-checked, and building, but not yet exercised against a live database or a real browser session. `db/001_add_students.sql` has not been applied to Neon yet.
+**Follow-up (28 Jul 2026, commit 408bd54): whole app gated, lifetime stats from the database.** `proxy.ts` changed from allow-by-default to deny-by-default. Previously only `/quiz`, `/game-setup`, and `/results` were protected, so `localhost:3000` dropped an unauthenticated visitor straight into the dashboard and the game. Now only `/login`, `/signup`, and the login/signup/logout API routes are public; everything else requires a valid session. Pages redirect to `/login`; API routes return 401. Logout stays public on purpose: gating it means the 401 would fire before the handler runs, so the `Set-Cookie` that clears a stale cookie would never send.
+
+Nothing in the codebase had ever read the `events` table back. The dashboard's lifetime numbers came from `sessionStorage`, which is cleared on logout, so a student who logged out and back in saw zero while their history sat untouched in Neon. A new `GET /api/stats` aggregates lifetime totals for the cookie-identified student, and the dashboard now reads that, including a "sessions played" figure it could not show before. Per-tab session state still drives gameplay, round numbering, and event logging exactly as before, so the research semantics were not disturbed.
+
+A decision worth recording: anonymous pre-login play is deliberately not merged into an account. Those events carry a null `student_id`, and attributing them retroactively would invent data — on a shared device it would credit one student's answers to whoever logged in next.
+
+A data-model correction came out of this work: `events.round` is 1-based as written and restarts at 1 in every session, so any lifetime round count must aggregate on `(session_id, round)`, not on row count. An earlier note describing it as 0-based was wrong. This was checked against live rows, not assumed.
+
+Eight defects were found and fixed across two review rounds before commit.
+
+**Status, stated plainly:** the application has now run end to end against a live Neon database for the first time — schema applied (3 tables, foreign key in place), real accounts created, real gameplay recorded. All three of 28 Jul's commits (e0b3fd9, b569cc5, 408bd54) are pushed to `origin/main`. There is still no automated test of any kind; correctness so far rests on manual review and this one live run.
 
 ## 4. The agreed product (from the 21 Jul call) — SUPERSEDED
 
@@ -81,7 +91,7 @@ Core mechanics agreed:
 - **Provider abstraction:** all LLM calls go through a thin adapter (Vercel AI SDK style) so switching provider is a config change. The fallback chain is Gemini paid, then a retry, then an alternate provider. Data-governance rule: student-derived data must never fail over to Chinese-hosted endpoints (an IRB/consent risk). Open-model fallback only via US/EU-hosted providers (for example, OpenRouter pinned) or restricted to non-student-data calls (MCQ drafting from course material is fine; profiling a named student is not).
 - **Database: Neon serverless Postgres (as of 28 Jul rebuild).** Event logs (session, round, per-question interactions, score, adaptivity feedback) are queryable in SQL and directly serve the DSR dataset. Schema in `db/schema.sql`. Previously planned Supabase; switched to Neon for simpler provisioning. Either would serve the deployment.
 - **Front-end: Next.js 16 / React 19 / Tailwind v4** (v0 scaffolding, rebuilt 28 Jul). Router-based screens (dashboard, game-setup, quiz, results) use React Context (sessionStorage-backed) for game state persistence across nav.
-- **Auth (added 28 Jul 2026, commit b569cc5):** email+password login/signup, no new dependencies — `node:crypto` scrypt for password hashing and a stateless HMAC-SHA256 signed session cookie. New `students` table (opaque primary key, not the email) so `events.student_id` is populated from the session instead of always null. `proxy.ts` gates `/quiz`, `/game-setup`, `/results`. Reviewed and type-checked; not yet tested against a live database or a real browser session.
+- **Auth (added 28 Jul 2026, commit b569cc5; gate widened and lifetime stats added same day, commit 408bd54):** email+password login/signup, no new dependencies — `node:crypto` scrypt for password hashing and a stateless HMAC-SHA256 signed session cookie. New `students` table (opaque primary key, not the email) so `events.student_id` is populated from the session instead of always null. `proxy.ts` now denies by default: only `/login`, `/signup`, and the login/signup/logout API routes are public, everything else requires a valid session, pages redirect and API routes return 401. `GET /api/stats` aggregates lifetime totals (score, accuracy, sessions played) from `events` for the dashboard, counting rounds on distinct `(session_id, round)` pairs since round numbering restarts at 1 every session. Exercised end to end against a live Neon database.
 - **Hosting: Vercel Hobby tier.** Fine for an academic pilot; no change.
 
 ### 5b. Dev tooling (what Sumeet codes with), decided via structured comparison 22 Jul
@@ -138,11 +148,14 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - **Prof's papers on hand (project PDFs):** Singh & Dev 2023 AJIS (ICT interventions, relatedness, engagement; moderated mediation non-significant; intellectual engagement null); Singh & Verma 2020 ACIS (gamification taxonomy/theory); Singh & Singh 2021 ACIS (gamification in hybrid teacher PD, SDT plus goal theories); the MCDM chatbot-ranking paper (Delphi + CRITIC + WASPAS/EDAS); the mandatory-telework paper; Klock et al. 2020 IJHCS (tailored gamification); Alioto & Persico (corporate training gamification). Note: several PDFs are scanned/image-based, so text was extracted via OCR; verify any quoted passage against the source.
 - **Likely paper framing:** a Design Science Research case study (artifact plus classroom deployment plus engagement/satisfaction data). Ethics topics to raise before the pilot: consent/voluntariness for interaction telemetry, the IRB/institutional review timeline, and scale reuse from the AJIS paper.
 
-## 10. Open items and risks (updated 28 Jul, post-auth)
+## 10. Open items and risks (updated 28 Jul, post end-to-end run)
 
-- [x] **Resolved 28 Jul 2026 (commit b569cc5):** anonymous event log. `events.student_id` was always null under the mockup login/signup UI, which made per-student analysis impossible. Real authentication now populates it from the session cookie. Still not verified against a live database.
+- [x] **Resolved 28 Jul 2026 (commit b569cc5):** anonymous event log. `events.student_id` was always null under the mockup login/signup UI, which made per-student analysis impossible. Real authentication now populates it from the session cookie.
+- [x] **Resolved 28 Jul 2026 (commit 408bd54):** the dashboard itself was unauthenticated. `proxy.ts` only gated `/quiz`, `/game-setup`, and `/results`, so an unauthenticated visitor landed on the dashboard and could reach the game. Now deny-by-default, and both fixes have been exercised end to end against a live Neon database: schema applied, real accounts created, real gameplay recorded.
 - [ ] New residual risk: shared devices. A student who does not log out on a shared classroom laptop leaves the session live for whoever uses it next; nothing currently forces logout.
 - [ ] New residual risk: the signup form has a cosmetic terms-of-service checkbox sitting next to the real, server-enforced research-consent checkbox. The two could be confused; needs a UI fix before the pilot.
+- [ ] Model-assigned difficulty is uncalibrated, and the adaptive-difficulty lever depends on it entirely. If an item labelled difficulty 4 is not actually harder than one labelled 2, the study's primary independent variable is noise. Needs each item's empirical p-value from `events` compared against its assigned label, ideally via a small pilot-of-the-pilot before the real cohort, since recalibrating mid-pilot would change what the difficulty scale means partway through the dataset.
+- [ ] Adaptive difficulty saturates at the ceiling by roughly question four (starts at 2, caps at 5, resets every round), so a strong student stops being differentiated by the lever for most of a round. Needs a decision: raise the starting difficulty, widen the scale, or carry difficulty across rounds within a session.
 - [ ] Confirm hosting is Vercel and identify the "Chinese model" (the transcript garbled both).
 - [ ] Get the *Gamification for Dummies* PDF.
 - [ ] Pitch Gemini paid Tier 1 to the prof (privacy plus reliability framing, about ₹500-800/pilot); verify live Tier 1 pricing and rate limits first.
@@ -153,7 +166,7 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - [ ] Scope-creep risk: build one artifact (platform plus AI designer plus HITL) and resist adding orchestration extras. The hour budget is ~400-450 total.
 - [ ] The Scopus/WoS systematic search is still pending if the paper goes ahead.
 
-## 11. File inventory (as of 28 Jul 2026, commit b569cc5; `git ls-files` reconciled)
+## 11. File inventory (as of 28 Jul 2026, commit 408bd54; `git ls-files` reconciled)
 
 **Orchestration (tracked as of df8fe57):**
 - `.claude/agents/` — scout, builder, reviewer, codex-review, gemini-bulk, db-engineer, scribe, researcher.
@@ -164,7 +177,7 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - `HANDOFF.md` — this file.
 - `docs/architecture/2026-07-27_architecture-and-model-comparison.md` — pre-pivot deliverable (27 Jul); superseded by the post-pivot notes below.
 - `docs/architecture/2026-07-28_architecture-as-built.md` — post-pivot architecture, written after the rebuild.
-- `docs/architecture/data-layer.md` — event-log and schema design notes (data-layer review that flagged the null `student_id` gap, since resolved by b569cc5).
+- `docs/architecture/data-layer.md` — event-log and schema design notes (data-layer review that flagged the null `student_id` gap, since resolved by b569cc5; corrected 408bd54 to state `events.round` is 1-based, not 0-based).
 - `docs/architecture/roadmap-and-flow.md` — pre-pivot; superseded.
 - `docs/architecture/agent-orchestration.md` — orchestration rules (28 Jul).
 - `docs/design/v0-dashboard-brief.md` — v0 scaffolding brief.
@@ -183,8 +196,9 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - `app/api/auth/login/route.ts`, `app/api/auth/signup/route.ts`, `app/api/auth/logout/route.ts`, `app/api/auth/me/route.ts` — auth endpoints (added 28 Jul, commit b569cc5).
 - `app/api/events/route.ts` — event logging API; `student_id` now read from the session cookie, not the request body.
 - `app/api/questions/route.ts` — MCQ serving API (DB pool + seed-bank fallback).
+- `app/api/stats/route.ts` — new (commit 408bd54); aggregates lifetime totals (score, accuracy, sessions played) from `events` for the cookie-identified student.
 - `app/layout.tsx`, `app/globals.css` — layout and base styles.
-- `proxy.ts` — Next 16's successor to `middleware.ts`; gates `/quiz`, `/game-setup`, `/results` behind a valid session (added b569cc5).
+- `proxy.ts` — Next 16's successor to `middleware.ts`; deny-by-default as of commit 408bd54 — only `/login`, `/signup`, and the login/signup/logout API routes are public, everything else requires a valid session. Previously only gated `/quiz`, `/game-setup`, `/results` (added b569cc5).
 
 **Game engine, state, and auth:**
 - `lib/game/engine.ts` — core game logic (scoring, adaptivity ramp/clock, round progression).
@@ -199,9 +213,11 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 
 **Database and config:**
 - `db/schema.sql` — Neon Postgres schema (questions, events tables).
-- `db/001_add_students.sql` — adds the `students` table and the `events.student_id` FK; establishes the `NNN_short_name.sql` migration convention (added b569cc5, not yet applied to Neon).
+- `db/001_add_students.sql` — adds the `students` table and the `events.student_id` FK; establishes the `NNN_short_name.sql` migration convention (added b569cc5). Applied to the live Neon database as of the 408bd54 end-to-end run — 3 tables, foreign key `events_student_id_fkey` present.
 - `.env.local.example` — environment variable template (Neon credentials, Gemini key, `SESSION_SECRET`); restored in b569cc5 after being lost in a move rather than a copy.
-- `package.json`, `package-lock.json` — Next 16 / React 19 / Tailwind v4 dependencies; unchanged by the auth work (no new dependencies).
+- `.gitignore` — new (commit 408bd54); tracked so a stray Windows reserved-device-name file (`nul`/`NUL`, produced by a `> nul` redirect in Git Bash) stays out of the index.
+- `skills-lock.json` — new (commit 408bd54); lockfile pinning the `neon` and `neon-postgres` agent skills (source `neondatabase/agent-skills`) used during the Neon setup and end-to-end run.
+- `package.json`, `package-lock.json` — Next 16 / React 19 / Tailwind v4 dependencies; unchanged by the auth or gating work (no new dependencies).
 - `tsconfig.json`, `next.config.mjs`, `postcss.config.mjs` — build config.
 - `components.json` — shadcn/ui config (for future component scaffolds).
 - `GIT_SETUP.sh` — repo setup script.
