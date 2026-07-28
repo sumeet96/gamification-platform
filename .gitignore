@@ -45,5 +45,9 @@ logs/
 Thumbs.db
 .DS_Store
 
-# Claude Code — personal settings + re-clonable third-party design skills
-.claude/
+# Claude Code — ignore personal settings and re-clonable third-party design
+# skills, but keep the project's own agent roster and slash commands in version
+# control. They are part of how this project is built.
+.claude/*
+!.claude/agents/
+!.claude/commands/

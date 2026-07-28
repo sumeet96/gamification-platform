@@ -1,3 +1,11 @@
+## ⚠️ Superseded — 28 Jul 2026
+
+This document describes the AI-personalized quest-design architecture that was planned before 27 Jul 2026. On 27 Jul the supervisor pivoted to a simpler gamified adaptive-learning dashboard. **This document is now a historical record and does not describe the built system.**
+
+See `docs/architecture/2026-07-28_architecture-as-built.md` for the system as actually implemented.
+
+---
+
 # Architecture and Model Comparison: AI-Personalized Gamification Platform
 
 **Prepared for:** Supervisor meeting, Mon 27 Jul 2026 · **Author:** Sumeet Mohanty (PGDM GM Co'26, XLRI) · **Supervisor:** Prof. Singh *(confirm name spelling before circulation)* · **Version:** Week-1 design.

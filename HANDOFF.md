@@ -1,6 +1,6 @@
-# HANDOFF: AI-Personalized Gamification Platform (FBT Research Project)
+# HANDOFF: Gamified Adaptive Learning Platform (FBT Research Project)
 
-**Prepared:** 22 Jul 2026. Consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. Intended as the seed context for continuing this project in Claude Code.
+**Prepared:** 22 Jul 2026. **Updated:** 28 Jul 2026 (post-pivot rebuild). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot. This doc now records both the original vision (history) and the current state.
 
 ---
 
@@ -15,9 +15,35 @@
 
 1. **19 Jul (brainstorm + email):** Started as workplace agentic gamification. A literature scan (web plus project PDFs) found that adaptive/personalized gamification is saturated in education and health, that workplace is the under-studied domain, and that existing LLM work uses models as content generators rather than orchestrators. Three problem statements were emailed to the prof: (PS1) an agentic orchestrator for hyper-personalized workplace gamification grounded in his 2023 AJIS relatedness paper, as a Slack/Teams bot plus a DSR pilot; (PS2) a workplace-learning/L&D variant; (PS3) an MCDM framework for evaluating agentic gamification platforms (no build).
 2. **21 Jul (meeting prep):** Deep-read of 4 papers. Key correctness notes: the AJIS paper's moderated mediation was non-significant (the earlier email slightly overstated the moderation finding, and a correction was planned for the call); the intellectual-engagement path was null; surveillance/voluntariness was flagged as an ethics topic.
-3. **21 Jul call (the pivot, which now defines the project):** The prof proposed combining PS1 and PS2 and shifting the context to education, specifically his own classroom (lower access risk, and he can pilot it himself). The workplace framing is effectively parked. The "agentic orchestration, not content generation" novelty claim carries over intact; it is now expressed as AI designing the game mechanics per student.
+3. **21 Jul call (initial pivot):** The prof proposed combining PS1 and PS2 and shifting the context to education, specifically his own classroom (lower access risk, and he can pilot it himself). The workplace framing is effectively parked. The "agentic orchestration, not content generation" novelty claim carries over intact; it is now expressed as AI designing the game mechanics per student.
 
-## 3. The agreed product (from the 21 Jul call)
+## 3. The 27 Jul pivot (supervisor decision on 27 Jul 2026)
+
+**Who:** Prof. Harshit Kumar Singh.
+
+**What changed:** On 27 Jul at 3:39 PM, after reviewing the architecture doc and model comparison (the §7 deliverable), the supervisor pivoted the project from the AI-designed-quests model to a **gamified adaptive-learning dashboard**. 
+
+**Old design (21 Jul call, §3 below):** AI layer designs quests, badges, and point values per student. Anti-comfort-zone economy (points diminish in strong areas, higher rewards for weak areas). Phase 1 baseline, Phase 2+ AI-personalized. Teacher approval per quest (HITL). Teacher dashboard showing inferred strengths/weaknesses and pending AI proposals.
+
+**New design (27 Jul call, 28 Jul rebuild):** Fixed-point scoring (+20 correct, −10 negative marking). Students see net score against potential. Each student picks ONE adaptivity lever: either **adaptive difficulty** (ramps up/down per performance) or **time pressure** (clock tightens). Rapid/normal velocity modes. "Keep going → next round" persistence loop. All mechanics are pre-coded; no AI-designed quests. Framed as a Design Science Research artifact. Per-question event logging (session, round, interactions, score, adaptivity feedback) is the research dataset. MCQ generation from course PDFs remains, but it is pre-generated, not real-time.
+
+**Rationale (prof's reasoning, from call audio):** The AI-quest design added complexity (prompt engineering, HITL workflow, approval latency) that would consume most of the 6-month budget without guaranteeing research insights. The adaptive-learning dashboard is a cleaner DSR artifact: a tight mechanic with a clear experimental treatment (the adaptivity lever), immediate feedback loops, and rich event logging. It is deployable faster and more defensible as research.
+
+**Parked, not dead:** Personality/player-type profiling, age × variable-reward thesis, and teacher-approval HITL quest design are deferred to future work. The repo history preserves the earlier code and thinking.
+
+**Implementation:** 28 Jul 2026 00:45 UTC, commit e0b3fd9 ("Rebuild as adaptive learning game"). The rebuild:
+- Moved off Next 14 / src structure to Next 16 / app structure.
+- Adopted v0 scaffolding for the front-end (React 19, Tailwind v4).
+- Moved from Supabase to Neon serverless Postgres for the DB.
+- Replaced the reward-engine and student-profiler code with a clean game engine (lib/game/engine.ts, lib/game/game-context.tsx) tracking session/round/score/adaptivity.
+- Wired dashboard, game-setup, quiz, results screens to the engine.
+- Generated MCQ pipeline (scripts/generate-questions.mjs) using Gemini from course PDFs.
+- Event logging API (app/api/events) to store per-question interactions.
+- Login and signup UI scaffolded for future wiring (not yet functional).
+
+## 4. The agreed product (from the 21 Jul call) — SUPERSEDED
+
+⚠️ **SUPERSEDED by §3 (27 Jul pivot).** The design below is the original vision from the 21 Jul call. It is now parked. Refer to §3 for the current product definition.
 
 **One-liner:** A gamified learning platform where an AI layer designs the gamification itself (quests, badges, point values) individually per student from their performance history, with a human-in-the-loop teacher approval layer.
 
@@ -30,21 +56,22 @@ Core mechanics agreed:
 - **Pilot use case:** his Digital Transformation course (about 20 sessions). The AI generates MCQs per session. Phase 1 is the same for all; later phases adapt. The system also doubles as a dynamic survey and data-collection instrument (satisfaction plus engagement), and that dataset is the raw material for the optional case-study paper.
 - **Knowledge layer:** the book *Gamification for Dummies* (the prof will forward the PDF if it isn't findable online) plus his course content. This grounds what the AI knows about gamification design.
 
-## 4. Tech stack (prof's suggestions 21 Jul plus decisions ratified 22 Jul)
+## 5. Tech stack (prof's suggestions 21 Jul plus decisions ratified 22 Jul; updated 28 Jul post-rebuild)
 
 **What the prof suggested on the call:** a Firebase backend, Vercel hosting ⚠️ *(garbled in transcript, best-guess reconstruction, confirm)*, Google AI Studio (Gemini) free tier, and "free tier only until something works." Model choice was delegated to Sumeet with a mandatory "why this and not that" justification. ⚠️ Sumeet mentioned a Chinese model good for development, but the name didn't transcribe (likely DeepSeek or Qwen).
 
 **Decisions after 22 Jul analysis (the deviations are deliberate and must be pitched to the prof as reliability plus student-data privacy, not as overruling him):**
 
-### 4a. Runtime stack (what the deployed app uses)
+### 5a. Runtime stack (what the deployed app uses)
 
 - **LLM: Gemini paid Tier 1, NOT free tier.** As of mid-2026, the free tier is Flash/Flash-Lite only, roughly 5 to 15 RPM and about 1,000 to 1,500 RPD, and free-tier prompts may be used for Google training, which is unacceptable for classroom student data and guaranteed to collapse under simultaneous classroom load. Tier 1 is pay-per-use only (no upfront), about 150 to 300 RPM, with no training-data clause. Estimated pilot cost is $2 to 10/month (unverified, check live pricing). Pitch to the prof: "About ₹500-800 total buys production rate limits and keeps student data out of training pipelines."
-- **Architecture rule, design out the rate limits:** quest design runs as async background jobs (HITL approval already makes it non-live); MCQs are pre-generated per session and served from the database (a classroom burst hits the DB, not the LLM); the only live LLM path is the teacher's chat-to-redesign. Every LLM call gets a queue, exponential backoff, and a response cache.
+- **Architecture rule, design out the rate limits:** MCQs are pre-generated from session PDFs and served from the database; no live LLM calls on the critical path. Every LLM call gets a queue, exponential backoff, and a response cache.
 - **Provider abstraction:** all LLM calls go through a thin adapter (Vercel AI SDK style) so switching provider is a config change. The fallback chain is Gemini paid, then a retry, then an alternate provider. Data-governance rule: student-derived data must never fail over to Chinese-hosted endpoints (an IRB/consent risk). Open-model fallback only via US/EU-hosted providers (for example, OpenRouter pinned) or restricted to non-student-data calls (MCQ drafting from course material is fine; profiling a named student is not).
-- **Database: Supabase (Postgres) preferred over Firebase Firestore.** SQL-queryable engagement and point-transaction logs directly serve the paper's data analysis. Caveats: free-tier projects pause after about a week of inactivity (a non-issue during active dev), and fall back to Firebase if Postgres adds too much learning load. Either choice keeps Firebase Auth acceptable.
+- **Database: Neon serverless Postgres (as of 28 Jul rebuild).** Event logs (session, round, per-question interactions, score, adaptivity feedback) are queryable in SQL and directly serve the DSR dataset. Schema in `db/schema.sql`. Previously planned Supabase; switched to Neon for simpler provisioning. Either would serve the deployment.
+- **Front-end: Next.js 16 / React 19 / Tailwind v4** (v0 scaffolding, rebuilt 28 Jul). Router-based screens (dashboard, game-setup, quiz, results) use React Context (sessionStorage-backed) for game state persistence across nav.
 - **Hosting: Vercel Hobby tier.** Fine for an academic pilot; no change.
 
-### 4b. Dev tooling (what Sumeet codes with), decided via structured comparison 22 Jul
+### 5b. Dev tooling (what Sumeet codes with), decided via structured comparison 22 Jul
 
 | Role | Tool | Notes |
 |---|---|---|
@@ -59,13 +86,16 @@ Weekly ritual: before each prof meeting, run the week's diff through DeepSeek (o
 
 ⚠️ The model-landscape facts above (rankings, prices, quotas) date from web sources of Apr to Jul 2026 and change weekly, so re-verify against live pricing pages before writing them into any deliverable. The prof himself said whatever is current will be weeks old soon.
 
-## 5. Working relationship and cadence
+## 6. Working relationship and cadence
 
-- **Next meeting: Monday 27 Jul 2026, afternoon** (Tuesday 28 Jul as backup; the prof is blocking both). Recurring weekly Mon/Tue slots for now.
+- **Next meeting: Monday 3 Aug 2026, afternoon.** Recurring weekly Mon/Tue slots.
 - The prof is reachable by phone up to about 8 pm and on WhatsApp anytime for small things; he also said planning independently is "even better."
-- **Expectation for the 27 Jul meeting (his words, paraphrased):** a plan, meaning the layered architecture of the whole system and the model selections with justification. This call was "problem statement"; the next call is "design."
+- **27 Jul meeting (completed):** Delivered architecture doc + model comparison. The prof pivoted the project (see §3).
+- **Expectation for 3 Aug:** Implementation progress on the rebuild (§3), any blockers, next sprint plan.
 
-## 6. Roadmap (proposed in-chat on 22 Jul; not yet ratified by prof)
+## 7. Roadmap (proposed in-chat on 22 Jul; SUPERSEDED by 27 Jul pivot)
+
+⚠️ **The roadmap below predates the 27 Jul pivot and is now moot.** It planned an AI-quest design architecture with HITL approval. The rebuild (28 Jul) implements the new adaptive-learning dashboard (§3) with a tighter, pre-coded mechanic. The new roadmap is TBD at the 3 Aug meeting.
 
 | Weeks | Focus |
 |---|---|
@@ -77,7 +107,7 @@ Weekly ritual: before each prof meeting, run the week's diff through DeepSeek (o
 | 9-10 | Pilot prep: seed data, dry run with classmates, and engagement/satisfaction logging built in now (the paper dataset) |
 | Sept+ | Classroom pilot aligned with his gamification course; iterate; optional case-study write-up |
 
-## 7. Week-1 deliverable (due Mon 27 Jul)
+## 8. Week-1 deliverable (completed Mon 27 Jul; now superseded)
 
 A 3-to-5 page/slide document containing:
 
@@ -89,13 +119,13 @@ A 3-to-5 page/slide document containing:
 
 Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Jul** if not found); skim the project PDFs for the standard gamification element taxonomy.
 
-## 8. Theory and literature context (for the eventual paper)
+## 9. Theory and literature context (for the eventual paper)
 
 - **Novelty claim (verified by live search, ~5 searches, not a systematic review):** LLM-as-orchestrator/designer of gamification mechanics per user, with HITL, is an open corner. LLM-as-content-generator and static-typology tailoring (Hexad, etc.) are crowded. A proper Scopus/WoS pass is still owed before claiming the gap in writing.
 - **Prof's papers on hand (project PDFs):** Singh & Dev 2023 AJIS (ICT interventions, relatedness, engagement; moderated mediation non-significant; intellectual engagement null); Singh & Verma 2020 ACIS (gamification taxonomy/theory); Singh & Singh 2021 ACIS (gamification in hybrid teacher PD, SDT plus goal theories); the MCDM chatbot-ranking paper (Delphi + CRITIC + WASPAS/EDAS); the mandatory-telework paper; Klock et al. 2020 IJHCS (tailored gamification); Alioto & Persico (corporate training gamification). Note: several PDFs are scanned/image-based, so text was extracted via OCR; verify any quoted passage against the source.
 - **Likely paper framing:** a Design Science Research case study (artifact plus classroom deployment plus engagement/satisfaction data). Ethics topics to raise before the pilot: consent/voluntariness for interaction telemetry, the IRB/institutional review timeline, and scale reuse from the AJIS paper.
 
-## 9. Open items and risks
+## 10. Open items and risks (updated 28 Jul post-rebuild)
 
 - [ ] Confirm hosting is Vercel and identify the "Chinese model" (the transcript garbled both).
 - [ ] Get the *Gamification for Dummies* PDF.
@@ -107,7 +137,56 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - [ ] Scope-creep risk: build one artifact (platform plus AI designer plus HITL) and resist adding orchestration extras. The hour budget is ~400-450 total.
 - [ ] The Scopus/WoS systematic search is still pending if the paper goes ahead.
 
-## 10. File inventory
+## 11. File inventory (as of 28 Jul 2026 rebuild)
 
-- **Call transcript:** `transcript_2026-07-21_prof_call.txt` (auto-transcribed, faster-whisper base model; expect word-level errors; substance verified in §3 to §5).
-- **Project PDFs (in the Claude.ai project; copy into repo `/docs/literature/` when migrating):** ICT_driven publication, Gamification_and_workers_training, Gamification_in_Hybrid_Teacher_Professional_Development, Gamification_at_Workplace (theories/constructs), 0566.pdf, the MCDM chatbot comparative study, ICT-Driven Work Engagement (WFH/relatedness), and 1s2.0-S1071581920300975 (Klock et al. 2020).
+**Architecture and docs:**
+- `CLAUDE.md` — working brief (updated 28 Jul).
+- `HANDOFF.md` — this file.
+- `docs/architecture/2026-07-27_architecture-and-model-comparison.md` — pre-pivot deliverable (27 Jul); being replaced by post-pivot architecture notes.
+- `docs/architecture/roadmap-and-flow.md` — pre-pivot; being updated/replaced.
+- `docs/architecture/agent-orchestration.md` — orchestration rules added 28 Jul (in git index, not yet committed).
+- `docs/design/v0-dashboard-brief.md` — v0 scaffolding brief.
+- `docs/meeting/Jul 27 at 3-39 PM.m4a` — supervisor call audio (27 Jul pivot).
+- `docs/meeting/Jul 27 at 3-39 PM.txt` — call transcript.
+- `docs/meeting/2026-07-27_supervisor-briefing.md` — pre-pivot briefing.
+
+**Application code (Next 16 / React 19 / Tailwind v4):**
+- `app/page.tsx` — dashboard (entry point).
+- `app/game-setup/page.tsx` — quest selection and adaptivity-lever picker.
+- `app/quiz/page.tsx` — main game loop (questions, scoring, adaptivity feedback).
+- `app/results/page.tsx` — round results and persistence prompt.
+- `app/login/page.tsx`, `app/signup/page.tsx` — auth UI (scaffolded, not wired).
+- `app/api/events/route.ts` — event logging API (POST to log session/round/per-question interactions).
+- `app/api/questions/route.ts` — MCQ serving API (DB pool + seed-bank fallback).
+- `app/layout.tsx`, `app/globals.css` — layout and base styles.
+
+**Game engine and state:**
+- `lib/game/engine.ts` — core game logic (scoring, adaptivity ramp/clock, round progression).
+- `lib/game/game-context.tsx` — React Context for game state (survives route nav via sessionStorage).
+- `lib/game/questions.ts` — question data fetch and normalization.
+- `lib/log/logEvent.ts` — event logging to `/api/events` (or console if DB unavailable).
+- `lib/db/client.ts` — Neon Postgres client.
+- `lib/utils.ts` — utility functions.
+
+**Database and config:**
+- `db/schema.sql` — Neon Postgres schema (questions, events tables).
+- `.env.local.example` — environment variable template (Neon credentials, Gemini key).
+- `package.json`, `package-lock.json` — Next 16 / React 19 / Tailwind v4 dependencies.
+- `tsconfig.json`, `next.config.mjs`, `postcss.config.mjs` — build config.
+- `components.json` — shadcn/ui config (for future component scaffolds).
+
+**Content generation:**
+- `scripts/generate-questions.mjs` — Gemini-powered MCQ generator from course PDFs (reads `COURSE_PDFS` env, outputs to `db/schema.sql` seed or API).
+
+**Callouts:**
+- `supabase/migrations/0001_events.sql` — legacy Supabase migration (pre-pivot; Neon schema is in `db/schema.sql`).
+
+**Literature (refs for the paper):**
+- `docs/literature/` — 16 research PDFs and a README index (Gamification for Dummies-adjacent, SDT, HEXAD, MDA framework, aging/gamification, MBTI/personality, McKinsey job satisfaction, pymetrics, etc.). See `docs/literature/README.md` for full list.
+
+**Call transcripts:**
+- `transcript_2026-07-21_prof_call.txt` — 21 Jul supervisor call (problem statement + initial vision).
+
+**Historical (pre-pivot, retained for reference):**
+- `docs/venture-analysis/` — Sumeet's earlier venture-analysis scaffolding exercise on the project (7 prompts, pitch deck, 19-22 Jul). Archived for reference; not the current direction.
+- Git history up to commit e0b3fd9 preserves the old reward-engine, student-profiler, and Supabase-based code.

@@ -1,3 +1,11 @@
+## ⚠️ Superseded — 28 Jul 2026
+
+This document describes the Phase 1 → Phase 2 trigger and the variable-reward experiment that were planned before 27 Jul 2026. On 27 Jul the supervisor pivoted to a simpler gamified adaptive-learning dashboard. **This document is now a historical record and does not describe the built system.**
+
+See `docs/architecture/2026-07-28_architecture-as-built.md` for the system as actually implemented.
+
+---
+
 # Roadmap and App Flow: Visual Companion
 
 Two canonical diagrams for the AI-Personalized Gamification project. Companion to `2026-07-27_architecture-and-model-comparison.md`. Renders on GitHub.
