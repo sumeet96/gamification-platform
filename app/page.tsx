@@ -1,33 +1,11 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Play, Zap, Clock, LogOut } from 'lucide-react'
 import { useGame } from '@/lib/game/game-context'
-
-/** Animate a number from its current display value toward `target`. */
-function useCountUp(target: number) {
-  const [display, setDisplay] = useState(0)
-  const ref = useRef(0)
-  useEffect(() => {
-    let raf = 0
-    const tick = () => {
-      const cur = ref.current
-      const next = cur + (target - cur) * 0.15
-      if (Math.abs(target - next) < 0.5) {
-        ref.current = target
-        setDisplay(target)
-        return
-      }
-      ref.current = next
-      setDisplay(Math.round(next))
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [target])
-  return display
-}
+import { roundLength } from '@/lib/game/engine'
+import { useCountUp } from '@/lib/ui/useCountUp'
 
 /** Lifetime totals from GET /api/stats — see app/api/stats/route.ts. */
 interface LifetimeStats {
@@ -254,7 +232,7 @@ export default function Home() {
                   </div>
                   <div className="text-left">
                     <h3 className="font-black text-white text-lg">Rapid Round</h3>
-                    <p className="text-purple-200 text-sm">Quick fire · 10 questions</p>
+                    <p className="text-purple-200 text-sm">Quick fire · {roundLength('rapid')} questions</p>
                   </div>
                 </div>
                 <Play className="w-5 h-5 text-white group-hover:translate-x-1 transition-transform" />
@@ -275,7 +253,7 @@ export default function Home() {
                   </div>
                   <div className="text-left">
                     <h3 className="font-black text-white text-lg">Normal Mode</h3>
-                    <p className="text-blue-200 text-sm">Deeper dive · 20 questions</p>
+                    <p className="text-blue-200 text-sm">Deeper dive · {roundLength('normal')} questions</p>
                   </div>
                 </div>
                 <Play className="w-5 h-5 text-white group-hover:translate-x-1 transition-transform" />

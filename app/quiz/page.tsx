@@ -148,12 +148,16 @@ export default function Quiz() {
     recordRound({
       net: round.net, potential: round.potential, correct: round.correct, wrong: round.wrong,
       answered: round.answered, peakDifficulty: round.peakDifficulty, bestTimeMs: round.bestTimeMs,
-      lever: config.lever, mode: config.mode,
+      lever: config.lever, mode: config.mode, round: roundNo,
     })
     router.push('/results')
   }
 
   function exit() {
+    // This round hasn't been committed via recordRound yet (that only happens in
+    // finish()), so roundNo — computed from session.roundsPlayed the same way
+    // round_start above was — is the only correct number here. See app/results/page.tsx
+    // for the already-committed counterpart, which reads it off lastRound instead.
     emit({ event_type: 'round_stop', game_type: 'quiz', mode: config?.mode ?? null, lever: config?.lever ?? null, round: roundNo })
     router.push('/')
   }

@@ -1,30 +1,15 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Trophy, Zap, ArrowRight } from 'lucide-react'
 import { useGame } from '@/lib/game/game-context'
 import { POINTS_CORRECT, PENALTY_WRONG } from '@/lib/game/engine'
-
-function useCountUp(target: number) {
-  const [display, setDisplay] = useState(0)
-  const ref = useRef(0)
-  useEffect(() => {
-    let raf = 0
-    const tick = () => {
-      const next = ref.current + (target - ref.current) * 0.15
-      if (Math.abs(target - next) < 0.5) { ref.current = target; setDisplay(target); return }
-      ref.current = next; setDisplay(Math.round(next)); raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [target])
-  return display
-}
+import { useCountUp } from '@/lib/ui/useCountUp'
 
 export default function Results() {
   const router = useRouter()
-  const { lastRound, registerContinue, emit, session } = useGame()
+  const { lastRound, registerContinue, emit } = useGame()
 
   // No round recorded (cold load) -> dashboard.
   useEffect(() => {
@@ -50,7 +35,11 @@ export default function Results() {
 
   const keepGoing = () => { registerContinue(); router.push('/quiz') }
   const stop = () => {
-    emit({ event_type: 'round_stop', mode: lastRound?.mode ?? null, lever: lastRound?.lever ?? null, round: session.roundsPlayed })
+    // This round was already committed via recordRound() before we got here (see
+    // finish() in app/quiz/page.tsx), so lastRound.round — set from quiz's roundNo at
+    // that point — is the single source of truth, not session.roundsPlayed re-derived
+    // after the fact.
+    emit({ event_type: 'round_stop', game_type: 'quiz', mode: lastRound.mode, lever: lastRound.lever, round: lastRound.round })
     router.push('/')
   }
 

@@ -59,4 +59,7 @@ export interface RoundSummary {
   bestTimeMs: number | null // fastest correct answer (time mode)
   lever: Lever
   mode: Mode
+  round: number // the round number this summary belongs to (1-indexed) — the single
+  // source of truth for round_stop logging on the results screen, so it doesn't have
+  // to re-derive it from session.roundsPlayed after the fact.
 }

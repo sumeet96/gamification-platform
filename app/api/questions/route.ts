@@ -10,6 +10,8 @@ export async function GET() {
     try {
       const rows = (await sql`
         select id, difficulty, prompt, options, answer from questions
+        order by random()
+        limit 200
       `) as Array<{ id: string; difficulty: number; prompt: string; options: string[]; answer: number }>
       if (rows.length > 0) {
         const questions: Question[] = rows.map((r) => ({
