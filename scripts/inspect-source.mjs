@@ -1,19 +1,9 @@
 #!/usr/bin/env node
 // Diagnostic for a source document before it enters the question-generation
-// pipeline. Superset of inspect-pdf.mjs: same PDF logic (kept verbatim,
-// inspect-pdf.mjs itself is untouched and still works standalone), plus DOCX
-// and PPTX support and a folder-wide readiness table.
-//
-// Answers the one question that determines everything downstream: can this
-// document be used as a question source, and via which route? There are two
-// usable routes, not one: TEXT PATH (extract clean text and generate from
-// that) or IMAGE PATH (render the document to PDF and let a multimodal
-// model read it visually — LibreOffice turns PPTX/DOCX into a PDF one page
-// per slide, and Gemini reads a PDF's embedded text AND its rendered page
-// images). A lecture deck that is mostly pictures, or a scanned PDF with an
-// unreliable OCR text layer, is NOT a defect — it is the normal case for
-// this course material, and it just takes the image route instead of the
-// text route. Only a document that neither route can recover from —
+// pipeline: can this document be used as a question source, and via which
+// route — TEXT PATH (extract clean text and generate from that) or IMAGE
+// PATH (render the document to PDF and let a multimodal model read it
+// visually)? Only a document that neither route can recover from —
 // corrupt/unreadable, zero pages or slides, genuinely empty — is unusable.
 //
 // Usage:
@@ -23,22 +13,17 @@
 // If Node runs out of memory on a very large PDF:
 //   node --max-old-space-size=4096 scripts/inspect-source.mjs "path/to/book.pdf"
 //
-// Exit codes (both single-file and folder mode) — this is a mandatory gate,
-// so a wrapper must be able to tell a usable source from an unusable one
-// without parsing stdout:
-//   0 — every document inspected is usable by some route: TEXT PATH or
-//       IMAGE PATH. Both are normal, fully-supported outcomes.
-//   2 — inspection succeeded but at least one source is UNUSABLE by either
-//       route (corrupt/unreadable archive, zero pages/slides, genuinely
-//       empty document — see the verdict for why). Should be rare.
+// Exit codes (both single-file and folder mode) — a wrapper must be able to
+// tell a usable source from an unusable one without parsing stdout:
+//   0 — every document inspected is usable: TEXT PATH or IMAGE PATH.
+//   2 — at least one source is UNUSABLE by either route (corrupt/unreadable
+//       archive, zero pages/slides, genuinely empty document — see the
+//       verdict for why). Should be rare.
 //   1 — operational failure: bad/missing arguments, unreadable file,
 //       unsupported extension, or a folder with no PDF/DOCX/PPTX under it.
 //
 // Zero new dependencies: DOCX/PPTX are ZIP archives of XML, read with a
-// minimal ZIP reader built on node:zlib (inflateRawSync) + node:fs. No
-// LibreOffice shell-out — it is not installed on this dev machine, and the
-// native XML already carries everything this diagnostic needs (heading
-// styles, speaker notes) without a rendering step.
+// minimal ZIP reader built on node:zlib (inflateRawSync) + node:fs.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -143,30 +128,15 @@ function xmlToText(xml) {
     .trim()
 }
 
-// Minimum characters an extracted notesSlide must have to count as a real
-// speaker note (used by the PPTX inspector below). An otherwise-empty
-// notesSlide still carries PowerPoint's auto-updating slide-number field
-// (<a:fld type="slidenum"><a:t>4</a:t></a:fld>), which — once field runs are
-// excluded — still leaves stray short text on some templates. 15 chars is
-// short of a real sentence but comfortably above a page number, date stamp,
-// or single word, so it screens out placeholder noise without discarding a
-// genuine terse note.
-// Declared at module scope (not inside inspectPptx) because single-file mode
-// invokes the inspector during top-to-bottom module evaluation, before a
-// `const` declared later in the file would be initialized.
+// 15 chars screens out PowerPoint's auto-updating slide-number field text
+// (<a:fld type="slidenum">) without discarding a genuine terse note.
+// Declared at module scope, not inside inspectPptx: single-file mode invokes
+// the inspector during top-to-bottom module evaluation, before a `const`
+// declared later in the file would be initialized.
 const PPTX_MIN_NOTE_CHARS = 15
 
-// Absolute floor on total EXTRACTABLE characters across a PPTX deck — on-slide
-// text PLUS resolved speaker-notes text — mirroring DOCX's <= 200 FAIL floor.
-// The near-empty-slide check in inspectPptx can miss a deck where no single
-// slide crosses the per-slide threshold but the deck as a whole carries
-// almost no text (e.g. a few slides with long titles and nothing else) — this
-// catches that case independent of how text is spread across slides.
-// Must count notes as well as slide text: a deck of sparse, title-only
-// slides carrying thorough speaker notes is the best-case B-school source
-// (the brief says notes often hold the actual explanation), not the worst.
-// Summing only on-slide text would hard-FAIL that deck before the
-// notes-aware titleOnlyAndNoNotes branch below ever gets a look at it.
+// Absolute floor on total extractable characters (on-slide text + resolved
+// speaker notes) across a PPTX deck, mirroring DOCX's 200-char floor.
 const PPTX_MIN_TOTAL_CHARS = 200
 
 // ============================================================================
@@ -340,54 +310,32 @@ async function inspectPdf(filePath, name, bytes, samplePages, opts) {
 
   const all = perPageText.join(' ')
   const spaceRatio = all.length ? (all.match(/ /g) ?? []).length / all.length : 0
-  const ocrTells = [
-    /\bWehave\b|\b[A-Z][a-z]+[A-Z][a-z]+\b/,
-    /zv/,
-    /[A-Z]\/\s*:[A-Z]/,
-    /\b[A-Za-z]+\d[A-Za-z]+\b/,
-  ].filter((re) => re.test(all)).length
   const caretNoSupers = /\^/.test(all) && !/[²³¹⁰⁴-⁹]/.test(all)
-  const lowQuality = ocrTells >= 2 || spaceRatio < 0.12 || caretNoSupers
+  const lowQuality = spaceRatio < 0.12 || caretNoSupers
 
-  let status, statusLabel, verdictLines = []
+  let status, statusLabel, verdictLines = [], imageReason = null
   if (pages === 0) {
     status = 'FAIL'; statusLabel = 'UNUSABLE'
     verdictLines.push('VERDICT: UNUSABLE — no pages could be read from this PDF.')
     verdictLines.push('  Neither text extraction nor a visual read has anything to work with.')
   } else if (perPage >= 200 && lowQuality) {
-    status = 'OK'; statusLabel = 'IMAGE PATH'
-    verdictLines.push('VERDICT: IMAGE PATH — text layer present but unreliable, almost certainly OCR of a scan.')
-    verdictLines.push(`  OCR tells matched: ${ocrTells}/4 | space ratio: ${spaceRatio.toFixed(3)}` +
-      `${caretNoSupers ? ' | exponents flattened to ^' : ''}`)
-    verdictLines.push('  Character count looks healthy, so a naive text-extraction pipeline would')
-    verdictLines.push('  think this worked. It did not — read the sample below; if symbols, braces')
-    verdictLines.push('  or exponents are wrong there, a text pipeline would inherit that. The')
-    verdictLines.push('  page images underneath are intact, though: skip the OCR text layer and')
-    verdictLines.push('  read the pages with a multimodal model instead.')
+    imageReason = `text layer present but unreliable, almost certainly OCR of a scan ` +
+      `(space ratio: ${spaceRatio.toFixed(3)}${caretNoSupers ? ', exponents flattened to ^' : ''}).`
   } else if (perPage < 200) {
-    status = 'OK'; statusLabel = 'IMAGE PATH'
-    verdictLines.push('VERDICT: IMAGE PATH — scanned, or no reliable text layer.')
-    verdictLines.push('  Text extraction will not work here, but the page images are intact.')
-    verdictLines.push('  Route this to a multimodal model that reads the pages directly rather')
-    verdictLines.push('  than pointing the text-based generator at it — that would silently')
-    verdictLines.push('  produce nothing.')
+    imageReason = 'scanned, or no reliable text layer.'
   } else if (emptyPages > pages * 0.3) {
-    status = 'OK'; statusLabel = 'IMAGE PATH'
-    verdictLines.push('VERDICT: IMAGE PATH — mixed text layer, a significant share of pages have none.')
-    verdictLines.push('  Likely a text PDF with scanned inserts, or scanned pages with an OCR')
-    verdictLines.push('  layer applied unevenly. Read it visually rather than trying to patch')
-    verdictLines.push('  text extraction per page.')
+    imageReason = 'mixed text layer — a significant share of pages have none.'
   } else {
     status = 'OK'; statusLabel = 'TEXT PATH'
     verdictLines.push('VERDICT: TEXT PATH. Extraction is viable.')
-    verdictLines.push('  Check the sample below for how the mathematics survived.')
   }
 
-  const signals = {
-    'Unicode math (√ ∫ ∑ ≤ ≥ ≠ ±)': /[√∫∑≤≥≠±×÷∞π]/.test(all),
-    'Superscript digits (² ³)': /[²³¹⁰⁴-⁹]/.test(all),
-    'Fraction slashes in context': /\d\s*\/\s*\d/.test(all),
-    'LaTeX-ish sequences': /\\(frac|sqrt|int|sum|alpha|beta|theta)/.test(all),
+  if (imageReason) {
+    status = 'OK'; statusLabel = 'IMAGE PATH'
+    verdictLines.push(`VERDICT: IMAGE PATH — ${imageReason}`)
+    verdictLines.push('  Text extraction is not reliable here, but the page images are intact.')
+    verdictLines.push('  Route this to a multimodal model that reads the pages directly rather')
+    verdictLines.push('  than pointing the text-based generator at it.')
   }
 
   const mid = perPageText[Math.floor(pages / 2)] ?? ''
@@ -403,20 +351,11 @@ async function inspectPdf(filePath, name, bytes, samplePages, opts) {
     console.log(`Bytes per page          : ${bytesPerPage} KB`)
     console.log('='.repeat(64))
     console.log('\n' + verdictLines.join('\n'))
-    console.log('\nMath notation signals in the extracted text:')
-    for (const [label, found] of Object.entries(signals)) {
-      console.log(`  ${found ? 'present' : 'ABSENT '}  ${label}`)
-    }
-    console.log('\n  If Unicode math and superscripts are ABSENT but the book is full of')
-    console.log('  equations, the notation was flattened during extraction. Character')
-    console.log('  count alone will not tell you this — read the sample.')
     console.log(`\n${'-'.repeat(64)}`)
     console.log(`SAMPLE — page ${midPageNum}, first 1200 characters:`)
     console.log('-'.repeat(64))
     console.log(mid.slice(0, 1200) || '(no text on this page)')
-    console.log('-'.repeat(64))
-    console.log('\nRead that sample carefully. If the equations are unreadable there,')
-    console.log('they will be unreadable to the question generator too.\n')
+    console.log('-'.repeat(64) + '\n')
   }
 
   if (opts.verbose) printFull()
@@ -429,116 +368,20 @@ async function inspectPdf(filePath, name, bytes, samplePages, opts) {
 }
 
 // ---- DOCX -------------------------------------------------------------------
-// word/document.xml carries the whole body; heading levels come from
-// w:pStyle values like "Heading1".."Heading9" (or "heading 1" in some
-// templates) inside w:pPr. Section = one top-level (level-1) heading.
-
-// Body prose lives only in <w:t> runs. Sweeping every XML text node (the old
-// approach) also picks up <wp:posOffset> layout numbers, <w:instrText> field
-// codes (e.g. HYPERLINK), and <w:delText> tracked-deletion text — none of
-// which is something a reader of the document actually sees. Matching the
-// tag name specifically excludes w:instrText/w:delText for free (they don't
-// match <w:t>), and xml:space="preserve" is honored so meaningful run-to-run
-// spacing survives while default runs still get trimmed.
-function extractDocxRunText(xmlFragment) {
-  const runRe = /<w:t(\s[^>]*)?>([\s\S]*?)<\/w:t>/g
-  let out = ''
-  let m
-  while ((m = runRe.exec(xmlFragment))) {
-    const preserve = /xml:space="preserve"/.test(m[1] ?? '')
-    let text = m[2]
-      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
-    if (!preserve) text = text.trim()
-    out += text
-  }
-  return out.replace(/[ \t]+/g, ' ').trim()
-}
-
-// Split word/document.xml into top-level <w:p>...</w:p> paragraphs by
-// depth-tracking the tag instead of one lazy `[\s\S]*?` regex. A paragraph
-// containing a text box (`w:txbxContent`) nests a second, inner <w:p> inside
-// the outer one; the lazy regex stopped at that inner </w:p> and silently
-// dropped everything in the outer paragraph after the text box. Depth
-// tracking captures the whole outer span, inner paragraph included, and also
-// handles the rare self-closing <w:p/> (an empty paragraph).
-function splitTopLevelParagraphs(xml) {
-  const tagRe = /<w:p\b[^>]*\/>|<w:p\b[^>]*>|<\/w:p>/g
-  const paragraphs = []
-  let depth = 0
-  let start = -1
-  let m
-  while ((m = tagRe.exec(xml))) {
-    const tok = m[0]
-    if (tok.endsWith('/>')) {
-      if (depth === 0) paragraphs.push(tok)
-      continue
-    }
-    if (tok === '</w:p>') {
-      depth--
-      if (depth === 0 && start !== -1) {
-        paragraphs.push(xml.slice(start, tagRe.lastIndex))
-        start = -1
-      }
-    } else {
-      if (depth === 0) start = m.index
-      depth++
-    }
-  }
-  return paragraphs
-}
+// word/document.xml carries the whole body. Routing decision is extractable
+// character count alone (mirrors PPTX's floor): low/no extractable text does
+// not mean the document is empty — it may be mostly tables, images, or
+// embedded objects, which route to IMAGE PATH the same as a picture-heavy
+// PPTX deck.
 
 function inspectDocx(filePath, name, size, opts) {
   const zip = openZip(filePath)
   const docXmlBuf = zip.read('word/document.xml')
   if (!docXmlBuf) throw new Error('word/document.xml not found — not a valid DOCX.')
   const xml = docXmlBuf.toString('utf8')
+  const text = xmlToText(xml)
+  const totalChars = text.length
 
-  // Split into paragraphs to walk in document order, so headings and their
-  // following body text can be attributed to the right section.
-  const paragraphs = splitTopLevelParagraphs(xml)
-
-  const headingLevels = new Set()
-  const sections = [] // { level, title, chars }
-  let current = null
-
-  for (const p of paragraphs) {
-    const styleMatch = p.match(/<w:pStyle\s+w:val="([^"]+)"/)
-    const style = styleMatch ? styleMatch[1] : ''
-    const headingMatch = style.match(/^Heading(\d)$/i) || style.match(/^heading\s*(\d)$/i)
-    const text = extractDocxRunText(p)
-
-    if (headingMatch) {
-      const level = Number(headingMatch[1])
-      headingLevels.add(level)
-      current = { level, title: text || '(untitled heading)', chars: 0, body: '' }
-      sections.push(current)
-    } else if (text) {
-      if (!current) {
-        current = { level: 0, title: '(before first heading)', chars: 0, body: '' }
-        sections.push(current)
-      }
-      current.chars += text.length
-      current.body += (current.body ? ' ' : '') + text
-    }
-  }
-
-  const totalChars = sections.reduce((n, s) => n + s.chars, 0)
-  const maxDepth = headingLevels.size ? Math.max(...headingLevels) : 0
-  // With no real headings, every section is the synthetic level-0 "(before
-  // first heading)" bucket — that's not a section, it's "no structure found".
-  // Report 0, not 1.
-  const topLevelSections = headingLevels.size
-    ? sections.filter((s) => s.level === Math.min(...headingLevels)).length
-    : 0
-
-  // Route on extractable text alone. Heading structure (below) is a
-  // chunking detail for the TEXT PATH pipeline, not a routing decision —
-  // real prose without headings still routes to TEXT PATH, it just needs
-  // inferred chunk boundaries instead of free ones. Low/no extractable text
-  // does not mean the document is empty: it may be mostly tables, images,
-  // or embedded objects, which LibreOffice can render to PDF for a
-  // multimodal read — the same IMAGE PATH used for picture-heavy PPTX decks.
   let status, statusLabel
   if (totalChars > 200) {
     status = 'OK'; statusLabel = 'TEXT PATH'
@@ -546,23 +389,13 @@ function inspectDocx(filePath, name, size, opts) {
     status = 'OK'; statusLabel = 'IMAGE PATH'
   }
 
-  const sampleSection = sections.find((s) => s.chars > 100) ?? sections[0]
-  const sampleText = sampleSection ? `${sampleSection.title}\n\n${sampleSection.body}` : ''
-
   const printFull = () => {
     console.log('='.repeat(64))
-    console.log(`Heading levels present   : ${headingLevels.size ? [...headingLevels].sort().join(', ') : 'none'}`)
-    console.log(`Max heading depth        : ${maxDepth}`)
-    console.log(`Section count (top-level headings) : ${topLevelSections}`)
-    console.log(`Total body characters    : ${totalChars.toLocaleString()}`)
+    console.log(`Total extractable characters : ${totalChars.toLocaleString()}`)
     console.log('='.repeat(64))
 
-    if (statusLabel === 'TEXT PATH' && headingLevels.size > 0) {
-      console.log('\nVERDICT: TEXT PATH. Real prose with heading structure — chunk on headings.')
-    } else if (statusLabel === 'TEXT PATH') {
-      console.log('\nVERDICT: TEXT PATH — real prose, but no heading structure to chunk on.')
-      console.log('  No w:pStyle heading levels were found, so there is no free topic')
-      console.log('  boundary. Treat like a PDF: infer chunks.')
+    if (statusLabel === 'TEXT PATH') {
+      console.log('\nVERDICT: TEXT PATH. Extraction is viable.')
     } else {
       console.log('\nVERDICT: IMAGE PATH — little extractable prose in the XML.')
       console.log('  If this document is mostly tables, images, or embedded objects, that')
@@ -570,16 +403,10 @@ function inspectDocx(filePath, name, size, opts) {
       console.log('  relying on text extraction.')
     }
 
-    console.log('\nCharacters per section (first 10):')
-    for (const s of sections.slice(0, 10)) {
-      console.log(`  [L${s.level || '-'}] ${s.chars.toString().padStart(6)} chars  ${s.title.slice(0, 60)}`)
-    }
-    if (sections.length > 10) console.log(`  ... and ${sections.length - 10} more`)
-
     console.log(`\n${'-'.repeat(64)}`)
-    console.log('SAMPLE — first section with body text, first 1200 characters:')
+    console.log('SAMPLE — first 1200 characters:')
     console.log('-'.repeat(64))
-    console.log((sampleText || extractDocxRunText(xml)).slice(0, 1200) || '(no text found)')
+    console.log(text.slice(0, 1200) || '(no text found)')
     console.log('-'.repeat(64) + '\n')
   }
 
@@ -587,7 +414,7 @@ function inspectDocx(filePath, name, size, opts) {
 
   return {
     name, format: 'DOCX', size, status, statusLabel,
-    keyMetric: `${totalChars.toLocaleString()} chars, depth ${maxDepth}`,
+    keyMetric: `${totalChars.toLocaleString()} chars`,
     detail: printFull,
   }
 }
@@ -673,30 +500,23 @@ function inspectPptx(filePath, name, size, opts) {
   const totalNotesChars = slides.reduce((n, s) => n + s.notesText.length, 0)
   const totalExtractableChars = totalSlideChars + totalNotesChars
 
-  // Order matters here. The absolute floor now looks at BOTH channels
-  // (totalExtractableChars), so it only fires when there is little usable
-  // text anywhere — slides or notes. That lets a deck with thin slides but
-  // substantial notes fall through to titleOnlyAndNoNotes below, where
-  // notesCoverage (computed from real per-slide notes, not the deck-wide
-  // sum) is what actually decides whether the notes rescue it. Checking the
-  // floor first is still correct: it is a strictly weaker condition applied
-  // to a strictly larger number, so it FAILs only decks that would also
-  // fail on notes coverage — it no longer shadows the notes-aware branch.
-  // A picture-heavy deck (thin on-slide text, thin notes) is the NORMAL case
-  // for this course material, not a defect — it routes to IMAGE PATH:
-  // LibreOffice renders the deck to a PDF (one slide -> one page) and a
-  // multimodal model reads it visually. Both conditions below still decide
-  // *which* IMAGE PATH reason to report; neither is a routing failure anymore.
-  let status, statusLabel
+  // belowAbsoluteFloor is checked first: it's a strictly weaker condition on
+  // a strictly larger number (totalExtractableChars includes notes) than
+  // titleOnlyAndNoNotes, so it only fires when a notes-rich deck couldn't
+  // rescue it anyway — checking it first never shadows the notes-aware branch.
+  let status, statusLabel, imageReason = null
   const titleOnlyAndNoNotes = nearEmptySlides > slideCount * 0.5 && notesCoverage < 0.2
   const belowAbsoluteFloor = totalExtractableChars <= PPTX_MIN_TOTAL_CHARS
   if (belowAbsoluteFloor) {
-    status = 'OK'; statusLabel = 'IMAGE PATH'
+    imageReason = `little extractable text anywhere in this deck — only ${totalExtractableChars} ` +
+      `characters (on-slide + notes) against the ${PPTX_MIN_TOTAL_CHARS}-char floor.`
   } else if (titleOnlyAndNoNotes) {
-    status = 'OK'; statusLabel = 'IMAGE PATH'
+    imageReason = 'most slides are title-only with almost no speaker notes — the pedagogical ' +
+      'content is almost certainly in the visuals (frameworks, 2x2s, charts).'
   } else {
     status = 'OK'; statusLabel = 'TEXT PATH'
   }
+  if (imageReason) { status = 'OK'; statusLabel = 'IMAGE PATH' }
 
   const sample = slides[Math.floor(slideCount / 2)] ?? slides[0]
 
@@ -712,19 +532,9 @@ function inspectPptx(filePath, name, size, opts) {
     console.log(`Total extractable characters (slides + notes): ${totalExtractableChars} (floor: ${PPTX_MIN_TOTAL_CHARS})`)
     console.log('='.repeat(64))
 
-    if (belowAbsoluteFloor) {
-      console.log('\nVERDICT: IMAGE PATH — little extractable text anywhere in this deck.')
-      console.log(`  Only ${totalExtractableChars} characters of extractable text across the whole`)
-      console.log(`  deck — on-slide text AND speaker notes combined — below the`)
-      console.log(`  ${PPTX_MIN_TOTAL_CHARS}-char floor regardless of how it is spread across slides`)
-      console.log('  or notes. This is the normal case for a picture-heavy lecture deck, not a')
-      console.log('  defect: render each slide to a PDF page and read it with a multimodal model.')
-    } else if (titleOnlyAndNoNotes) {
-      console.log('\nVERDICT: IMAGE PATH — most slides are title-only with almost no speaker notes.')
-      console.log('  The pedagogical content is almost certainly in the visuals (frameworks,')
-      console.log('  2x2s, charts) that a text-only reader cannot see. Render to PDF and read')
-      console.log('  it visually — this is the expected route for this kind of deck, not a')
-      console.log('  warning.')
+    if (imageReason) {
+      console.log(`\nVERDICT: IMAGE PATH — ${imageReason}`)
+      console.log('  Render each slide to a PDF page and read it with a multimodal model.')
     } else {
       console.log('\nVERDICT: TEXT PATH. A slide is already a chunk — no chunking strategy needed.')
       if (notesCoverage < 0.2) {
