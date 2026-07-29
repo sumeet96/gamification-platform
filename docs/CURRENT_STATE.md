@@ -4,11 +4,11 @@
 
 The source-document quality gate is **built, reviewed by two model families, and committed**.
 `scripts/inspect-source.mjs` reads PDF, DOCX and PPTX and returns a **routing decision** — TEXT PATH,
-IMAGE PATH, or UNUSABLE — with meaningful exit codes. LibreOffice is installed and verified, so
-PPTX/DOCX → PDF rendering works. The `format` column migration for `questions` is written but **not
-yet applied** to Neon.
+IMAGE PATH, or UNUSABLE — with meaningful exit codes. LibreOffice is installed, and the exact
+PPTX → PDF export command (with explicit options, not defaults) is **verified working**. The `format`
+column migration for `questions` is written but **not yet applied** to Neon.
 
-The big directional change this session: **the image path is mandatory, not a fallback.** Sumeet
+The directional change this session: **the image path is mandatory, not a fallback.** Sumeet
 confirmed real MBA lecture decks are almost entirely pictures, so text extraction alone cannot carry
 this pipeline.
 
@@ -21,6 +21,7 @@ a document to a model. Still no automated tests of any kind, anywhere in the pro
 Branch **`feat/source-diagnostic`**, **clean — nothing uncommitted, nothing stashed.**
 
 ```
+2c23030  Checkpoint the session state for a clean handoff
 154ee76  Correct two false claims in the project record
 a75a79c  Route source documents to a text or image path before ingestion
 a6cd8cd  Add a format column to questions ahead of the renderer
@@ -38,19 +39,47 @@ intentionally **empty** `GEMINI_MODEL` awaiting a verified model id.
 
 ## In progress right now
 
-**Nothing is mid-edit.** All three planned actions finished and committed.
+**Nothing is mid-edit.** All planned work finished and committed.
 
 The agreed next task, deliberately not started so it begins with a clean context window:
 **run one real deck end to end** — `Pitch_Session 12.pptx` → LibreOffice PDF → Gemini → questions —
 and judge whether visual reading produces questions worth giving students. This is a
-quality-of-output question that no amount of further design work can answer.
+quality-of-output question that no further design work can answer.
 
-The rendered PDF already exists from this session at the scratchpad path below (regenerate if gone):
+### The verified PPTX → PDF command (use this, not bare `--convert-to pdf`)
 
+Tested this session on `Pitch_Session 12.pptx`: exit 0, **26 slides → 26 pages**, 2.76 MB.
+
+```bash
+soffice --headless --norestore \
+  --convert-to 'pdf:impress_pdf_Export:{"ExportNotesPages":{"type":"boolean","value":"false"},"UseLosslessCompression":{"type":"boolean","value":"true"},"MaxImageResolution":{"type":"long","value":"300"},"UseTaggedPDF":{"type":"boolean","value":"true"},"ExportBookmarks":{"type":"boolean","value":"true"},"EncryptFile":{"type":"boolean","value":"false"}}' \
+  --outdir <outdir> <input.pptx>
 ```
-"C:/Program Files/LibreOffice/program/soffice.exe" --headless --norestore \
-  --convert-to pdf --outdir <outdir> "C:/Users/96sum/Downloads/Pitch_Session 12.pptx"
-```
+
+On Windows `soffice` is `"C:/Program Files/LibreOffice/program/soffice.exe"`. Every other option in
+the GUI export dialog keeps its default and needs no attention.
+
+Why these values:
+- **`ExportNotesPages` false** — turning it on appends a notes page after every slide (26 → 52), which
+  destroys the slide N = page N mapping that per-slide attribution depends on. Speaker notes are
+  already read from the PPTX directly via `resolveNotesEntry()`, more reliably than from a rendered
+  page of text.
+- **`UseLosslessCompression` true** — the decks have wording baked into images, and JPEG artefacts land
+  on the letter edges the model must read. Costs file size only: **Gemini bills per page, not per
+  byte**, and rasterises each page at its own resolution regardless. Default export was 1.17 MB,
+  lossless 2.76 MB, same token cost.
+- **`UseTaggedPDF` true** — preserves structure for the text half of Gemini's dual read.
+- **`EncryptFile` false** — an encrypted PDF is unreadable downstream; `inspect-source.mjs` already
+  reports encrypted archives as UNUSABLE.
+
+### Two guards to build into ingestion (not yet written)
+
+1. **Assert PDF page count equals PPTX slide count before generating anything.** `Export hidden pages`
+   is off by default (correct — hidden slides were hidden deliberately), which means a deck with
+   hidden slides renders *fewer pages than it has slides*. The numbering then shifts and every
+   question is attributed to the wrong slide, **silently**. Both numbers are already available:
+   slide count from the PPTX reader, page count from the PDF reader.
+2. **Keep `EncryptFile` explicitly false** rather than relying on the default.
 
 ## Decisions made this session
 
@@ -64,6 +93,8 @@ The rendered PDF already exists from this session at the scratchpad path below (
   intact; only the extracted text is ruined.
 - **No PDF→image tool is needed** — Gemini reads PDFs with native vision (text + rendered page
   images, ~1000 pages, no charge for natively embedded text). Poppler was proposed and **withdrawn**.
+- **PDF export options are passed as FilterData JSON on the command line**, so the GUI export dialog
+  never appears in the workflow.
 - **Zero npm dependencies for OOXML** — DOCX/PPTX are read by walking the zip with `node:zlib`.
   `package.json` is unchanged and must stay that way.
 - **PPTX speaker notes resolve through `ppt/slides/_rels/slideN.xml.rels`**, never by filename —
@@ -99,10 +130,10 @@ The rendered PDF already exists from this session at the scratchpad path below (
 ## Next 3 actions
 
 1. **Run one real deck end to end and judge the output.** Render
-   `C:/Users/96sum/Downloads/Pitch_Session 12.pptx` to PDF with the command above, send that PDF to
-   Gemini, and generate questions from it. Confirm the exact model id in AI Studio first and set
-   `GEMINI_MODEL` in `.env.local` — do not edit the script fallback. Judge the questions on whether
-   they are worth giving a student; everything downstream depends on that answer.
+   `C:/Users/96sum/Downloads/Pitch_Session 12.pptx` using the verified FilterData command above, send
+   that PDF to Gemini, and generate questions from it. Confirm the exact model id in AI Studio first
+   and set `GEMINI_MODEL` in `.env.local` — do not edit the script fallback. Judge the questions on
+   whether they are worth giving a student; everything downstream depends on that answer.
 2. **Apply `db/002_add_question_format.sql`** by pasting it into the Neon web SQL editor.
 3. **Ask Prof. Singh two things:** (a) is he comfortable with the Gemini free tier's training-data
    clause applying to his unpublished course material, or should the small paid Tier 1 spend be
@@ -116,6 +147,8 @@ The rendered PDF already exists from this session at the scratchpad path below (
 - **Do not expect LibreOffice to export slide images.** `--convert-to png` on a 26-slide deck yields
   **1 PNG** (first slide only). `--convert-to pdf` is correct: 26 slides → 26 pages, 1:1, so slide N
   is page N. The old claim that LibreOffice produces the images has been corrected in HANDOFF.md.
+- **Do not turn on `Export notes pages`** in the PDF export — it doubles the page count and breaks
+  slide-to-page alignment. Notes come from the PPTX directly.
 - **Do not pass a steering prompt to codex on codex-cli 0.145.0.** `--uncommitted`, `--base` and
   `--commit` all reject `[PROMPT]` at argument parsing. Reviews are **always unsteered**; `--title`
   is the only context that gets through. Treat unmentioned topics as unreviewed, not cleared.
@@ -134,6 +167,8 @@ The rendered PDF already exists from this session at the scratchpad path below (
 - **Do not use `psql`** — not installed. Neon web SQL editor only.
 - **Do not add bcrypt/argon2/an auth library** — the zero-dependency `node:crypto` approach is built
   and reviewed.
+- **Do not run `soffice --version` and wait for it** — it hangs / returns nothing on this Windows
+  install. Test capability with an actual `--convert-to` run instead.
 - If `git add` fails with `short read while indexing nul`, a Windows reserved device name was captured
   by a `> nul` redirect in Git Bash. `rm -f ./nul`; both are gitignored now.
 
