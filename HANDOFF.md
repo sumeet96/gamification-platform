@@ -93,6 +93,18 @@ Expected pilot document formats are PPTX mostly, plus DOCX and PDF.
 
 **Gemini free-tier limits, checked live 29 Jul 2026:** Flash-Lite 15 RPM / 1,000 RPD; Flash 10 RPM / 250 RPD; 250k TPM shared across a project. Question generation is a one-off offline batch of roughly 20 decks, so volume is not the binding constraint. Google cut free-tier quotas 50-80% in December 2025 without notice and does not guarantee them, so the existing "develop on free tier, architect for paid Tier 1" rule (§5a) stands. Open question for Prof. Singh: the free tier's training-data clause would apply to his unpublished course material during the offline generation batch, even though no student data ever reaches the LLM (questions are pre-generated before the pilot runs).
 
+**Validation stage added 29 Jul 2026: `scripts/validate-questions.mjs` (commit `10fd55b`).** Generated questions must pass it before any database write. It exists because the first real generation run — one lecture deck through Gemini — produced output that looked good and was not usable as-is: three of fifteen questions cited slide 1, which contains only the deck title, and one asked about Amazon's mission statement, which does not appear in the deck at all — the model supplied its own knowledge and attributed it to the source. Separately, 8 of 15 correct answers sat at index 1 and none at index 3: a student always guessing B scores 53%, which is profitable under +20/−10 scoring while learning nothing, contaminating the measure the study depends on. The correct option was also frequently the longest and most detailed. And several questions referred to "the competitive landscape slide", "the team slide", "the examples provided" — unanswerable for a student who never sees the source.
+
+The script rejects on self-containment, shape (mirroring the `questions` table), duplicate options, option-length imbalance, and slide provenance. It then shuffles the options and recomputes `answer`, seeded from a hash of the question prompt so the same input always yields the same output and a research run stays reproducible. Exit 0 all passed, 2 some rejected, 1 operational failure.
+
+Two things learned by testing, not assumed: answer-position bias is fixed in code, not by prompting — instructing the model to vary the correct position was tried and not complied with reliably. And self-containment matching must be word-boundary, not substring — a `"the slide"` substring check misses `"the competitive landscape slide"`, which was the actual failing sentence, and words with innocent business meanings (`figure` as a number, `image` as in brand image) need qualifying, since bare matching rejected a valid question.
+
+The `slide` field on each generated question is permanent, not a test artefact — it is how fabrication is detected, and it caught three cases on the first run.
+
+**Pipeline shape as it stands:** source document → `inspect-source.mjs` routes it → LibreOffice renders to PDF if it is on the image path → Gemini generates questions → `validate-questions.mjs` rejects and repairs → database.
+
+One aside from this session: the AI Studio playground demanded a paid API key, but a `GEMINI_API_KEY` already exists in `.env.local`. That was a playground gate, not an account restriction — the API path is not blocked.
+
 ## 4. The agreed product (from the 21 Jul call) — SUPERSEDED
 
 ⚠️ **SUPERSEDED by §3 (27 Jul pivot).** The design below is the original vision from the 21 Jul call. It is now parked. Refer to §3 for the current product definition.
