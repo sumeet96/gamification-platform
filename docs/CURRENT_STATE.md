@@ -15,8 +15,11 @@ defects in the generated output, which `validate-questions.mjs` now catches.
 removed (~16% of the codebase) with no capability lost.
 
 What does **not** exist: automated ingestion. `scripts/generate-questions.mjs` is still a PDF-only
-first-draft stub, nothing sends a document to a model programmatically, and `db/002` is unapplied.
-No automated tests anywhere.
+first-draft stub and nothing sends a document to a model programmatically. No automated tests anywhere.
+
+`db/002_add_question_format.sql` **is applied** — verified live on 29 Jul against the Neon project
+`ancient-brook-62806105`: `questions.format` is `text not null default 'plain'`, and the constraint
+`questions_format_check` exists with the same name `db/schema.sql`'s inline check would generate.
 
 ## Working tree
 
@@ -105,8 +108,8 @@ pages, exit 0.
 - **`GEMINI_MODEL` is empty.** The AI Studio playground demanded a paid key, but `GEMINI_API_KEY`
   already exists in `.env.local` — that was a playground gate, not an account one. The API is not
   blocked. Confirm the exact vision-capable model id before setting it.
-- **`db/002_add_question_format.sql` is unapplied.** Paste into the **Neon web SQL editor** (`psql`
-  not installed). Safe to re-run.
+- ~~`db/002_add_question_format.sql` unapplied~~ — **applied and verified live 29 Jul.** Nothing
+  writes a non-`plain` value yet, so every row reads `'plain'` until a generator sets it.
 - **The answer key ships to the browser.** `/api/questions` returns `answer` for every row because
   scoring is client-side (`app/quiz/page.tsx` compares `i === q.answer`). A student with devtools can
   score perfectly and the dataset cannot distinguish that from learning. Needs a deliberate decision.
@@ -129,7 +132,11 @@ pages, exit 0.
    command above, upload the PDF to Gemini with the §3a prompt, pipe output through
    `node scripts/validate-questions.mjs <file> --out clean.json`, then upsert. Include the two guards
    in "In progress". Set `GEMINI_MODEL` in `.env.local` first — do not edit the script fallback.
-2. **Apply `db/002_add_question_format.sql`** in the Neon web SQL editor.
+2. **Run the Gemini output through the validator.** Sumeet is generating questions from
+   `Pitch_Session 12.pptx` and will bring the JSON to the next session:
+   `node scripts/validate-questions.mjs questions.json --ignore-slides 1,26 --out clean.json`.
+   Expect rejections — the first run produced fabrication, answer-position bias and self-containment
+   breaches. Judge the survivors on whether they are worth giving a student.
 3. **Ask Prof. Singh:** (a) free-tier training-data clause on his material, or approve paid Tier 1;
    (b) two or three sample decks — everything so far was tested against Sumeet's personal files.
 
