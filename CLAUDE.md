@@ -32,6 +32,7 @@ Weekly supervisor meetings Mon/Tue afternoons. Next: **Mon 3 Aug 2026**.
 - Ask before adding dependencies or paid services.
 - Prefer small, verifiable increments matching the week plan in HANDOFF.md §6.
 - Any claim destined for the paper must cite a source in `/docs/literature/` or be flagged as unverified.
+- When a design decision changes, delete the machinery it obsoleted. The OCR heuristics in `scripts/inspect-source.mjs` survived past "the image path is mandatory," got defended and duplicated across two files, and were reviewed by two model families before a 29 Jul 2026 `/simplify` pass found they never changed a routing outcome.
 
 ## Orchestration (added 28 Jul 2026 — full rationale in `docs/architecture/agent-orchestration.md`)
 Two sessions have already died of context exhaustion. The main session is an **orchestrator**: it

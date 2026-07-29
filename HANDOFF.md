@@ -1,6 +1,6 @@
 # HANDOFF: Gamified Adaptive Learning Platform (FBT Research Project)
 
-**Prepared:** 22 Jul 2026. **Updated:** 29 Jul 2026 (question-generation pipeline design decisions, 28-29 Jul, plus the source-diagnostic build, a LibreOffice rationale correction, and a codex-steering correction, all recorded same day; see §3a). Previous update: 28 Jul 2026 (post-pivot rebuild; authentication wired same day, commit b569cc5; app gated end to end and lifetime stats added same day, commit 408bd54). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot, a same-day follow-up (commit b569cc5) wired real authentication, and a further same-day commit (408bd54) closed the login gate and wired lifetime stats. All three commits are pushed to `origin/main`. This doc now records both the original vision (history) and the current state.
+**Prepared:** 22 Jul 2026. **Updated:** 29 Jul 2026 (question-generation pipeline design decisions, 28-29 Jul, plus the source-diagnostic build, a LibreOffice rationale correction, a codex-steering correction, a `/simplify` pass removing 673 dead/misfiring lines, and a `round_stop` event-shape fix, all recorded same day; see §3a). Previous update: 28 Jul 2026 (post-pivot rebuild; authentication wired same day, commit b569cc5; app gated end to end and lifetime stats added same day, commit 408bd54). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot, a same-day follow-up (commit b569cc5) wired real authentication, and a further same-day commit (408bd54) closed the login gate and wired lifetime stats. All three commits are pushed to `origin/main`. This doc now records both the original vision (history) and the current state.
 
 ---
 
@@ -65,7 +65,7 @@ Eight defects were found and fixed across two review rounds before commit.
 
 ## 3a. Question-generation pipeline: design decisions (28-29 Jul 2026, not yet built)
 
-The pipeline itself does not exist yet. `scripts/inspect-pdf.mjs` (committed in `fa38a2a`) is the first piece of it. Everything below is a design decision taken during the 28-29 Jul 2026 planning work, recorded before any of the rest is built.
+The pipeline itself does not exist yet. `scripts/inspect-source.mjs` (committed in `fa38a2a`/`a75a79c`; superseded `scripts/inspect-pdf.mjs`, which was deleted as dead on 29 Jul, commit `08df8b1`) is the first piece of it. Everything below is a design decision taken during the 28-29 Jul 2026 planning work, recorded before any of the rest is built.
 
 **The direction decision.** Sumeet proposed building the pipeline first against a Grade 11 mathematics textbook, on the reasoning that maths is the hardest case and everything else becomes easy by comparison. On examination this holds for *infrastructure* only: notation-capable storage, a renderer, and multimodal ingestion are strict supersets of what plain prose needs. It does not hold for the AI layer: maths questions test procedure, management questions test understanding, so the generation prompt, the difficulty rubric, and the validation approach do not transfer from one domain to the other. Maths-first risked roughly 60-100 hours on a capability the pilot may never need, against a total budget of ~400-450 hours and a mid-September pilot. **Decision: build against clean text documents first; treat mathematics as a later generalisation proof**, run once the pilot path already works. That ordering is also the stronger research claim — demonstrated generalisation across subject domains, rather than an untested design goal carried into the pilot.
 
@@ -104,6 +104,20 @@ The `slide` field on each generated question is permanent, not a test artefact �
 **Pipeline shape as it stands:** source document → `inspect-source.mjs` routes it → LibreOffice renders to PDF if it is on the image path → Gemini generates questions → `validate-questions.mjs` rejects and repairs → database.
 
 One aside from this session: the AI Studio playground demanded a paid API key, but a `GEMINI_API_KEY` already exists in `.env.local`. That was a playground gate, not an account restriction — the API path is not blocked.
+
+**`/simplify` pass, 29 Jul 2026 (commits `08df8b1`, `7895e69`, `404f2cb`).** A whole-codebase quality pass removed 673 lines and added 102, roughly 16% of the codebase, with no capability lost.
+
+The OCR heuristics in `scripts/inspect-source.mjs` were deleted, not tuned (`7895e69`). Four regexes had detected "OCR tells" to distinguish a clean text layer from a garbled scan. Two problems, both verified by running them: they misfire on the pilot's own subject matter — a real, clean, digitally-typeset business PDF tripped 2 of 4 tells, enough to meet the threshold, on the strings `IndianOil` (reads as run-together words) and `D2C` (reads as a digit fused into a word); `PowerPoint` and `B2B` do the same. A clean Digital Transformation PDF was being classified as a broken scan. And they never changed a routing outcome: low-quality text and sparse text both route to the image path, so the discrimination between them decided nothing. `spaceRatio < 0.12` and the caret/superscript check survive — both are honest signals, and the scanned maths book still routes to the image path through the caret check. `scripts/inspect-source.mjs` went from 750 to 560 lines. The maths-notation panel (printed, never read, a deferred feature) and the DOCX heading-walk and section table (fed a report that drove no decision) were also removed.
+
+Five files were deleted as dead (`08df8b1`): `scripts/inspect-pdf.mjs` (superseded by its own behaviour-preserving superset, `scripts/inspect-source.mjs`), `GIT_SETUP.sh` (one-time bootstrap, already ran), `components.json` and `lib/utils.ts` (shadcn scaffolding — no `components/` directory, no caller of `cn()`), and `supabase/migrations/0001_events.sql`, which matters most: it defined a second, conflicting `events` table from the design the project pivoted away from on 27 Jul, with `not null` columns that would collide with the real one. Nothing in the repo referenced Supabase.
+
+Consequence left in place rather than fixed unilaterally: `clsx` and `tailwind-merge` are now unused in `package.json`.
+
+**Generation-path gap this exposed:** `scripts/generate-questions.mjs:79-81` has its own weaker inline validity check that clamps rather than rejects — `Number(q.answer) || 0` turns a null or NaN answer into index 0 and upserts it. When the generator is wired end to end, its output must pass through `scripts/validate-questions.mjs` instead.
+
+**Same pass, research-dataset fix (`404f2cb`).** `round_stop` was emitted with two different shapes: `app/results/page.tsx` omitted `game_type` and re-derived the round number from session state, while `app/quiz/page.tsx` used its own. Each was correct at its own call site, and they agreed numerically only because of commit timing between the two screens — undocumented and fragile. Analysing the event required knowing which screen the student quit from, which was never recorded. The round number is now stamped onto `RoundSummary` when the round is committed, and both screens read it.
+
+Remaining known issue, not fixed: an abandoned round reuses a round number. Quitting mid-quiz never increments `session.roundsPlayed`, so two distinct real attempts can share a `round` value in the event log.
 
 ## 4. The agreed product (from the 21 Jul call) — SUPERSEDED
 
@@ -262,18 +276,14 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - `.env.local.example` — environment variable template (Neon credentials, Gemini key, `SESSION_SECRET`); restored in b569cc5 after being lost in a move rather than a copy.
 - `.gitignore` — new (commit 408bd54); tracked so a stray Windows reserved-device-name file (`nul`/`NUL`, produced by a `> nul` redirect in Git Bash) stays out of the index.
 - `skills-lock.json` — new (commit 408bd54); lockfile pinning the `neon` and `neon-postgres` agent skills (source `neondatabase/agent-skills`) used during the Neon setup and end-to-end run.
-- `package.json`, `package-lock.json` — Next 16 / React 19 / Tailwind v4 dependencies; unchanged by the auth or gating work (no new dependencies).
+- `package.json`, `package-lock.json` — Next 16 / React 19 / Tailwind v4 dependencies; unchanged by the auth or gating work (no new dependencies). `clsx` and `tailwind-merge` are unused as of the 29 Jul `/simplify` pass, left in place rather than removed unilaterally.
 - `tsconfig.json`, `next.config.mjs`, `postcss.config.mjs` — build config.
-- `components.json` — shadcn/ui config (for future component scaffolds).
-- `GIT_SETUP.sh` — repo setup script.
 - `README.md` — project readme.
 
 **Content generation:**
-- `scripts/generate-questions.mjs` — Gemini-powered MCQ generator from course PDFs (reads `COURSE_PDFS` env, outputs to `db/schema.sql` seed or API).
-- `scripts/inspect-pdf.mjs` — first piece of the question-generation pipeline (commit `fa38a2a`); checks a source PDF for OCR quality/text density before it enters the pipeline. Design decisions for the rest of the pipeline are in §3a; not yet built beyond this script.
-
-**Callouts:**
-- `supabase/migrations/0001_events.sql` — legacy Supabase migration (pre-pivot; Neon schema is in `db/schema.sql`).
+- `scripts/generate-questions.mjs` — Gemini-powered MCQ generator from course PDFs (reads `COURSE_PDFS` env, outputs to `db/schema.sql` seed or API). Its inline validity check (lines 79-81) clamps rather than rejects a bad answer index; see §3a, generation-path gap.
+- `scripts/inspect-source.mjs` — the permanent mandatory routing gate for the pipeline (commit `a75a79c`; OCR heuristics removed 29 Jul, commit `7895e69`, see §3a). Design decisions for the rest of the pipeline are in §3a; not yet built beyond this script.
+- `scripts/validate-questions.mjs` — rejects generated questions that break pipeline rules (commit `10fd55b`); see §3a.
 
 **Literature (refs for the paper):**
 - `docs/literature/` — 16 research PDFs and a README index (Gamification for Dummies-adjacent, SDT, HEXAD, MDA framework, aging/gamification, MBTI/personality, McKinsey job satisfaction, pymetrics, etc.). See `docs/literature/README.md` for full list.
