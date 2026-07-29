@@ -89,6 +89,14 @@ control lives in usage discipline: Terra by default, one run per invocation, sco
 fan-out. Each run costs roughly 11k tokens before it reads any code. Codex reviews diffs and never
 writes code. `.claude/settings.local.json` denies the bypass-sandbox and full-auto flags outright.
 
+**Steering does not work on this version, confirmed 29 Jul 2026.** `--uncommitted`, `--base`, and
+`--commit` were all tried with a trailing prompt and all three fail at argument parsing (`the
+argument '--commit <SHA>' cannot be used with '[PROMPT]'`) — the 28 Jul note that `--base`/`--commit`
+were a workaround for `--uncommitted` rejecting a prompt was itself wrong; none of the three accept
+one. A codex review on codex-cli 0.145.0 is therefore always unsteered — it picks its own focus, and
+`--title` is the only context that gets through. Treat anything not mentioned in its report as
+unreviewed, not cleared. The parse errors happen before any model call, so they cost nothing.
+
 **Gemini** (`gemini` CLI 0.19.4) handles bulk generation from source material — drafting MCQs from
 course readings, summarizing long PDFs. It never sees student data; that boundary is written into
 the agent's system prompt and is a project-level rule, not a preference.

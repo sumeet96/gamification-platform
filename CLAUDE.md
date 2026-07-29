@@ -46,9 +46,13 @@ reports.
   default, passed explicitly with `-m`. **Escalates to `gpt-5.6-sol` only when you say so** in the
   request; it will never upgrade on its own judgment. Requires API-key auth (Sol is blocked on
   ChatGPT-account auth). Diffs only, never a builder, one run per invocation, scoped diffs.
-  **codex-cli 0.145.0 rejects `--uncommitted` combined with a steering prompt** (found 28 Jul 2026);
-  steered reviews must use `--base` or `--commit <sha>` instead, or the review silently runs
-  unsteered.
+  **codex-cli 0.145.0 rejects a steering prompt in every form tested** (found 28 Jul, confirmed
+  29 Jul 2026): `--uncommitted "<prompt>"`, `--base <branch> "<prompt>"`, and
+  `--commit <sha> "<prompt>"` all fail at argument parsing (`the argument '--commit <SHA>' cannot
+  be used with '[PROMPT]'`). No workaround found — a codex review on this version is always
+  unsteered; it picks its own focus. Treat topics not mentioned in its report as unreviewed, not
+  cleared. `--title` is accepted and is the only way to give it context. The parse errors cost
+  nothing (no model call, no billing).
 - `gemini-bulk` (haiku bridge → `gemini`) — bulk generation from course material. **Never student data.**
 - `db-engineer` (sonnet) — schema, migrations, event-log design. Additive migrations only.
 - `scribe` (sonnet) — HANDOFF.md and docs/. Moved up from haiku on 28 Jul after a haiku run
