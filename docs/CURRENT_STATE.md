@@ -2,53 +2,117 @@
 
 ## Where we are
 
-The source-document quality gate is **built, reviewed by two model families, and committed**.
-`scripts/inspect-source.mjs` reads PDF, DOCX and PPTX and returns a **routing decision** — TEXT PATH,
-IMAGE PATH, or UNUSABLE — with meaningful exit codes. LibreOffice is installed, and the exact
-PPTX → PDF export command (with explicit options, not defaults) is **verified working**. The `format`
-column migration for `questions` is written but **not yet applied** to Neon.
+Two pipeline tools are built, verified and committed: `scripts/inspect-source.mjs` (routes a source
+document to TEXT PATH / IMAGE PATH / UNUSABLE) and `scripts/validate-questions.mjs` (rejects
+generated questions that break the rules, and shuffles option order deterministically). LibreOffice
+is installed and the exact PPTX → PDF export command is verified.
 
-The directional change this session: **the image path is mandatory, not a fallback.** Sumeet
-confirmed real MBA lecture decks are almost entirely pictures, so text extraction alone cannot carry
-this pipeline.
+**The approach is proven.** One real deck was run end to end through Gemini and produced usable
+questions from slides containing zero text — visual reading works. It also exposed four concrete
+defects in the generated output, which is what `validate-questions.mjs` now catches.
 
-What does **not** exist: any ingestion or question-generation for DOCX/PPTX.
-`scripts/generate-questions.mjs` still handles PDF only and is a first-draft stub. Nothing yet sends
-a document to a model. Still no automated tests of any kind, anywhere in the project.
+What does **not** exist: any automated ingestion. `scripts/generate-questions.mjs` is still a
+PDF-only first-draft stub, nothing sends a document to a model programmatically, and the
+`db/002` migration is written but unapplied. No automated tests anywhere in the project.
 
 ## Working tree
 
 Branch **`feat/source-diagnostic`**, **clean — nothing uncommitted, nothing stashed.**
 
 ```
+10fd55b  Reject generated questions that break the pipeline rules
+e64d732  Record the verified PDF export settings and the slide-alignment hazard
 2c23030  Checkpoint the session state for a clean handoff
 154ee76  Correct two false claims in the project record
 a75a79c  Route source documents to a text or image path before ingestion
 a6cd8cd  Add a format column to questions ahead of the renderer
-2d75381  Record the question-pipeline design decisions in the project record   <- previous HEAD
+2d75381  <- where this branch left main
 ```
 
-**Not merged to `main` and not pushed.** The project's history is otherwise main-only. To merge:
+**Not merged to `main` and not pushed.** Project history is otherwise main-only:
 
 ```
 git checkout main && git merge --ff-only feat/source-diagnostic
 ```
 
-`.env.local` (gitignored) still holds `DATABASE_URL`, `SESSION_SECRET`, `GEMINI_API_KEY`, and an
-intentionally **empty** `GEMINI_MODEL` awaiting a verified model id.
-
 ## In progress right now
 
-**Nothing is mid-edit.** All planned work finished and committed.
+**`/simplify` was requested and interrupted before it ran.** No review agents were launched, no
+cleanup was applied. This is the one unfinished item.
 
-The agreed next task, deliberately not started so it begins with a clean context window:
-**run one real deck end to end** — `Pitch_Session 12.pptx` → LibreOffice PDF → Gemini → questions —
-and judge whether visual reading produces questions worth giving students. This is a
-quality-of-output question that no further design work can answer.
+Motivation: Sumeet said the project is "seeming to be overengineered." The scope is the two new
+scripts — **`scripts/inspect-source.mjs` is 750 lines** and `scripts/validate-questions.mjs` is 179
+(over the 150-line ceiling that was set for it). Restart with:
 
-### The verified PPTX → PDF command (use this, not bare `--convert-to pdf`)
+```
+/simplify
+```
 
-Tested this session on `Pitch_Session 12.pptx`: exit 0, **26 slides → 26 pages**, 2.76 MB.
+Diff scope is `git diff main...HEAD`. The single most promising lead, worth checking first:
+**`scripts/inspect-pdf.mjs` may now be dead code** — `inspect-source.mjs` was built as a
+behaviour-preserving superset of it, and its PDF thresholds are duplicated byte-for-byte across both
+files. If nothing else references `inspect-pdf.mjs`, deleting it removes a whole file and the
+duplication in one move. Verify before deleting: the two-file equivalence is currently the regression
+guard on the OCR thresholds, so if it goes, that guard needs to live somewhere else.
+
+## Decisions made this session
+
+- **The image path is mandatory, not a fallback** — Sumeet confirmed `Pitch_Session 12.pptx` (26
+  slides, ~62 chars/slide, 1 real speaker note) represents how course material will arrive. A
+  separate design-tool deck had **2 text runs across 16 slides**, all wording baked into images.
+- **`inspect-source.mjs` routes rather than rejects** — visual-heavy decks are normal, so flagging
+  them as WARN/FAIL called normal material broken.
+- **A garbled OCR text layer routes to IMAGE PATH** — the page images underneath are intact.
+- **No PDF→image tool is needed** — Gemini reads PDFs with native vision. Poppler was proposed,
+  challenged by Sumeet, tested, and **withdrawn**.
+- **Answer-position bias is fixed in code, not by prompting** — the model put 8 of 15 correct answers
+  at index 1 and none at index 3; always guessing B scored 53%, profitable under +20/−10 while
+  learning nothing. `validate-questions.mjs` shuffles with a hash of the prompt as seed, so runs stay
+  reproducible.
+- **Questions keep a `slide` field permanently** — it is how fabrication gets caught. It caught three
+  cases on the first run.
+- **Self-containment matches word boundaries, not substrings** — `"the slide"` misses `"the
+  competitive landscape slide"`, which was the real failing sentence.
+- **Committed on a branch rather than `main`**, so the merge stays Sumeet's call.
+
+## Open questions / blocked on
+
+- **`/simplify` never ran.** Unblocked by running it. See "In progress" above.
+- **Difficulty labels do not discriminate.** Confirmed empirically this session: a question labelled 4
+  was answerable cold, and the 1s and 2s were indistinguishable. The adaptive lever is built directly
+  on this scale. Still the biggest threat to the paper. Fix: compute empirical p-values from `events`
+  and calibrate against a pilot-of-the-pilot (5–6 people) **before** the real cohort.
+- **Free tier's training-data clause on Prof. Singh's unpublished material.** No student data reaches
+  the LLM (questions are pre-generated offline), so this is his consent call. **Unblocked by asking
+  him.** Free-tier limits as of this session: Flash-Lite 15 RPM / 1,000 RPD, Flash 10 RPM / 250 RPD,
+  250k TPM shared. ~20 decks generated once, so volume is not the constraint. Google cut free quotas
+  50–80% in Dec 2025 without notice — architect for paid Tier 1 regardless.
+- **`GEMINI_MODEL` is still empty in `.env.local`.** Note the AI Studio playground demanded a paid
+  key, but a `GEMINI_API_KEY` already exists in `.env.local` — that was a playground gate, not an
+  account one. The API path is not blocked.
+- **`db/002_add_question_format.sql` is unapplied.** Paste into the **Neon web SQL editor** (`psql`
+  is not installed). Safe to re-run.
+- **`db/001_add_students.sql` (~line 60)** has an unscoped `pg_constraint` guard. Deliberately not
+  fixed — already applied to the live DB. Only bites in a fresh environment.
+- **`.ppt` / `.doc` (pre-2007) are unsupported** — `inspect-source.mjs` handles `.pdf`, `.docx`,
+  `.pptx` only. LibreOffice could convert legacy files if Prof. Singh sends them.
+- Carried over: adaptive difficulty saturates (`START_DIFFICULTY = 2`, caps at 5, resets each round);
+  the quiz badge reads "Level 5" at `app/quiz/page.tsx:189` and should read `Difficulty 5/5`; a
+  cosmetic ToS checkbox sits beside the real research-consent checkbox on signup; no shared-device
+  protocol; `potential` in `/api/stats` assumes one flat scoring rule.
+
+## Next 3 actions
+
+1. **Run `/simplify`** over `git diff main...HEAD`. Start with whether `scripts/inspect-pdf.mjs` is
+   now dead code (see "In progress"). This is the interrupted task.
+2. **Wire the generation script** to render a deck via LibreOffice, send the PDF to Gemini with the
+   revised prompt, and pipe the output through `validate-questions.mjs` before any DB write. The
+   render command and the prompt are both recorded below/in HANDOFF.md §3a. Set `GEMINI_MODEL` in
+   `.env.local` first — do not edit the script fallback.
+3. **Ask Prof. Singh:** (a) free-tier training-data clause on his material, or approve paid Tier 1;
+   (b) two or three sample decks — everything so far was tested against Sumeet's personal files.
+
+### The verified PPTX → PDF command
 
 ```bash
 soffice --headless --norestore \
@@ -56,132 +120,53 @@ soffice --headless --norestore \
   --outdir <outdir> <input.pptx>
 ```
 
-On Windows `soffice` is `"C:/Program Files/LibreOffice/program/soffice.exe"`. Every other option in
-the GUI export dialog keeps its default and needs no attention.
-
-Why these values:
-- **`ExportNotesPages` false** — turning it on appends a notes page after every slide (26 → 52), which
-  destroys the slide N = page N mapping that per-slide attribution depends on. Speaker notes are
-  already read from the PPTX directly via `resolveNotesEntry()`, more reliably than from a rendered
-  page of text.
-- **`UseLosslessCompression` true** — the decks have wording baked into images, and JPEG artefacts land
-  on the letter edges the model must read. Costs file size only: **Gemini bills per page, not per
-  byte**, and rasterises each page at its own resolution regardless. Default export was 1.17 MB,
-  lossless 2.76 MB, same token cost.
-- **`UseTaggedPDF` true** — preserves structure for the text half of Gemini's dual read.
-- **`EncryptFile` false** — an encrypted PDF is unreadable downstream; `inspect-source.mjs` already
-  reports encrypted archives as UNUSABLE.
-
-### Two guards to build into ingestion (not yet written)
-
-1. **Assert PDF page count equals PPTX slide count before generating anything.** `Export hidden pages`
-   is off by default (correct — hidden slides were hidden deliberately), which means a deck with
-   hidden slides renders *fewer pages than it has slides*. The numbering then shifts and every
-   question is attributed to the wrong slide, **silently**. Both numbers are already available:
-   slide count from the PPTX reader, page count from the PDF reader.
-2. **Keep `EncryptFile` explicitly false** rather than relying on the default.
-
-## Decisions made this session
-
-- **The image path is mandatory, not a fallback** — Sumeet confirmed `Pitch_Session 12.pptx` (26
-  slides, ~62 chars/slide, 1 real speaker note) represents how course material will actually arrive.
-  A separate design-tool deck had **2 text runs across 16 slides**, all wording baked into images.
-- **`inspect-source.mjs` routes rather than rejects** — visual-heavy decks are the normal case, so
-  calling them WARN/FAIL flagged normal material as broken. TEXT PATH / IMAGE PATH / UNUSABLE, exit
-  0 routable / 2 unusable / 1 operational failure.
-- **A garbled OCR text layer routes to IMAGE PATH, not a dead end** — the page images underneath are
-  intact; only the extracted text is ruined.
-- **No PDF→image tool is needed** — Gemini reads PDFs with native vision (text + rendered page
-  images, ~1000 pages, no charge for natively embedded text). Poppler was proposed and **withdrawn**.
-- **PDF export options are passed as FilterData JSON on the command line**, so the GUI export dialog
-  never appears in the workflow.
-- **Zero npm dependencies for OOXML** — DOCX/PPTX are read by walking the zip with `node:zlib`.
-  `package.json` is unchanged and must stay that way.
-- **PPTX speaker notes resolve through `ppt/slides/_rels/slideN.xml.rels`**, never by filename —
-  `notesSlideN` is *not* slide N (verified: slide2→notesSlide1, slide4→notesSlide2).
-- **Free tier is sufficient on volume** — ~20 decks generated once, offline. The blocker is the
-  training-data clause, not rate limits.
-- **Committed on a branch rather than `main`**, contrary to project habit, so the merge stays Sumeet's call.
-
-## Open questions / blocked on
-
-- **Does visual reading produce good questions?** Unknown and unanswerable by analysis. Unblocked by
-  running one deck end to end. **This is the single most important open item.**
-- **Free tier's training-data clause applied to Prof. Singh's unpublished material.** No student data
-  ever reaches the LLM (questions are pre-generated offline), so this is his consent call, not a
-  privacy issue. **Unblocked by asking him.** Google also cut free quotas 50–80% in Dec 2025 without
-  notice, so architect for paid Tier 1 regardless.
-- **`GEMINI_MODEL` is still empty.** The Flash-Lite default in CLAUDE.md was chosen for *text* work;
-  reading a 2×2 framework off a slide image is harder. Verify current vision pricing/capability in AI
-  Studio before setting it. Do not trust remembered model facts.
-- **`db/002_add_question_format.sql` is unapplied.** Paste into the **Neon web SQL editor** (`psql`
-  is not installed). Safe to re-run.
-- **`db/001_add_students.sql` (~line 60)** has an unscoped `pg_constraint` guard (matches `conname`
-  alone, unique only per table). Deliberately **not** fixed — already applied to the live DB. Only
-  bites in a fresh environment.
-- **`.ppt` and `.doc` (pre-2007) are unsupported** by `inspect-source.mjs` — extensions are `.pdf`,
-  `.docx`, `.pptx` only. LibreOffice could convert them if Prof. Singh sends legacy files.
-- Carried over, unchanged: **difficulty is model-assigned and uncalibrated** (still the biggest threat
-  to the paper); **adaptive difficulty saturates** (`START_DIFFICULTY = 2`, caps at 5, resets each
-  round); the quiz badge reads "Level 5" at `app/quiz/page.tsx:189` and should read `Difficulty 5/5`;
-  a cosmetic ToS checkbox sits beside the real research-consent checkbox on signup; no shared-device
-  protocol for the pilot; `potential` in `/api/stats` assumes one flat scoring rule.
-
-## Next 3 actions
-
-1. **Run one real deck end to end and judge the output.** Render
-   `C:/Users/96sum/Downloads/Pitch_Session 12.pptx` using the verified FilterData command above, send
-   that PDF to Gemini, and generate questions from it. Confirm the exact model id in AI Studio first
-   and set `GEMINI_MODEL` in `.env.local` — do not edit the script fallback. Judge the questions on
-   whether they are worth giving a student; everything downstream depends on that answer.
-2. **Apply `db/002_add_question_format.sql`** by pasting it into the Neon web SQL editor.
-3. **Ask Prof. Singh two things:** (a) is he comfortable with the Gemini free tier's training-data
-   clause applying to his unpublished course material, or should the small paid Tier 1 spend be
-   approved; (b) can he share two or three sample decks now, since everything so far has been tested
-   against Sumeet's personal files.
+On Windows, `soffice` is `"C:/Program Files/LibreOffice/program/soffice.exe"`. Verified: 26 slides →
+26 pages, exit 0. **Ingestion must assert PDF page count equals PPTX slide count** — hidden slides
+are excluded from the render, which shifts every attribution silently.
 
 ## Do not redo
 
-- **Do not install Poppler / ImageMagick / any PDF→image tool.** Gemini reads PDFs natively. This was
-  proposed, challenged by Sumeet, tested, and withdrawn.
+- **Do not install Poppler / ImageMagick / any PDF→image tool.** Gemini reads PDFs natively.
 - **Do not expect LibreOffice to export slide images.** `--convert-to png` on a 26-slide deck yields
-  **1 PNG** (first slide only). `--convert-to pdf` is correct: 26 slides → 26 pages, 1:1, so slide N
-  is page N. The old claim that LibreOffice produces the images has been corrected in HANDOFF.md.
-- **Do not turn on `Export notes pages`** in the PDF export — it doubles the page count and breaks
-  slide-to-page alignment. Notes come from the PPTX directly.
+  **1 PNG** (first slide only). `--convert-to pdf` is correct and 1:1.
+- **Do not enable `Export notes pages`** — it doubles page count and breaks slide-to-page alignment.
+  Notes are read from the PPTX directly.
+- **Do not run `soffice --version` and wait** — it hangs on this Windows install. Test with an actual
+  `--convert-to` run.
+- **Do not try to fix answer-position bias by prompting.** It was tried; the model does not comply
+  reliably. It is fixed in `validate-questions.mjs`.
 - **Do not pass a steering prompt to codex on codex-cli 0.145.0.** `--uncommitted`, `--base` and
-  `--commit` all reject `[PROMPT]` at argument parsing. Reviews are **always unsteered**; `--title`
-  is the only context that gets through. Treat unmentioned topics as unreviewed, not cleared.
+  `--commit` all reject `[PROMPT]`. Reviews are **always unsteered**; `--title` is the only context
+  that gets through. Treat unmentioned topics as unreviewed, not cleared.
 - **Do not add an npm ZIP/OOXML library** (jszip/mammoth/officeparser). The `node:zlib` reader was
-  reviewed and is correct — EOCD scanned backwards with comment tolerance, local header `nameLen`/
-  `extraLen` read from the local header rather than the central directory.
-- **Do not touch the PDF verdict thresholds** in `inspect-source.mjs` — byte-identical to
-  `inspect-pdf.mjs` (`ocrTells >= 2 || spaceRatio < 0.12 || caretNoSupers`, `perPage >= 200`) and
-  that equivalence is the regression guard for the maths-book case.
-- **Do not point any generator at the 140 MB maths book** — it is a watermarked commercial practice
-  guide, wrong for a published DSR paper. It now routes to IMAGE PATH (technically correct, since the
-  page images are fine), but the licensing problem is unchanged. NCERT publishes Class 11 Mathematics
-  free and official at ncert.nic.in if a maths source is ever needed.
+  reviewed and is correct.
+- **Do not touch the PDF verdict thresholds** in `inspect-source.mjs` without reading the note in
+  "In progress" — they are byte-identical to `inspect-pdf.mjs` and that equivalence is the current
+  regression guard.
+- **Do not point any generator at the 140 MB maths book** — watermarked commercial practice guide,
+  wrong for a published DSR paper. NCERT publishes Class 11 Mathematics free at ncert.nic.in.
 - **Do not re-verify the auth code or `data-layer.md`** — two Opus passes plus a Codex pass, eight
   defects found and fixed.
 - **Do not use `psql`** — not installed. Neon web SQL editor only.
-- **Do not add bcrypt/argon2/an auth library** — the zero-dependency `node:crypto` approach is built
-  and reviewed.
-- **Do not run `soffice --version` and wait for it** — it hangs / returns nothing on this Windows
-  install. Test capability with an actual `--convert-to` run instead.
+- **Do not add bcrypt/argon2/an auth library** — the `node:crypto` approach is built and reviewed.
 - If `git add` fails with `short read while indexing nul`, a Windows reserved device name was captured
-  by a `> nul` redirect in Git Bash. `rm -f ./nul`; both are gitignored now.
+  by a `> nul` redirect. `rm -f ./nul`; both are gitignored now.
 
 ## Session notes worth keeping
 
-- **Two model families caught different defects.** Opus found 7 (including a **false USABLE** on a
-  real deck — phantom speaker notes from slide-number placeholders inflating coverage to 46% when the
-  mean note length was 7 characters). Codex, running unsteered, found 3 Opus missed — including a
-  **false FAIL** where the character floor counted only slide text, so a deck of thin slides with
-  thorough speaker notes was rejected. That is the best-case source shape, and the floor was
-  discarding exactly what the notes-resolution work had just been built to find.
-- **Verify inherited doc claims before repeating them.** The LibreOffice-produces-images claim was
-  read out of `CURRENT_STATE.md` and repeated unchecked; Sumeet caught the contradiction, and one
-  test refuted it. It would have caused an unnecessary install.
-- **Personal files were used as test data** (including a resume and several unrelated decks) because
-  no course material exists yet. Worth switching to a dedicated folder once real decks arrive.
+- **The one-deck test paid for itself.** Visual reading works — questions came from slides 5, 9 and 11,
+  which contain literally zero text. But the model also **fabricated**: three questions cited slide 1,
+  which contains only `'Art' of Pitching (WITH AIRBNB AS AN EXAMPLE) Session 12`, and one asked about
+  Amazon's mission statement, which is not in this deck. Source discipline needs enforcement, not
+  instruction.
+- **Two model families caught disjoint defects.** Opus found 7 (including a false USABLE from
+  slide-number placeholders counted as speaker notes). Codex, unsteered, found 3 Opus missed —
+  including a false FAIL that rejected thin slides carrying thorough notes, the best-case source shape.
+- **Verify inherited doc claims before repeating them.** The "LibreOffice produces slide images" claim
+  was read out of this file and repeated unchecked; Sumeet caught the contradiction and one test
+  refuted it. It would have caused an unnecessary install.
+- **A subagent stalled mid-task** (the validator builder, at 600s during a cleanup step). It had
+  written a complete file but run **none** of its verification. Check what an agent actually verified
+  before trusting "done" — two real bugs were sitting in that file.
+- **Personal files were used as test data** (a resume, several unrelated decks) because no course
+  material exists. Switch to a dedicated folder once real decks arrive.
