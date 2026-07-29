@@ -15,6 +15,10 @@ create table if not exists questions (
   prompt      text not null,
   options     jsonb not null,                         -- string[]
   answer      int  not null,                          -- index into options
+  format      text not null default 'plain'
+                check (format in ('plain', 'latex', 'markdown')),
+                                                        -- added in db/002_add_question_format.sql;
+                                                        -- the renderer switches on this
   created_at  timestamptz default now()
 );
 
