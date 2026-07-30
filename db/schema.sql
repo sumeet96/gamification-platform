@@ -68,3 +68,158 @@ create index if not exists events_session_idx        on events (session_id);
 create index if not exists events_type_idx            on events (event_type);
 create index if not exists events_student_idx         on events (student_id);
 create index if not exists events_session_round_idx   on events (session_id, round);
+
+-- The following events columns were added in db/004_add_event_metrics.sql, all
+-- nullable and additive. question_id (above) is unchanged; content_item_id
+-- coexists as the forward path to content_items.
+--   selected_option    int   -- which option the student picked (misconception analysis)
+--   content_item_id    text  -- forward path to content_items(id)
+--   adapt_granularity  text  -- item | board -- whether the lever could fire at this grain
+--   boards_completed   int   -- distinguishes "lever never fired" from "lever fired, no effect"
+--   cognitive_level    text  -- denormalized from content_items, for accuracy-by-level without a join
+alter table events
+  add column if not exists selected_option int,
+  add column if not exists content_item_id text,
+  add column if not exists adapt_granularity text,
+  add column if not exists boards_completed int,
+  add column if not exists cognitive_level text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'events_adapt_granularity_check'
+      and conrelid = 'events'::regclass
+  ) then
+    alter table events
+      add constraint events_adapt_granularity_check
+      check (adapt_granularity is null or adapt_granularity in ('item', 'board'));
+  end if;
+end $$;
+
+-- Documents uploaded for content generation (db/003_add_content_items.sql).
+-- Multi-tenant/subject-scoped from day one (PROJECT_MAP §1.5), even though the
+-- upload UI itself is deferred past the pilot.
+create table if not exists sources (
+  id           text primary key,
+  subject      text not null,
+  title        text not null,
+  filename     text,
+  checksum     text,
+  page_count   int,
+  uploaded_by  text,
+  status       text not null default 'pending',   -- pending | processing | ready | failed
+  created_at   timestamptz default now()
+);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'sources_status_check'
+      and conrelid = 'sources'::regclass
+  ) then
+    alter table sources
+      add constraint sources_status_check
+      check (status in ('pending', 'processing', 'ready', 'failed'));
+  end if;
+end $$;
+
+-- The normalized content-primitive layer every game reads and every generator
+-- writes (db/003_add_content_items.sql, PROJECT_MAP §3 K-1). Two kinds for the
+-- pilot roster: mcq (quiz) and term_definition (match, fill, choose, Wordle).
+--
+-- `empirical_p` and `cognitive_level` are deliberately separate columns.
+-- `cognitive_level` is a generation control (what kind of thinking the item
+-- demands), not a difficulty ordering. `empirical_p` (observed facility,
+-- backed by `p_responses`) is the ONLY difficulty that exists in this system.
+-- Collapsing the two is the mistake that produced the non-discriminating
+-- difficulty scale on `questions` -- do not merge them later.
+create table if not exists content_items (
+  id               text primary key,
+  source_id        text not null references sources(id),
+  subject          text not null,
+  topic            text,
+  page             int,
+  kind             text not null,                         -- mcq | term_definition
+  cognitive_level  text,                                   -- recall | apply | discriminate | deduce | transfer
+  recipe           text,                                   -- groups items generated the same way, for pooled facility calibration
+  empirical_p      real,                                    -- observed facility; null until response data arrives
+  p_responses      int not null default 0,
+  generator_model  text,
+  created_at       timestamptz default now(),
+
+  -- mcq-only, nullable
+  stem             text,
+  options          jsonb,
+  answer           int,
+
+  -- term_definition-only, nullable
+  term             text,
+  clue             text,
+  example_sentence text,
+  variants         jsonb not null default '[]'::jsonb,
+  distractors      jsonb not null default '[]'::jsonb
+);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'content_items_kind_check'
+      and conrelid = 'content_items'::regclass
+  ) then
+    alter table content_items
+      add constraint content_items_kind_check
+      check (kind in ('mcq', 'term_definition'));
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'content_items_cognitive_level_check'
+      and conrelid = 'content_items'::regclass
+  ) then
+    alter table content_items
+      add constraint content_items_cognitive_level_check
+      check (cognitive_level is null or cognitive_level in ('recall', 'apply', 'discriminate', 'deduce', 'transfer'));
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'content_items_mcq_complete_check'
+      and conrelid = 'content_items'::regclass
+  ) then
+    alter table content_items
+      add constraint content_items_mcq_complete_check
+      check (
+        kind <> 'mcq'
+        or (stem is not null and options is not null and answer is not null)
+      );
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'content_items_term_definition_complete_check'
+      and conrelid = 'content_items'::regclass
+  ) then
+    alter table content_items
+      add constraint content_items_term_definition_complete_check
+      check (
+        kind <> 'term_definition'
+        or (term is not null and clue is not null)
+      );
+  end if;
+end $$;
+
+create index if not exists content_items_subject_kind_idx on content_items (subject, kind);
+create index if not exists content_items_source_idx       on content_items (source_id);
+create index if not exists content_items_topic_idx        on content_items (topic);
