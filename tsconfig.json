@@ -10,6 +10,11 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    // Tests run on Node's native TypeScript stripping (`node --test`), whose ESM loader
+    // needs the real file path — `import ... from '../lib/game/engine.ts'`. Without this,
+    // tsc rejects the .ts extension (TS5097) and `next build` fails on tests/. Legal only
+    // because noEmit is true above.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",

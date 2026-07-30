@@ -49,6 +49,43 @@ export function timeForStreak(consecutiveCorrect: number): number {
   return Math.max(TIME_MIN, TIME_BASE - TIME_STEP * consecutiveCorrect)
 }
 
+// --- Lever resolver ---------------------------------------------------
+// The one place that is allowed to know both levers exist. A game calls
+// resolveLever() and gets back a (difficulty, timeLimit) pair where exactly
+// one field tracks performance and the other is pinned to a constant — so
+// consuming code cannot accidentally honour both levers at once, even if
+// its author forgets the "one lever per student" rule.
+
+export interface LeverState {
+  difficulty: number
+  streak: number
+}
+
+/** Starting state for a student's chosen lever. */
+export function initialLeverState(config: GameConfig): LeverState {
+  return {
+    difficulty: config.lever === 'adaptive' ? START_DIFFICULTY : config.fixedDifficulty,
+    streak: 0,
+  }
+}
+
+/** Difficulty + time limit for the next question, given the lever and current state. */
+export function resolveLever(
+  config: GameConfig,
+  state: LeverState
+): { difficulty: number; timeLimit: number } {
+  return config.lever === 'adaptive'
+    ? { difficulty: state.difficulty, timeLimit: TIME_BASE }
+    : { difficulty: config.fixedDifficulty, timeLimit: timeForStreak(state.streak) }
+}
+
+/** Advance the lever state after one answered question. */
+export function advanceLeverState(config: GameConfig, state: LeverState, correct: boolean): LeverState {
+  return config.lever === 'adaptive'
+    ? { difficulty: nextDifficulty(state.difficulty, correct), streak: correct ? state.streak + 1 : 0 }
+    : { difficulty: state.difficulty, streak: correct ? state.streak + 1 : 0 }
+}
+
 export interface RoundSummary {
   net: number
   potential: number
