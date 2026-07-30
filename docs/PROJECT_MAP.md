@@ -617,22 +617,24 @@ by file ownership.
 
 Each package owns its files exclusively. "Do not touch" is as important as "owns".
 
-| WP | Package | Owns | Depends on | Pri |
-|---|---|---|---|---|
-| **K** | **Contracts** — `content_items` + `sources` schema (subject-scoped), points/game registry, event emitter, `resolveLever` + its two invariant tests | `db/003`, `db/004`, `lib/games/registry.ts`, `lib/game/engine.ts`, `lib/log/`, `tests/lever.test.ts` | — | **P0, first** |
-| **G1** | Generator: MCQ per-window (spec written) | `scripts/`, `scripts/lib/` | K-1 | P0 |
-| **G2** | Generator: `term_definition` extraction | `scripts/lib/` (new file only) | K-1, G1 | P0 |
-| **G3** | Adversarial critique pass over drafts | `scripts/lib/` (new file only) | G1 | P1 |
-| **D1** | Dashboard shell — points display (gross / net / activity), game tiles | `app/dashboard/`, `app/page.tsx` | K-2 | **P0** |
-| **Q1** | Quiz hardening — server-side scoring, kill the answer leak, fix round reuse | `app/quiz/`, `app/api/questions/`, new scoring route | K-3 | **P0** |
-| **Q2** | Quiz modes 3–4 (rapid / normal already exist; confirm and extend) | `lib/game/engine.ts` | K-2 | P1 |
-| **A1** | Game: match-the-following | `app/games/match/`, `lib/games/match.ts` | K, G2 | P1 |
-| **A2** | Game: fill-in-the-blanks | `app/games/fill/`, `lib/games/fill.ts` | K, G2 | P1 |
-| **A3** | Game: choose-the-right-word | `app/games/choose/`, `lib/games/choose.ts` | K, G2 | P1 |
-| **A4** | Game: Wordle — daily word, streak counter, no catch-up | `app/games/wordle/`, `lib/games/wordle.ts`, `db/005` (daily schedule) | K, G2, feasibility check | P1 |
-| **A0** | **Wordle supply check** — extract terms from one deck; confirm ≥8 usable 4–8 letter candidates so 5 distinct ones can be picked | `scripts/` (throwaway) | G2 | P1, cheap |
-| **R1** | Difficulty calibration — `empirical_p` column, recompute script, pilot-of-the-pilot | `db/`, `scripts/calibrate.mjs` | K-1, real event data | **P0** |
-| **E1** | Event-log audit + analysis queries + export | `scripts/analysis/`, `docs/` | K-3 | P0 |
+**Status legend:** ✅ done · 🟡 partial · ⬜ not started · 🔒 blocked on a person
+
+| WP | Status | Package | Owns | Depends on | Pri |
+|---|---|---|---|---|---|
+| **K** | ✅ **DONE** 30 Jul | **Contracts** — `content_items` + `sources` schema (subject-scoped), points/game registry, event columns, `resolveLever` + invariant tests. **Migrations applied and verified live** against project `ancient-brook-62806105`: 2 tables, 20+9 columns, 5 new `events` columns, 6 CHECKs, 3 indexes. | `db/003`, `db/004`, `lib/games/registry.ts`, `lib/game/engine.ts`, `tests/lever.test.ts`, `tests/registry.test.ts` | — | **P0, first** |
+| **G1** | ⬜ | Generator: MCQ per-window. **Spec written** (`docs/architecture/generator-spec.md`) — build is next. Must write `content_items`, not `questions`. | `scripts/`, `scripts/lib/` | K-1 ✅ | P0 |
+| **D1** | ⬜ | Dashboard shell — points display (gross / net / activity), game tiles. **The professor's first instruction; `app/dashboard/` does not exist.** | `app/dashboard/`, `app/page.tsx` | K-2 ✅ | **P0** |
+| **Q1** | ⬜ | Quiz hardening — server-side scoring, kill the answer leak, fix round reuse, refactor onto `resolveLever` | `app/quiz/`, `app/api/questions/`, new scoring route | K-3 ✅ | **P0** |
+| **G2** | ⬜ | Generator: `term_definition` extraction — including `example_sentence`, `variants`, `distractors` | `scripts/lib/` (new file only) | K-1 ✅, G1 | P0 |
+| **A0** | ⬜ | **Wordle supply check** — extract terms from one deck; confirm ≥8 usable 4–8 letter candidates so 5 distinct ones can be picked | `scripts/` (throwaway) | G2 | P1, cheap |
+| **A1** | ⬜ | Game: match-the-following. **Open:** are its points per pair or per board? The type does not say. | `app/games/match/`, `lib/games/match.ts` | K ✅, G2 | P1 |
+| **A2** | ⬜ | Game: fill-in-the-blanks | `app/games/fill/`, `lib/games/fill.ts` | K ✅, G2 | P1 |
+| **A3** | ⬜ | Game: choose-the-right-word | `app/games/choose/`, `lib/games/choose.ts` | K ✅, G2 | P1 |
+| **A4** | ⬜ | Game: Wordle — daily word, streak counter, no catch-up, gap-day fallback | `app/games/wordle/`, `lib/games/wordle.ts`, `db/005` (daily schedule) | K ✅, G2, A0 | P1 |
+| **G3** | ⬜ | Adversarial critique pass over drafts — the only thing that catches an arithmetic contradiction | `scripts/lib/` (new file only) | G1 | P1 |
+| **Q2** | 🟡 | Quiz modes — rapid/normal exist. Confirm "rapid" with the prof; flip `enabled` as games ship. | `lib/game/engine.ts` | K-2 ✅ | P1 |
+| **R1** | ⬜ | Difficulty calibration — **recipe-level**, not per item. Schema is ready (`recipe`, `empirical_p`, `p_responses`); needs the recompute script and real response data. | `db/`, `scripts/calibrate.mjs` | K-1 ✅, real event data | **P0** |
+| **E1** | ⬜ | Event-log audit + analysis queries + export | `scripts/analysis/`, `docs/` | K-3 ✅ | P0 |
 | **T1** | Tests — validator first, then scoring | `tests/` | Q1, G1 | P0 |
 | **O1** | Ops — `GEMINI_MODEL`, Vercel deploy, error visibility | `.env.local`, config | — | P0 |
 | **W1** | Paper — DSR method write-up, design-cycle record, literature | `docs/literature/`, `docs/` | — | P1 |
