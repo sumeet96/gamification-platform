@@ -1,6 +1,6 @@
 # HANDOFF: Gamified Adaptive Learning Platform (FBT Research Project)
 
-**Prepared:** 22 Jul 2026. **Updated:** 29 Jul 2026 (question-generation pipeline design decisions, 28-29 Jul, plus the source-diagnostic build, a LibreOffice rationale correction, a codex-steering correction, a `/simplify` pass removing 673 dead/misfiring lines, and a `round_stop` event-shape fix, all recorded same day; see §3a). Previous update: 28 Jul 2026 (post-pivot rebuild; authentication wired same day, commit b569cc5; app gated end to end and lifetime stats added same day, commit 408bd54). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot, a same-day follow-up (commit b569cc5) wired real authentication, and a further same-day commit (408bd54) closed the login gate and wired lifetime stats. All three commits are pushed to `origin/main`. This doc now records both the original vision (history) and the current state.
+**Prepared:** 22 Jul 2026. **Updated:** 30 Jul 2026 (transcript re-read surfacing five corrections to `CLAUDE.md`, the new `docs/PROJECT_MAP.md` project spine, per-game lever semantics and the `resolveLever` design, the platform's live-ingestion/subject-agnostic/PDF-input direction, the project's first automated tests, and a `sol-consult` GPT-5.6 Sol consultation reversing three design decisions; see §12). Previous update: 29 Jul 2026 (question-generation pipeline design decisions, 28-29 Jul, plus the source-diagnostic build, a LibreOffice rationale correction, a codex-steering correction, a `/simplify` pass removing 673 dead/misfiring lines, and a `round_stop` event-shape fix, all recorded same day; see §3a). Previous update: 28 Jul 2026 (post-pivot rebuild; authentication wired same day, commit b569cc5; app gated end to end and lifetime stats added same day, commit 408bd54). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot, a same-day follow-up (commit b569cc5) wired real authentication, and a further same-day commit (408bd54) closed the login gate and wired lifetime stats. All three commits are pushed to `origin/main`. This doc now records both the original vision (history) and the current state.
 
 ---
 
@@ -167,7 +167,9 @@ Weekly ritual: before each prof meeting, run the week's diff through DeepSeek (o
 
 ## 6. Working relationship and cadence
 
-- **Next meeting: Monday 3 Aug 2026, afternoon.** Recurring weekly Mon/Tue slots.
+- **Next meeting: Monday 3 Aug 2026, afternoon.** ⚠️ **Corrected 30 Jul 2026 — see §12.** A re-read of
+  the transcript found he is travelling Monday and proposed Tuesday same time instead: likely
+  **Tue 4 Aug 2026**, treat as needing confirmation. Recurring weekly Mon/Tue slots.
 - The prof is reachable by phone up to about 8 pm and on WhatsApp anytime for small things; he also said planning independently is "even better."
 - **27 Jul meeting (completed):** Delivered architecture doc + model comparison. The prof pivoted the project (see §3).
 - **Expectation for 3 Aug:** Implementation progress on the rebuild (§3), any blockers, next sprint plan.
@@ -245,6 +247,16 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - `docs/meeting/Jul 27 at 3-39 PM.txt` — call transcript.
 - `docs/meeting/2026-07-27_supervisor-briefing.md` — pre-pivot briefing.
 - `docs/CURRENT_STATE.md` — written by `/checkpoint`; hand-maintained, not edited by scribe passes.
+- `docs/PROJECT_MAP.md` — new 30 Jul 2026, the project spine (decomposition, work packages, decided vs
+  assumed); replaces the since-deleted `docs/PROJECT_BACKLOG.md`.
+- `docs/architecture/generator-spec.md` — new 30 Jul 2026, per-window generator spec; also carries the
+  LibreOffice-removal rationale.
+- `docs/consult-brief.md` — new 30 Jul 2026, standing context handed to `sol-consult`; contains no
+  solutions by design.
+- `docs/consults/2026-07-30-content-layer-and-difficulty.md` — new 30 Jul 2026, full `sol-consult`
+  transcript (see §12).
+- `.claude/agents/sol-consult.md` — new 30 Jul 2026, the two-pass GPT-5.6 Sol consultation agent.
+- `tests/lever.test.ts` — new 30 Jul 2026, the project's first automated tests (§12).
 
 **Application code (Next 16 / React 19 / Tailwind v4):**
 - `app/page.tsx` — dashboard (entry point).
@@ -260,7 +272,9 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - `proxy.ts` — Next 16's successor to `middleware.ts`; deny-by-default as of commit 408bd54 — only `/login`, `/signup`, and the login/signup/logout API routes are public, everything else requires a valid session. Previously only gated `/quiz`, `/game-setup`, `/results` (added b569cc5).
 
 **Game engine, state, and auth:**
-- `lib/game/engine.ts` — core game logic (scoring, adaptivity ramp/clock, round progression).
+- `lib/game/engine.ts` — core game logic (scoring, adaptivity ramp/clock, round progression). Gained
+  `LeverState`, `initialLeverState`, `resolveLever`, `advanceLeverState` 30 Jul 2026 (package K-4,
+  additive, ~36 lines; see §12) — the structural fix so games never branch on `config.lever`.
 - `lib/game/game-context.tsx` — React Context for game state (survives route nav via sessionStorage).
 - `lib/game/questions.ts` — question data fetch and normalization.
 - `lib/log/logEvent.ts` — event logging to `/api/events` (or console if DB unavailable).
@@ -276,8 +290,8 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - `.env.local.example` — environment variable template (Neon credentials, Gemini key, `SESSION_SECRET`); restored in b569cc5 after being lost in a move rather than a copy.
 - `.gitignore` — new (commit 408bd54); tracked so a stray Windows reserved-device-name file (`nul`/`NUL`, produced by a `> nul` redirect in Git Bash) stays out of the index.
 - `skills-lock.json` — new (commit 408bd54); lockfile pinning the `neon` and `neon-postgres` agent skills (source `neondatabase/agent-skills`) used during the Neon setup and end-to-end run.
-- `package.json`, `package-lock.json` — Next 16 / React 19 / Tailwind v4 dependencies; unchanged by the auth or gating work (no new dependencies). `clsx` and `tailwind-merge` are unused as of the 29 Jul `/simplify` pass, left in place rather than removed unilaterally.
-- `tsconfig.json`, `next.config.mjs`, `postcss.config.mjs` — build config.
+- `package.json`, `package-lock.json` — Next 16 / React 19 / Tailwind v4 dependencies; unchanged by the auth or gating work (no new dependencies). `clsx` and `tailwind-merge` are unused as of the 29 Jul `/simplify` pass, left in place rather than removed unilaterally. Gained a `"test": "node --test tests/*.test.ts"` script 30 Jul 2026 — no new dependency, Node's native test runner.
+- `tsconfig.json`, `next.config.mjs`, `postcss.config.mjs` — build config. `tsconfig.json` gained `allowImportingTsExtensions: true` 30 Jul 2026 so `next build` does not fail on `tests/` (its glob includes `**/*.ts`).
 - `README.md` — project readme.
 
 **Content generation:**
@@ -294,3 +308,115 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 **Historical (pre-pivot, retained for reference):**
 - `docs/venture-analysis/` — Sumeet's earlier venture-analysis scaffolding exercise on the project (7 prompts, pitch deck, 19-22 Jul). Archived for reference; not the current direction.
 - Git history up to commit e0b3fd9 preserves the old reward-engine, student-profiler, and Supabase-based code.
+
+## 12. Transcript re-read, project map, first tests, sol-consult (30 Jul 2026)
+
+**Nature of this session: planning and decision-making, not feature building.** The 27 Jul meeting
+transcript (`docs/meeting/Jul 27 at 3-39 PM.txt`) was re-read as a primary source, against the standing
+rule that summaries are lossy. Five places were found where `CLAUDE.md` had drifted from what the
+professor actually said. Three change the build; full detail, quotes, and rationale live in the new
+`docs/PROJECT_MAP.md` §0, which is now the project spine for decomposition and work packages. This
+section records the outcome, not the derivation — read `docs/PROJECT_MAP.md` for that.
+
+**The five corrections** (all applied to `CLAUDE.md` this session):
+1. Points are fixed *within* a game, not flat +20/−10 everywhere. They vary *across* games and
+   difficulty — that spread is the "high and low" feeling the professor described, and the old flat
+   reading deleted the mechanic he actually asked for.
+2. The dashboard is the spine and the quiz is one tile in it. This was his first instruction on the
+   27 Jul call and remains the least-built part of the app — there is still no `app/dashboard/`.
+3. Course material is not a build prerequisite. He said to use any PDF on any topic; his own content
+   blocks the *pilot*, not the *build*.
+4. Next meeting is likely **Tue 4 Aug 2026**, not Monday — he said he is travelling Monday. Needs
+   confirmation, not yet locked.
+5. LibreOffice is out of the ingestion pipeline (see below) — its only job was PPTX→PDF, and
+   professors export their own PDFs from PowerPoint.
+
+**Multi-game architecture.** The professor named eight games on the call: crossword, word search,
+match-the-following, fill-in-the-blanks, choose-the-right-word, quiz (rapid/normal), and
+watch-video/read-article-then-answer. Building seven generation pipelines is not tractable in the
+remaining budget; the design instead reduces them to renderers over a small set of content
+primitives (`term_definition`, `mcq`, `passage`) so one ingestion pass serves several games. **Pilot
+roster, decided 30 Jul: quiz, match-the-following, fill-in-the-blanks, choose-the-right-word,
+Wordle.** Crossword and word search are deferred past the pilot — grid layout is the most expensive
+remaining work in the project, not a rejection of those games. Full primitive table and generation
+notes in `docs/PROJECT_MAP.md` §1.
+
+**Per-game lever semantics and `resolveLever`.** Decided **per-game granularity (option b)**: each
+game declares one difficulty knob and one time knob and whether adaptation can fire per-item or only
+between boards (e.g. match-the-following adapts per board, quiz per item). The chosen call is to
+maximise measurable engagement surface over defending one tidy construct for the paper. The
+mutual-exclusion rule ("never both levers") now has a structural fix rather than a convention: package
+K-4 added `resolveLever(config, streak) → { difficulty, timeLimit }` to `lib/game/engine.ts`
+(`LeverState`, `initialLeverState`, `resolveLever`, `advanceLeverState`, additive, ~36 lines). Games
+consume the two resolved values and never branch on `config.lever` themselves, so a both-levers
+student collapses from ~25 scattered branches into one tested function — not literally
+unrepresentable, since the return type does not forbid both varying, but centralised and covered by
+tests (overstatement conceded to `sol-consult`, 30 Jul). Verified the existing quiz already
+respected the rule in four places before this landed (`engine.ts:10`; `app/quiz/page.tsx:100,133,112`).
+Also decided: **rapid means fewer questions (10 vs 20), not a faster clock** — a tighter clock under
+rapid would collide with the difficulty lever for a difficulty-lever student. `roundLength()` already
+implements this; confirm the word "rapid" with the professor regardless, since he used it and the
+transcript is ambiguous.
+
+**Platform direction: live ingestion, subject-agnostic, PDF input.** The target is not a
+Digital-Transformation-only tool — any professor uploads material and gets every game type generated
+from it, matching what he described on the call. Ingestion stays live (background job on upload);
+generation never runs on the student's critical path, unchanged from the existing rule. **Input is
+PDF; LibreOffice is removed from the pipeline** — professors export their own PDFs from PowerPoint, and
+its only prior job (PPTX→PDF) is now redundant. Full rationale in `docs/architecture/generator-spec.md`.
+This also deletes the page-count-vs-slide-count guard the old pipeline needed. **Multi-tenant schema
+now, single-tenant operator surface after the pilot:** a `sources` table and a subject/course id on
+`content_items` are built from day one because reversing that later is expensive, but upload UI, job
+queue, and faculty login are deliberately deferred — the professor himself deferred courses and
+faculty login ("we are not building a portal, it's just for experimentation").
+
+**First automated tests.** `tests/lever.test.ts` is the first automated test this project has had.
+`npm test` (added to `package.json`: `node --test tests/*.test.ts`) passes 4/4, covering the two
+lever-resolution invariants (20 answers under `adaptive` never move `timeLimit`; 20 answers under
+`time` never move `difficulty`). `tsconfig.json` gained `allowImportingTsExtensions: true` so
+`next build` does not choke on `tests/`. Deliberately no vitest or jest — Node's native `--test` runner
+with TypeScript stripping is enough for a 400ms suite. `node --test tests/` (no glob) fails on this
+Node version (24.11.1 resolves `tests/` as a module name); the working form is
+`node --test tests/*.test.ts`, already in `package.json`.
+
+**`sol-consult` (new agent) and its three reversals.** A two-pass GPT-5.6 Sol consultation
+(blank-slate pass, then critique-our-plan pass, each a fresh `codex exec` session; full text at
+`docs/consults/2026-07-30-content-layer-and-difficulty.md`) reversed three design decisions taken
+earlier in the same session:
+1. **Cognitive level is a generation control, not a difficulty scale.** The plan had proposed a
+   five-level taxonomy (recall/apply/discriminate/deduce/transfer) as a difficulty replacement. Sol's
+   objection holds: a recall question about an obscure fact can be harder than an "apply" question
+   with an obvious answer, so numbering the levels 1–5 and calling that difficulty just renames the
+   problem. The surviving half: asking a generator for a named cognitive level is a structural
+   instruction it can actually follow, which fixes the real defect (every generated question on 29 Jul
+   was recall, so there was no variance to discriminate). Cognitive level and empirical difficulty are
+   now two separate columns; difficulty comes from observed facility only.
+2. **Calibrate generation recipes, not individual items.** A recipe (knowledge unit × task type × cue
+   strength) pools responses across every item sharing it, so an estimate is usable far sooner than
+   waiting for per-item data, and a new item inherits its family's prior.
+3. **Wordle is an intervention, not a neutral retention instrument.** Daily gating, streak loss, and no
+   catch-up are designed to drive return behaviour, so using Wordle's return data as evidence of the
+   artifact's persistence claim would measure the mechanic acting on the student rather than the
+   student's own behaviour. Wordle stays in scope — it is a genuine daily-engagement signal over four
+   weeks that nothing else in the design captures — but its data is now analysed as a **separate
+   treatment**, never folded into the primary voluntary-persistence claim (which rests on the
+   within-session round loop).
+
+A fourth Sol finding was reviewed and **rejected**: his proposed three-layer knowledge-unit
+architecture, in favour of enriching the existing `term_definition` primitive with the missing fields
+(blank position and answer variants for fill-in-the-blanks; distractors for choose-the-right-word;
+normalised form and length bounds for word search) and dropping `passage`, which no pilot game
+consumes. Rejected because it repeats this project's documented failure mode of over-building past
+the point of a routing/behaviour change — the same story as the OCR-heuristics removal on 29 Jul. This
+decision was interrupted, not completed: the enriched column list still needs to be written into
+`docs/PROJECT_MAP.md` §3 under K-1 before `db-engineer` and `builder` can be dispatched.
+
+**Not committed.** Everything in this section exists on disk (`lib/game/engine.ts`, `tests/`,
+`package.json`, `tsconfig.json`, `docs/PROJECT_MAP.md`, `docs/consult-brief.md`,
+`docs/consults/2026-07-30-content-layer-and-difficulty.md`, `.claude/agents/sol-consult.md`) but is
+uncommitted as of this session. Last commit remains `bd123b3`. `docs/PROJECT_BACKLOG.md` was created
+and then deleted this session; `docs/PROJECT_MAP.md` replaces it — do not recreate it.
+
+Full open-questions list, the package table for parallel sessions, and the points-table placeholder
+values all live in `docs/PROJECT_MAP.md` — not duplicated here to avoid a second copy drifting out of
+sync.
