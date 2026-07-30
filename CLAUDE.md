@@ -34,6 +34,14 @@ event logging is the research dataset.
 - **Difficulty is empirical, never asserted.** Cognitive level (recall / apply / discriminate / deduce
   / transfer) is a generation control stored separately — it is not a hardness ordering
   (`docs/PROJECT_MAP.md` §1.6).
+  - _Method decided 30 Jul 2026:_ do not ask a model how hard an item is — make models **attempt** it
+    at stated ability levels via **LLM student simulation on a small local model, run through Ollama**,
+    and take the failure rate as the difficulty estimate. Cited in
+    `docs/literature/item-difficulty-without-students.md`. The continuous score is **binned into the
+    existing 1–5 column** so current difficulty plumbing (`pickQuestion`, lever constants, badge,
+    tests) is untouched. The raw score is stored in `content_items.simulated_p` and must **never** be
+    written to `empirical_p`, which is reserved for observed human facility. See `docs/CURRENT_STATE.md`
+    for the Phase 0 spike result and its limits.
 - **Rapid and normal modes** control question velocity.
 - **Persistence loop:** "keep going → next round" incentivizes repeated engagement.
 - Log all events (session, round, per-question interactions, score, adaptivity feedback) for DSR dataset. Do not train on student data.
@@ -48,6 +56,13 @@ event logging is the research dataset.
 - **Dev tools:** Claude Code = primary builder. v0 free = frontend scaffolds. Antigravity = free overflow agent. DeepSeek/Qwen via OpenRouter = code review 2nd opinion. Codex = diffs-only review, never the builder. Cursor and Emergent are deliberately excluded.
   - _Revised 28 Jul 2026:_ the original "mini model, $10/mo cap" rule is superseded. `gpt-5.1-codex-mini` was retired by OpenAI (API 404s), and Codex now runs on pay-per-token API-key auth: **`gpt-5.6-terra` for routine diff review, `gpt-5.6-sol` only when explicitly requested.** Cost control moved from model choice to usage discipline: one run per invocation, scoped diffs, no retry fan-out. Watch the credit balance.
   - _Added 28 Jul 2026:_ **GPT-5.6's role in this project is adversary, not author.** Gemini Flash-class models generate bulk content such as question drafts; GPT-5.6 is used to attack and validate that output, and for anything requiring schema-guaranteed JSON via Structured Outputs. It is not the bulk generator — that would spend premium tokens on exactly the high-volume, low-stakes work cheap models are for.
+- **Ollama, local-only, added 30 Jul 2026 — difficulty simulation only, never content generation
+  (that stays on Gemini).** Already installed, v0.32.1. Three reasons it must be local, in order:
+  (1) reproducibility — a hosted model can change mid-pilot and silently shift calibration, which
+  would break the paper's instrument; (2) course material never leaves the machine; (3) the research
+  finds **weaker models simulate students better** (`docs/literature/item-difficulty-without-students.md`),
+  so a small local model is the methodologically correct choice, not a compromise. **Warning:
+  `gemma4:31b-cloud` shows up in `ollama list` but is a CLOUD model — do not use it for simulation.**
 - Knowledge layer: **input is PDF. LibreOffice is out of the pipeline** (corrected 30 Jul 2026 —
   professors export PDFs from PowerPoint themselves; rationale in `docs/architecture/generator-spec.md`).
   Course material is not a build prerequisite — the professor said any PDF on any topic works for
@@ -71,6 +86,9 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
   (`docs/PROJECT_MAP.md` §2.7 and §0).
 - **Tests exist now.** `npm test` runs `node --test tests/*.test.ts`. No external test framework — do
   not add vitest or jest.
+- **Do not ask a model to self-report question difficulty.** Tried, failed on three independent
+  samples. Simulate an attempt and measure the failure rate instead
+  (`docs/literature/item-difficulty-without-students.md`).
 
 ## Orchestration (added 28 Jul 2026 — full rationale in `docs/architecture/agent-orchestration.md`)
 Two sessions have already died of context exhaustion. The main session is an **orchestrator**: it

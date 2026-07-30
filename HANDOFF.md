@@ -1,6 +1,9 @@
 # HANDOFF: Gamified Adaptive Learning Platform (FBT Research Project)
 
-**Prepared:** 22 Jul 2026. **Updated:** 30 Jul 2026 (transcript re-read surfacing five corrections to `CLAUDE.md`, the new `docs/PROJECT_MAP.md` project spine, per-game lever semantics and the `resolveLever` design, the platform's live-ingestion/subject-agnostic/PDF-input direction, the project's first automated tests, and a `sol-consult` GPT-5.6 Sol consultation reversing three design decisions; see §12). Previous update: 29 Jul 2026 (question-generation pipeline design decisions, 28-29 Jul, plus the source-diagnostic build, a LibreOffice rationale correction, a codex-steering correction, a `/simplify` pass removing 673 dead/misfiring lines, and a `round_stop` event-shape fix, all recorded same day; see §3a). Previous update: 28 Jul 2026 (post-pivot rebuild; authentication wired same day, commit b569cc5; app gated end to end and lifetime stats added same day, commit 408bd54). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot, a same-day follow-up (commit b569cc5) wired real authentication, and a further same-day commit (408bd54) closed the login gate and wired lifetime stats. All three commits are pushed to `origin/main`. This doc now records both the original vision (history) and the current state.
+**Prepared:** 22 Jul 2026. **Updated:** 30 Jul 2026, second checkpoint (cold-start item-difficulty
+research, the decision to seed difficulty by LLM student simulation on a local Ollama model rather
+than Elo, the Phase 0 spike and what it did and did not validate, and the `source_excerpt` column
+consequence; see §13). Previous update, same day: 30 Jul 2026 (transcript re-read surfacing five corrections to `CLAUDE.md`, the new `docs/PROJECT_MAP.md` project spine, per-game lever semantics and the `resolveLever` design, the platform's live-ingestion/subject-agnostic/PDF-input direction, the project's first automated tests, and a `sol-consult` GPT-5.6 Sol consultation reversing three design decisions; see §12). Previous update: 29 Jul 2026 (question-generation pipeline design decisions, 28-29 Jul, plus the source-diagnostic build, a LibreOffice rationale correction, a codex-steering correction, a `/simplify` pass removing 673 dead/misfiring lines, and a `round_stop` event-shape fix, all recorded same day; see §3a). Previous update: 28 Jul 2026 (post-pivot rebuild; authentication wired same day, commit b569cc5; app gated end to end and lifetime stats added same day, commit 408bd54). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot, a same-day follow-up (commit b569cc5) wired real authentication, and a further same-day commit (408bd54) closed the login gate and wired lifetime stats. All three commits are pushed to `origin/main`. This doc now records both the original vision (history) and the current state.
 
 ---
 
@@ -420,3 +423,83 @@ and then deleted this session; `docs/PROJECT_MAP.md` replaces it — do not recr
 Full open-questions list, the package table for parallel sessions, and the points-table placeholder
 values all live in `docs/PROJECT_MAP.md` — not duplicated here to avoid a second copy drifting out of
 sync.
+
+## 13. Cold-start item-difficulty calibration (30 Jul 2026, second checkpoint)
+
+**The problem.** §10 already flagged that the model-asserted 1–5 difficulty labels do not discriminate
+and the adaptive-difficulty lever depends entirely on them. Classical pre-calibration (test the item on
+a cohort first, fit an IRT model) needs a cohort. **There is none** — no pilot-of-the-pilot, no prior
+class to draw on. This is a named, active research problem, cold-start item calibration, researched and
+written up with citations in `docs/literature/item-difficulty-without-students.md`; full detail there,
+not repeated here.
+
+**Two solution families, and why only one is in scope now.**
+1. **LLM student simulation (in scope, seeding).** Do not ask a model how hard an item is — prompt it
+   to role-play a student at a stated ability tier, have it *attempt* the item, and take the failure
+   rate across a spread of ability tiers as the difficulty estimate. Published results correlate
+   r = 0.75–0.82 against real IRT difficulty on maths MCQs (631-item NAEP set); our domain is management
+   prose, untested, so treat that as an optimistic ceiling. The counterintuitive finding that decided our
+   model choice: **weaker models simulate better** — Gemma 9B–27B beat Llama-3.3-70B, which answered 92%
+   of items correctly but could not convincingly fail.
+2. **Elo rating (deferred, online refinement).** Treat each answer as a student-vs-item match; ratings
+   update after every response, so a new item needs no prior difficulty. **Deferred because it needs
+   real responses and a server-authoritative answer path, neither of which exists yet** (`/api/questions`
+   still ships `answer` for all rows; `/api/events` trusts the client). It is also deferred at the
+   *item* level specifically: our expected volume is ~20 responses per item, far short of the 200–500
+   Elo needs to converge, so **when Elo lands it will rate recipes (knowledge-unit × task-type ×
+   cue-strength), not individual items** — 10–20 recipes each pooling 400–800 responses, inside the
+   convergence range. Naive Elo combined with adaptive item selection also has a known failure mode
+   (Bolsinova et al. 2026): selection and rating error reinforce each other and variance diverges rather
+   than converges. The documented fix, Parallel Elo (two independent rating chains, alternating which
+   one updates vs which one is used to select), is noted for when this is built, not built now.
+
+**Decisions made this session:**
+- Difficulty is seeded by LLM student simulation, not asserted by a model.
+- Simulation runs on a **small local model via Ollama**, not a hosted one — reproducibility (a hosted
+  model can change mid-pilot and silently shift calibration), course material never leaves the machine,
+  and weaker models simulate better, so small-and-local is methodologically correct, not a cost
+  compromise. `gemma4:31b-cloud` in `ollama list` is a cloud model despite its name and must not be used.
+- The continuous simulated score is **binned into the existing 1–5 integer column**, by quintiles over
+  the run's observed distribution (not fixed thresholds, which would collapse into one or two bands on
+  uniformly easy or hard material). This was chosen over rewriting difficulty as a continuous field
+  because ~11 sites already assume difficulty is a small int (`pickQuestion`'s radius algorithm, the
+  lever constants, the badge, the tests), and the student-facing display only ever needed five bands.
+- The raw score is stored in a new `content_items.simulated_p`, kept strictly separate from
+  `empirical_p` (reserved for observed human facility) — simulated must never masquerade as observed.
+
+**Phase 0 spike — read this precisely, the headline is narrower than the pass/fail suggests.**
+`scripts/spike-simulate-difficulty.mjs` ran 15 real generated questions through `llama3.2` (~3B, 2 GB)
+at n=4 per question, concurrency 4, options shuffled per call so the generator's known index-0 bias
+could not inflate the result.
+
+- **It passed its stated kill criterion.** Success rates spread the full range, min 0.00, mean 0.47,
+  max 1.00, no clustering — the feared failure mode (every item scoring near-identically) did not
+  happen. Zero unparseable replies. 2.1 s per response.
+- **It did not validate that the method measures difficulty.** The simulated students never saw the
+  source deck, so what actually got measured is *how much a question depends on the source material*.
+  Four of fifteen items scored 100%, and all four are answerable from general knowledge with zero deck
+  content (pitch deck purpose, Amazon's purpose, price matters to travellers, search→review→book). A
+  real student attended the session and has seen the material; the spike's simulated student has not.
+- **n=4 allows only five possible per-question values.** Directional only, no claim about magnitude.
+- **The grounded method — simulating with the source excerpt supplied, the actual proposal — has not
+  been run.** That comparison, grounded vs ungrounded on the same 15 items, is the next step and the
+  real validation.
+- **Free bonus finding:** the ungrounded run is a good question-quality detector on its own. An item
+  answerable at ~100% without the source teaches nothing and rewards general knowledge, the same defect
+  class as answer-position bias. It flagged the same 4 of 15 items. Worth adding to
+  `scripts/validate-questions.mjs` as a gate, independent of whether the grounded difficulty method pans
+  out.
+
+**Consequence: `content_items` needs a new `source_excerpt` column.** Two independent needs converged
+on it in the same session: grounded difficulty simulation needs to hand the simulated student the actual
+material (with ability tier controlling how well they use it, otherwise the spike's source-dependence
+problem repeats); and separately, `sol-consult` (§12) had already flagged that the generator's page-loop
+proves which window was *prompted*, not that the answer is *supported* by it, and wanted an evidence
+span checked against extracted text. `db/005_add_simulated_difficulty.sql` (not yet written) should
+carry `simulated_p`, `simulated_n`, `simulator_model`, and `source_excerpt` together, and the generator
+(package G1) must start storing the text it actually used.
+
+**Not committed.** `docs/literature/item-difficulty-without-students.md` and
+`scripts/spike-simulate-difficulty.mjs` (throwaway, produced the spike numbers above) are both
+uncommitted as of this session; `docs/CURRENT_STATE.md` has the working-tree detail. Last commit
+remains `559dd40`.
