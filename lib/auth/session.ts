@@ -15,7 +15,10 @@ export interface SessionPayload {
   exp: number // unix seconds
 }
 
-function secret(): string {
+// Exported (not just used internally) so lib/auth/board-token.ts can sign/verify
+// match-the-following board tokens off the SAME secret and env var, per FIX 1 in
+// the A1 rework brief -- one key to rotate, not two.
+export function secret(): string {
   const s = process.env.SESSION_SECRET
   if (!s) {
     throw new Error(

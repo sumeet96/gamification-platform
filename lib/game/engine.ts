@@ -27,6 +27,16 @@ export const TIME_BASE = 10 // seconds, first question in time mode
 export const TIME_MIN = 5
 export const TIME_STEP = 2 // seconds shaved per consecutive correct
 
+// Board-grained timing (FIX 4, A1 rework): six clue/term placements cannot be
+// timed like one MCQ -- TIME_BASE (10s) made every match board time out, so
+// boardSucceeded was never true, streak never advanced, and the time lever
+// was permanently pinned. PLACEHOLDERS pending Prof. Singh's sign-off, per
+// docs/PROJECT_MAP.md §1 (90 -> 60 -> 45s), exactly like lib/games/registry.ts
+// flags its points as placeholders.
+export const BOARD_TIME_BASE = 90 // seconds, first board in time mode
+export const BOARD_TIME_MIN = 45
+export const BOARD_TIME_STEP = 15 // seconds shaved per consecutive correct board
+
 export function roundLength(mode: Mode): number {
   return mode === 'rapid' ? 10 : 20
 }
@@ -71,8 +81,20 @@ export function nextDifficulty(current: number, correct: boolean, consecutive: n
   return Math.max(DIFFICULTY_MIN, Math.min(DIFFICULTY_MAX, d))
 }
 
-/** Time mode: seconds allowed for the NEXT question given the current correct streak. */
-export function timeForStreak(consecutiveCorrect: number): number {
+// Which per-round clock a game is on. Not a second lever -- both branches of
+// resolveLever below still decide difficulty vs time; this only picks WHICH
+// pair of constants ('item' MCQ timing vs 'board' whole-board timing) the time
+// branch reads. Lives here, not as a parallel resolver, so the single-lever
+// chokepoint (see resolveLever) still holds for every granularity.
+export type TimingProfile = 'item' | 'board'
+
+/** Time allowed for the NEXT question (profile 'item') or NEXT board (profile
+ *  'board'), given the current correct streak. Defaults to 'item' so every
+ *  existing call site (the quiz) is unaffected. */
+export function timeForStreak(consecutiveCorrect: number, profile: TimingProfile = 'item'): number {
+  if (profile === 'board') {
+    return Math.max(BOARD_TIME_MIN, BOARD_TIME_BASE - BOARD_TIME_STEP * consecutiveCorrect)
+  }
   return Math.max(TIME_MIN, TIME_BASE - TIME_STEP * consecutiveCorrect)
 }
 
@@ -106,17 +128,25 @@ export function initialLeverState(config: GameConfig): LeverState {
   }
 }
 
-/** Difficulty + time limit for the next question, given the lever and current state.
- *  Exhaustive switch, see `initialLeverState` above for why. */
+/** Difficulty + time limit for the next question (or board, see `profile`),
+ *  given the lever and current state. Exhaustive switch, see `initialLeverState`
+ *  above for why.
+ *
+ *  `profile` (Change, FIX 4) extends this same chokepoint to board-grained
+ *  games rather than adding a parallel resolver: it only selects which pinned
+ *  base / which timeForStreak curve the 'time' logic reads. A game still never
+ *  branches on `config.lever` itself -- match passes `profile: 'board'`, the
+ *  quiz omits it and gets the unchanged 'item' behaviour. */
 export function resolveLever(
   config: GameConfig,
-  state: LeverState
+  state: LeverState,
+  profile: TimingProfile = 'item'
 ): { difficulty: number; timeLimit: number } {
   switch (config.lever) {
     case 'adaptive':
-      return { difficulty: state.difficulty, timeLimit: TIME_BASE }
+      return { difficulty: state.difficulty, timeLimit: profile === 'board' ? BOARD_TIME_BASE : TIME_BASE }
     case 'time':
-      return { difficulty: config.fixedDifficulty, timeLimit: timeForStreak(state.streak) }
+      return { difficulty: config.fixedDifficulty, timeLimit: timeForStreak(state.streak, profile) }
     default: {
       const exhaustive: never = config.lever
       throw new Error(`resolveLever: unhandled lever ${exhaustive}`)

@@ -1,8 +1,22 @@
 import { NeonDbError } from '@neondatabase/serverless'
 import { getSql } from '@/lib/db/client'
 import { getCurrentStudent } from '@/lib/auth/current-student'
+import { CLIENT_EMITTABLE_EVENT_TYPES } from '@/lib/log/logEvent'
 
 type Sql = NonNullable<ReturnType<typeof getSql>>
+
+// Allowlist, not a denylist. `question_answered` (Q1) and `board_complete` (A1) are both
+// scored events -- server-written only, from app/api/answer/route.ts and
+// app/api/match/submit/route.ts respectively -- and neither appears in
+// CLIENT_EMITTABLE_EVENT_TYPES. A denylist that only named `question_answered` failed open
+// the moment a second scored event type (`board_complete`) was added: it would have sailed
+// through this route and let a forged fetch write an arbitrary points_delta straight into
+// the research dataset, and could also have pre-poisoned the duplicate-commit check
+// app/api/match/submit/route.ts keys off `board_complete` rows. This is the SAME array the
+// client-emittable `EventType` union in lib/log/logEvent.ts is derived from -- not a
+// separate list kept in sync by comment -- so the type-level guard and this runtime
+// backstop cannot diverge the way two independently-maintained lists could.
+const ALLOWED_EVENT_TYPES = new Set<string>(CLIENT_EMITTABLE_EVENT_TYPES)
 
 function insertEvent(sql: Sql, e: Record<string, unknown>, studentId: string | null) {
   return sql`
@@ -43,16 +57,33 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: 'bad json' }, { status: 400 })
   }
 
-  // question_answered carries is_correct and points_delta -- scoring facts, not
-  // interaction metadata. If this route wrote them as-sent, the event log would
-  // just be a mirror of whatever the browser claims happened. That event type is
-  // now server-scored only, written from app/api/answer/route.ts (package Q1).
-  if (e.event_type === 'question_answered') {
+  // Scored events (`question_answered`, `board_complete`) carry is_correct and
+  // points_delta -- scoring facts, not interaction metadata. If this route wrote them
+  // as-sent, the event log would just be a mirror of whatever the browser claims
+  // happened. Both are server-written only, from app/api/answer/route.ts (Q1) and
+  // app/api/match/submit/route.ts (A1) respectively -- this route never writes either.
+  if (typeof e.event_type !== 'string' || !ALLOWED_EVENT_TYPES.has(e.event_type)) {
     return Response.json(
-      { ok: false, error: 'question_answered is server-scored only; use POST /api/answer' },
+      { ok: false, error: `${String(e.event_type)} is server-scored only or unknown; use the scoring route for this game` },
       { status: 403 }
     )
   }
+
+  // Defense in depth: none of the allowlisted types above are scored, so none of them
+  // should carry scoring columns either. Nothing in the current UI sets these on a
+  // round_*/session_start event, but insertEvent below writes these columns straight from
+  // the body for whatever event_type reaches it -- a forged fetch could otherwise smuggle
+  // a fake scoring value onto an allowlisted row. None of these move `net`/`gross` in
+  // app/api/stats/route.ts today (that query sums points_delta only where event_type is
+  // 'question_answered' or 'board_complete', and doesn't read negative_applied at all),
+  // but stripping here means a future, less-careful aggregate query can't be fooled by
+  // them either. THE FULL LIST OF SCORING COLUMNS ON `events` (keep in sync with
+  // insertEvent's column list below): is_correct, points_delta, negative_applied,
+  // net_after. Add any new scoring column to BOTH this list and the one above it.
+  delete e.is_correct
+  delete e.points_delta
+  delete e.negative_applied
+  delete e.net_after
 
   const sql = getSql()
   if (!sql) return Response.json({ ok: true, stored: false })

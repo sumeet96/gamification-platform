@@ -3,19 +3,26 @@
 
 // 'question_answered' is deliberately absent -- that event is scored and written
 // server-side only, from app/api/answer/route.ts (package Q1). Leaving it out of
-// this union makes "the client cannot emit a scored event" a type error, not just
+// this array makes "the client cannot emit a scored event" a type error, not just
 // a rule; app/api/events/route.ts still rejects it at runtime as a backstop since
-// this type doesn't constrain a raw fetch().
-export type EventType =
-  | 'session_start'
-  | 'round_start'
-  | 'round_offer' // emitted when the results screen actually renders the "Keep Going"
+// the type alone doesn't constrain a raw fetch(). Declared as a `const` array
+// (rather than a type literal with a hand-kept-in-sync runtime Set elsewhere) so
+// `EventType` below is DERIVED from it: app/api/events/route.ts imports this same
+// array as its runtime allowlist, so the type-level guard and the runtime backstop
+// cannot drift apart the way two independently-maintained lists could.
+export const CLIENT_EMITTABLE_EVENT_TYPES = [
+  'session_start',
+  'round_start',
+  'round_offer', // emitted when the results screen actually renders the "Keep Going"
   // affordance -- i.e. the student was genuinely given the chance to continue. It
   // carries no score, so (like the others here) it is safe as a client-emitted type.
   // Pairs with 'round_continue' (accepted) and 'round_stop' (declined); silence after
   // this event with neither of those two means the round was abandoned mid-decision.
-  | 'round_continue'
-  | 'round_stop'
+  'round_continue',
+  'round_stop',
+] as const
+
+export type EventType = (typeof CLIENT_EMITTABLE_EVENT_TYPES)[number]
 
 export interface GameEvent {
   session_id: string

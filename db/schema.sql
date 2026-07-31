@@ -75,7 +75,13 @@ create index if not exists events_session_round_idx   on events (session_id, rou
 --   selected_option    int   -- which option the student picked (misconception analysis)
 --   content_item_id    text  -- forward path to content_items(id)
 --   adapt_granularity  text  -- item | board -- whether the lever could fire at this grain
---   boards_completed   int   -- distinguishes "lever never fired" from "lever fired, no effect"
+--   boards_completed   int   -- the 1-indexed ordinal of the board being completed by THIS
+--                                event (1, 2, 3, ...), written by app/games/match/page.tsx and
+--                                app/api/match/submit/route.ts. db/004's original comment
+--                                ("boards completed so far", i.e. a count-before) is WRONG and
+--                                superseded by this line and by db/007_add_board_dedupe.sql --
+--                                an analyst using the old prose would be off by one in exactly
+--                                the lever-fired-vs-never-fired analysis this column exists for.
 --   cognitive_level    text  -- denormalized from content_items, for accuracy-by-level without a join
 alter table events
   add column if not exists selected_option int,
@@ -83,6 +89,28 @@ alter table events
   add column if not exists adapt_granularity text,
   add column if not exists boards_completed int,
   add column if not exists cognitive_level text;
+
+-- db/007_add_board_dedupe.sql: free-text answer, for games whose response is
+-- not an MCQ option index. Holds the free-text answer a student actually gave
+-- when `selected_option` (an int) cannot represent it -- match-the-following
+-- placements today; fill-in-the-blanks and choose-the-right-word later.
+-- Nullable, additive, never written by the MCQ quiz path.
+alter table events add column if not exists submitted_text text;
+
+-- db/007_add_board_dedupe.sql: makes match-the-following board-submit dedupe
+-- atomic. The board_complete row's `question_id` column is repurposed to hold
+-- the board token's nonce (see app/api/match/submit/route.ts); this unique
+-- partial index makes the INSERT itself the concurrency lock, closing a race
+-- where N parallel POSTs carrying the same valid token could all pass a
+-- check-then-insert dedupe on the Neon HTTP driver (no transaction) and all
+-- score. The `where` clause is mandatory: `question_id` also holds the
+-- literal string 'seed-fallback' on many question_answered rows
+-- (app/api/answer/route.ts) and ordinary repeated question ids across
+-- sessions, so a non-partial unique index on this column would fail to build
+-- and would break the quiz's seed-fallback path.
+create unique index if not exists events_board_nonce_uidx
+  on events (question_id)
+  where event_type = 'board_complete';
 
 do $$
 begin

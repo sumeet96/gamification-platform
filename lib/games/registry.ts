@@ -41,7 +41,31 @@ export interface GuessCountPoints {
   miss: number
 }
 
-export type Points = FlatPoints | GuessCountPoints
+/**
+ * Board-grained scoring: per-pair accrual totalled and paid out ONCE at board end,
+ * plus a bonus for a clean board and a floor penalty for a failed one. Used by
+ * match-the-following.
+ *
+ * Why not FlatPoints with a per-pair `wrong`: on a bijection board the number of
+ * correct pairs is the fixed-point count of a permutation, so a single mistake
+ * always drags at least one other pair down with it — out of 6 you can score
+ * 6, 4, 3, 2, 1 or 0, but never 5. A per-pair penalty therefore bills one error
+ * twice. The structural double-cost IS the penalty; `perfectBonus` supplies the
+ * reward gradient instead of negative marking.
+ *
+ * `floorPenalty` is not decoration: a random permutation has exactly 1 expected
+ * fixed point at ANY board size, so accrual alone would pay `perPair` for pure
+ * guessing. The floor is what makes guessing negative-EV.
+ */
+export interface BoardPoints {
+  kind: 'board'
+  perPair: number
+  perfectBonus: number
+  floorAtOrBelow: number // correct-pair count at or below which floorPenalty applies
+  floorPenalty: number // zero or negative — positive would reward failing a board
+}
+
+export type Points = FlatPoints | GuessCountPoints | BoardPoints
 
 export interface GameEntry {
   id: string
@@ -87,8 +111,10 @@ export const GAME_REGISTRY: readonly GameEntry[] = [
     primitive: 'term_definition',
     lever: 'both',
     adaptGranularity: 'board',
-    points: { kind: 'flat', correct: 15, wrong: -5 }, // per pair
-    enabled: false, // not yet built (WP A1)
+    // Paid once per board: 15 x correct pairs, +30 if the board is clean, -20 if
+    // 2 or fewer land. See BoardPoints above for why there is no per-pair penalty.
+    points: { kind: 'board', perPair: 15, perfectBonus: 30, floorAtOrBelow: 2, floorPenalty: -20 },
+    enabled: true, // WP A1 shipped: app/games/match/page.tsx + app/api/match/*
   },
   {
     id: 'fill-blanks',

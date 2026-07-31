@@ -12,6 +12,10 @@ import {
   roundLength,
   DIFFICULTY_MAX,
   START_DIFFICULTY,
+  TIME_BASE,
+  BOARD_TIME_BASE,
+  BOARD_TIME_MIN,
+  BOARD_TIME_STEP,
   type GameConfig,
 } from '../lib/game/engine.ts'
 
@@ -109,4 +113,50 @@ test('adaptive lever: difficulty no longer saturates mid-round for a strong play
     seenFirstHalf.some((d) => d < DIFFICULTY_MAX),
     `expected difficulty still below the ceiling partway through the round, saw ${seenFirstHalf}`
   )
+})
+
+// FIX 4 (A1 rework): resolveLever's default ('item') behaviour must be
+// completely unchanged -- the quiz's call sites never pass a profile, so a
+// regression here would silently retime every MCQ.
+test('resolveLever with no profile behaves exactly as before (item timing)', () => {
+  const config: GameConfig = { mode: 'normal', lever: 'time', fixedDifficulty: 3 }
+  let state = initialLeverState(config)
+  assert.equal(resolveLever(config, state).timeLimit, TIME_BASE)
+  state = advanceLeverState(config, state, true)
+  assert.equal(resolveLever(config, state).timeLimit, resolveLever(config, state, 'item').timeLimit)
+})
+
+// FIX 4: the whole reason this profile exists -- TIME_BASE (10s) is unplayable
+// for a six-pair board, so the 'board' profile must use the much larger
+// BOARD_TIME_* constants instead, for BOTH branches of the lever switch
+// (adaptive pins the base, time ramps it down).
+test('resolveLever board profile: adaptive lever pins the BOARD base, not the item base', () => {
+  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3 }
+  const state = initialLeverState(config)
+  const { timeLimit } = resolveLever(config, state, 'board')
+  assert.equal(timeLimit, BOARD_TIME_BASE)
+  assert.notEqual(timeLimit, TIME_BASE)
+})
+
+test('resolveLever board profile: time lever ramps down using the BOARD step/min, never below BOARD_TIME_MIN', () => {
+  const config: GameConfig = { mode: 'normal', lever: 'time', fixedDifficulty: 3 }
+  let state = initialLeverState(config)
+  assert.equal(resolveLever(config, state, 'board').timeLimit, BOARD_TIME_BASE)
+  // Enough consecutive correct boards to hit the floor.
+  for (let i = 0; i < 10; i++) state = advanceLeverState(config, state, true)
+  const { timeLimit } = resolveLever(config, state, 'board')
+  assert.equal(timeLimit, BOARD_TIME_MIN)
+  assert.ok(timeLimit >= BOARD_TIME_MIN)
+  // One correct answer in is one BOARD_TIME_STEP off the base, not the item step.
+  let one = initialLeverState(config)
+  one = advanceLeverState(config, one, true)
+  assert.equal(resolveLever(config, one, 'board').timeLimit, BOARD_TIME_BASE - BOARD_TIME_STEP)
+})
+
+test('resolveLever board profile: difficulty is unaffected by profile (only timing differs)', () => {
+  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3 }
+  let state = initialLeverState(config)
+  state = advanceLeverState(config, state, true)
+  state = advanceLeverState(config, state, true)
+  assert.equal(resolveLever(config, state).difficulty, resolveLever(config, state, 'board').difficulty)
 })

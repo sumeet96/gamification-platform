@@ -40,18 +40,35 @@ interface MeOk {
 }
 type MeResponse = MeOk | ApiErr
 
-// Only the two enabled quiz modes map to a real route; the four not-yet-built
-// games never navigate (GameTile renders them as a non-clickable div when
-// enabled=false), so they don't need an entry here.
+// Only games with a real route go here; the not-yet-built games never
+// navigate (GameTile renders them as a non-clickable div when enabled=false),
+// so they don't need an entry. Match owns its own lever-setup screen
+// (app/games/match/page.tsx) rather than going through /game-setup, since
+// that page's constants (roundLength, quiz-only points) are quiz-specific.
 const HREF_BY_ID: Record<string, string> = {
   'quiz-normal': '/game-setup?mode=normal',
   'quiz-rapid': '/game-setup?mode=rapid',
+  match: '/games/match',
 }
 
+// The tile blurb is the student's only advance notice of what a game pays, so it has to
+// stay truthful as points shapes are added. Exhaustive switch, not a ternary: the `never`
+// default makes a new Points kind a compile error here instead of a tile that silently
+// describes the wrong economy.
 function pointsBlurb(entry: GameEntry): string {
-  return entry.points.kind === 'flat'
-    ? `+${entry.points.correct} / ${entry.points.wrong} pts per answer`
-    : `Up to +${entry.points.byGuessCount[0]} pts, scored by guess count`
+  const p = entry.points
+  switch (p.kind) {
+    case 'flat':
+      return `+${p.correct} / ${p.wrong} pts per answer`
+    case 'guessCount':
+      return `Up to +${p.byGuessCount[0]} pts, scored by guess count`
+    case 'board':
+      return `+${p.perPair} per pair, +${p.perfectBonus} for a clean board`
+    default: {
+      const exhaustive: never = p
+      throw new Error(`pointsBlurb: unhandled points kind ${JSON.stringify(exhaustive)}`)
+    }
+  }
 }
 
 function formatLastPlayed(iso: string | null): string {
