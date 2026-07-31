@@ -76,9 +76,10 @@ length. It is not.
 At n=15 the critical value is ≈0.52, so none of these is significant, and the character correlation
 runs *opposite* to the artifact hypothesis. Excerpt length does not explain arm C's ordering.
 
-## Result 4 — the model-asserted 1–5 labels discriminate better than the project has been assuming
+## Result 4 — the 1–5 labels: measured twice, two different answers
 
-**This contradicts a stated premise and needs attention.**
+**Superseded in part by Result 7. Read both.** What follows is the llama3.2 measurement; a second
+simulator did not reproduce it, and the honest conclusion is now "unresolved".
 
 Rank correlation of simulated success against the asserted label (negative is the correct direction —
 harder label should mean lower success):
@@ -101,9 +102,9 @@ that sample rather than judging it, and gets a different answer:
 - "1s and 2s are indistinguishable" **is** supported at the fine grain: d1 #9 scores 80% while d2 #1
   scores 93%. Adjacent bands overlap heavily.
 
-So the accurate statement is **"the labels discriminate coarsely across the full range but are
-unreliable between adjacent levels"**, not "they do not discriminate." That is a weaker problem than
-the one the simulation work was justified against.
+On this evidence alone the statement would be "the labels discriminate coarsely across the full range
+but are unreliable between adjacent levels," not "they do not discriminate." **Result 7 shows that
+conclusion does not survive a change of simulator.**
 
 Caveats before acting on this: n=15, one deck, one d4 item and no d5; the same model wrote both the
 questions and their labels, so label and content share a source; and llama3.2's failure rate may track
@@ -147,9 +148,78 @@ such slides cannot be difficulty-calibrated by text simulation.
   recovers them via Gemini vision on the PDF (13,885 in / 2,841 out tokens, one call).
 - **The deck's "Competitive Advantages" slide is Lorem ipsum** under all six real headings.
 
+## Result 7 — replication on a second simulator: the method holds, the difficulty values do not
+
+Run the same 15 items, same seeds, same personas, same thinning through **`gpt-3.5-turbo-0125`**
+(pinned snapshot, not the floating alias). 1,350 more responses, 0 unparseable, 0 transport errors,
+~2 minutes per arm, about $0.25.
+
+**What replicates — the core method finding.**
+
+| Arm | Below Basic | Basic | Proficient | Advanced | slope |
+|---|---|---|---|---|---|
+| gpt-3.5, ungrounded | 68% | 72% | 73% | 73% | +5, flat |
+| gpt-3.5, grounded full | 98% | 98% | 95% | 93% | **−5, backwards** |
+| gpt-3.5, grounded retention | 73% | 87% | 95% | 96% | **+23, monotonic** |
+
+Two unrelated model families, same conclusion: **only retention-gated grounding produces an ability
+gradient.** Given the full excerpt the gradient inverts; given no excerpt it vanishes. Result 1 is
+not an artifact of llama3.2.
+
+**What does not replicate — which items are hard.**
+
+| Arms compared | Spearman |
+|---|---|
+| ungrounded: llama3.2 vs gpt-3.5 | **0.75** |
+| grounded full: llama3.2 vs gpt-3.5 | 0.43 |
+| grounded retention: llama3.2 vs gpt-3.5 | **0.23** |
+| grounded retention, excluding items at ceiling in either (n=8) | 0.59 |
+
+The two simulators agree strongly about **which questions are answerable without the deck** (0.75) —
+that is a property of the item, so agreement is expected. They agree poorly about **difficulty**
+(0.23). Part of that is range restriction: gpt-3.5-turbo ceilings on 7 of 15 items against llama3.2's
+1, and tied ranks attenuate the correlation. Removing the ceiling items lifts it to 0.59 on eight
+items, which is moderate, not strong.
+
+Largest disagreements (llama3.2 → gpt-3.5): item 8, the 2×2 competitive matrix, 33% → 97%; item 3,
+Solution value proposition, 47% → 100%; item 13, 73% → 100%.
+
+**Why gpt-3.5-turbo is the wrong simulator, structurally.** With no source material at all it scores
+**0.72** against llama3.2's **0.45** — it recognises this famous pitch deck from training data. A
+model that answers ~97% of grounded items correctly cannot represent a struggling student however it
+is prompted. This is the source paper's own argument against Llama-3.3-70B (92% correct, r fell to
+0.46–0.56), reproduced here on our material. **Keep the weak local simulator.**
+
+**Consequence for Result 4.** The correlation between simulated facility and the asserted 1–5 labels
+is **−0.63 under llama3.2 and −0.09 under gpt-3.5-turbo** on identical items. Whether those labels
+discriminate is therefore **unresolved**, and no simulator can settle it — only observed student
+responses can. `CLAUDE.md`, `docs/PROJECT_MAP.md` §1.6 and `docs/consult-brief.md` were amended to say
+so, after briefly stating the llama3.2 result as settled.
+
+**Rule this establishes:** one simulator is one measurement. Any difficulty claim must name the
+simulator, and anything load-bearing must be replicated on a second.
+
+### Gemini 3.5 Flash-Lite — attempted, abandoned
+
+Free-tier rate limiting throttled it to ~13 s/response against 0.2 s for the other two providers, and
+the run then aborted outright on depleted prepayment credits after 33 consecutive 429s. Two things
+survive from the partial run:
+
+- Ungrounded, it scored 97% and 100% on the first two items where llama3.2 scored 100% and 67% —
+  the same memorisation signature as gpt-3.5-turbo, more pronounced.
+- **`thinkingConfig.thinkingBudget` is rejected by `gemini-3.5-flash-lite` with a 400**, so its
+  reasoning step cannot be disabled. Any future comparison including it is tilted in its favour and
+  must say so.
+
+Operationally it is also unusable for the real job: at throttled rates a 400-item bank at n=30 would
+take about a week.
+
 ## Limits — do not overstate these results
 
 - **n=15 items, one deck, one topic.** Every correlation here is at the edge of significance.
+- **Difficulty values are simulator-specific** (Result 7). The method — retention-gated grounding —
+  replicates across model families; the numbers it produces do not. Never quote a facility figure
+  without naming the simulator that produced it.
 - **This validates the ordering, not the magnitude.** Whether a simulated 0.71 corresponds to a real
   student facility of 0.71 is untested and needs the pilot.
 - **The retention fractions (0.30/0.55/0.80/1.00) are a chosen knob**, not a calibrated one. The

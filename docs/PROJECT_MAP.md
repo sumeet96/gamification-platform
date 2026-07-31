@@ -31,9 +31,10 @@ deletes the mechanic he actually asked for. This is the single most consequentia
 
 > "we show them a difficulty level. We say we are giving you easy difficulty right now."
 
-The difficulty scale is not an internal parameter — it is a visible promise. Because the labels
-separate easy from hard but not adjacent levels (§1.6, corrected 31 Jul 2026), the app can tell a
-student "this is a 4" when the item behaves like a 3. Ranked #1 already; this raises the stakes.
+The difficulty scale is not an internal parameter — it is a visible promise. We still cannot say how
+much the labels mean (§1.6, 31 Jul 2026: the two measurements disagree and are simulator-dependent),
+so the app may be telling a student "this is a 4" for an item that behaves like a 2. Ranked #1
+already; the unresolved state raises the stakes rather than lowering them.
 
 **C-3. Course material is not a prerequisite for building.**
 
@@ -326,19 +327,32 @@ outright." **Recall questions have a narrow difficulty range** — largely, you 
 or you don't — so asking a model to score them 1–5 is asking for finer resolution than the items
 carry.
 
-**Corrected 31 Jul 2026.** This section previously concluded "that is why the labels do not
-discriminate," on three eyeballed samples. Measured by student simulation on one of those samples
-(15 items, 1,350 simulated responses), that overstates it. The labels order items correctly across
-the full range — ρ = −0.63, and mean facility falls monotonically d1 91% → d2 70% → d3 66% → d4 33%
-— and the specific complaint on file, that "a question labelled 4 was answerable cold," is wrong:
-that item is the hardest in the set at 33% ungrounded. What does hold is the other half of the
-complaint, that 1s and 2s are indistinguishable: a d1 item scores 80% while a d2 item scores 93%.
+**Corrected twice on 31 Jul 2026 — read the whole of this note before citing it.**
 
-So the accurate statement is **the labels discriminate coarsely but are unreliable between adjacent
-levels** — blunt, not broken. Limits on that correction: 15 items, one deck, one item labelled 4 and
-none labelled 5, and the same model wrote both the questions and their labels. Full evidence in
-`docs/experiments/2026-07-31_grounded-difficulty-simulation.md`. The proposal below still stands,
-because a five-band visible promise needs resolution the labels do not have.
+This section previously concluded "that is why the labels do not discriminate," on three eyeballed
+samples. Student simulation on one of those samples (15 items) contradicted that: correlation with
+the labels was ρ = −0.63, mean facility fell monotonically d1 91% → d2 70% → d3 66% → d4 33%, and
+the specific complaint on file — that "a question labelled 4 was answerable cold" — was wrong, since
+that item was the hardest in the set.
+
+**Then the same items were run through a second simulator and the result did not hold.** Under
+`gpt-3.5-turbo-0125` the correlation with the labels is **−0.09** — no relationship. The two
+simulators also disagree with each other about which items are hard (ρ = 0.23 overall; 0.59 on the
+eight items where neither hits the ceiling). The difference is explained by simulator strength, not
+by the items: gpt-3.5-turbo scores 0.72 with no source material at all against llama3.2's 0.45, so
+it recognises this famous deck from training data and ceilings on 7 of 15 items.
+
+**So the honest state is: unresolved.** Neither "the labels discriminate" nor "they do not" is
+established. The first claim was never measured; the second is measured but simulator-dependent, and
+no simulator is ground truth. Only observed student responses settle it, which is a pilot question
+(see R1 and the validation step in `docs/literature/item-difficulty-without-students.md`).
+
+Limits on everything above: 15 items, one deck, one item labelled 4 and none labelled 5, and the same
+model wrote both the questions and their labels. Full evidence and per-item numbers in
+`docs/experiments/2026-07-31_grounded-difficulty-simulation.md`.
+
+The proposal below still stands regardless of how this resolves, because a five-band visible promise
+needs resolution the labels have not been shown to have.
 
 **The proposal: stop asking for a difficulty number, ask for a named cognitive level.**
 
@@ -540,8 +554,8 @@ transcript, or is marked as our inference. The summaries are lossy; the transcri
 ### 2.8 Known-broken
 
 - Answer key ships to the browser; scoring is client-side (`app/quiz/page.tsx` compares `i === q.answer`).
-- Difficulty labels are too blunt to drive the lever — they separate easy from hard but not adjacent
-  levels (corrected 31 Jul 2026; see §1.6).
+- Whether difficulty labels discriminate is **unresolved** — the two measurements we have disagree
+  with each other and depend on which simulator was used (31 Jul 2026; see §1.6).
 - Abandoned rounds reuse a round number (`session.roundsPlayed` never increments on quit).
 - Adaptive difficulty saturates at 5 and resets each round — the treatment vanishes mid-experiment.
 - Cosmetic ToS checkbox sits beside the real research-consent checkbox.

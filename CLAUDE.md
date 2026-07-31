@@ -102,13 +102,18 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
   (`docs/PROJECT_MAP.md` §2.7 and §0).
 - **Tests exist now.** `npm test` runs `node --test tests/*.test.ts`. No external test framework — do
   not add vitest or jest.
-- **Do not rely on a model's self-reported difficulty.** Measured 31 Jul 2026, the 1–5 labels are
-  **blunt, not broken**: they order items correctly across the full range (ρ = −0.63; d1 91% → d4
-  33%) but cannot separate adjacent levels, and the scale is a visible promise to the student. Earlier
-  wording here said they "failed on three independent samples" — that was eyeballed and overstated;
-  corrected in `docs/PROJECT_MAP.md` §1.6. Simulate an attempt and measure the failure rate instead
-  (`docs/literature/item-difficulty-without-students.md`,
-  `docs/experiments/2026-07-31_grounded-difficulty-simulation.md`).
+- **Do not rely on a model's self-reported difficulty, and do not claim it has been disproved
+  either.** Status as of 31 Jul 2026 is **unresolved**: the old "failed on three independent samples"
+  was eyeballed, never measured; measuring it gave ρ = −0.63 under `llama3.2` but −0.09 under
+  `gpt-3.5-turbo-0125` on the identical 15 items. No simulator is ground truth — only observed
+  student responses settle it. Simulate an attempt and measure the failure rate rather than asking
+  for a rating (`docs/literature/item-difficulty-without-students.md`,
+  `docs/experiments/2026-07-31_grounded-difficulty-simulation.md`, `docs/PROJECT_MAP.md` §1.6).
+- **One simulator is one measurement, not a result.** Any difficulty claim must name the simulator
+  and, where it matters, be replicated on a second. Simulators disagree with each other (ρ = 0.23
+  between `llama3.2` and `gpt-3.5-turbo-0125`), and a simulator strong enough to recognise the source
+  material from training data cannot represent a struggling student — `gpt-3.5-turbo` scores 0.72
+  with no material at all against `llama3.2`'s 0.45, and ceilings on 7 of 15 items.
 
 ## Orchestration (added 28 Jul 2026 — full rationale in `docs/architecture/agent-orchestration.md`)
 Two sessions have already died of context exhaustion. The main session is an **orchestrator**: it

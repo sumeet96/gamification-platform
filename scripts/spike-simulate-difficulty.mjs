@@ -28,6 +28,15 @@ import { readFileSync, writeFileSync } from 'node:fs'
 
 const OLLAMA = 'http://localhost:11434/api/chat'
 
+// --- .env.local, for --provider gemini (no dependency) ---
+try {
+  const txt = readFileSync(new URL('../.env.local', import.meta.url), 'utf8')
+  for (const line of txt.split('\n')) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/)
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '')
+  }
+} catch { /* only needed for the gemini provider */ }
+
 const arg = (name, fallback) => {
   const i = process.argv.indexOf(name)
   return i === -1 ? fallback : process.argv[i + 1]
@@ -38,7 +47,12 @@ if (!inPath || inPath.startsWith('--')) {
   console.error('Usage: node scripts/spike-simulate-difficulty.mjs <questions.json> [--model M] [--n 30] [--concurrency 4]')
   process.exit(1)
 }
-const MODEL = arg('--model', 'llama3.2')
+const PROVIDER = arg('--provider', 'ollama')
+if (!['ollama', 'gemini', 'openai'].includes(PROVIDER)) { console.error(`--provider must be "ollama", "gemini" or "openai"`); process.exit(1) }
+const DEFAULT_MODEL = { ollama: 'llama3.2', gemini: process.env.GEMINI_MODEL || 'gemini-2.0-flash', openai: 'gpt-3.5-turbo-0125' }
+const MODEL = arg('--model', DEFAULT_MODEL[PROVIDER])
+if (PROVIDER === 'gemini' && !process.env.GEMINI_API_KEY) { console.error('Missing GEMINI_API_KEY (set it in .env.local).'); process.exit(1) }
+if (PROVIDER === 'openai' && !process.env.OPENAI_API_KEY) { console.error('Missing OPENAI_API_KEY (set it in the shell or .env.local).'); process.exit(1) }
 const N = Number(arg('--n', 30))
 const CONCURRENCY = Number(arg('--concurrency', 4))
 const SOURCE = arg('--source', null)
@@ -99,25 +113,75 @@ function recall(text, tier, seed) {
 
 const LETTERS = ['A', 'B', 'C', 'D']
 
+async function askOllama(system, user) {
+  const body = {
+    model: MODEL,
+    stream: false,
+    options: { temperature: 0.8, num_predict: 4 }, // >0 so students of a tier differ; tiny output keeps CPU inference fast
+    messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+  }
+  const res = await fetch(OLLAMA, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  if (!res.ok) throw new Error(`Ollama ${res.status}: ${await res.text()}`)
+  return (await res.json())?.message?.content ?? ''
+}
+
+/** Same prompt, same temperature, hosted model. NOTE: `thinkingConfig.thinkingBudget` is rejected by
+ *  gemini-3.5-flash-lite with a 400, so thinking cannot be turned off — the hosted simulator gets a
+ *  reasoning step the local one does not. That asymmetry favours Gemini and must be stated with any
+ *  comparison. Retries on 429/5xx because free-tier RPM is low and project-specific. */
+/** OpenAI chat completions. Default is the PINNED snapshot gpt-3.5-turbo-0125, not the floating
+ *  `gpt-3.5-turbo` alias — a simulator that silently changes underneath the calibration would
+ *  invalidate the item bank mid-pilot, which is the same reproducibility argument that put the
+ *  primary simulator on a local model. */
+async function askOpenAI(system, user) {
+  const messages = [{ role: 'system', content: system }, { role: 'user', content: user }]
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: MODEL, messages, temperature: 0.8, max_tokens: 4 }),
+    })
+    if (res.ok) return (await res.json())?.choices?.[0]?.message?.content ?? ''
+    const text = await res.text()
+    if ((res.status === 429 || res.status >= 500) && attempt < 6) {
+      await new Promise((r) => setTimeout(r, Math.min(60000, 2000 * 2 ** attempt)))
+      continue
+    }
+    throw new Error(`OpenAI ${res.status}: ${text.slice(0, 200)}`)
+  }
+}
+
+async function askGemini(system, user) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`
+  const body = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: 'user', parts: [{ text: user }] }],
+    generationConfig: { temperature: 0.8, maxOutputTokens: 8 },
+  }
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    if (res.ok) {
+      const data = await res.json()
+      return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    }
+    const text = await res.text()
+    if ((res.status === 429 || res.status >= 500) && attempt < 6) {
+      await new Promise((r) => setTimeout(r, Math.min(60000, 2000 * 2 ** attempt)))
+      continue
+    }
+    throw new Error(`Gemini ${res.status}: ${text.slice(0, 200)}`)
+  }
+}
+
 async function askOnce(q, tier, seed, excerpt) {
   const { options, answer } = shuffled(q.options, q.answer, seed)
   const remembered = excerpt ? recall(excerpt.text, tier, seed + 1) : null
   const system = remembered
     ? `${tier.persona}\n\nThis is what you remember from the session slide "${excerpt.title}":\n"""\n${remembered}\n"""\nAnswer from that memory. If it does not cover the question, answer as best you can.\nAnswer with a single letter (A, B, C or D) and nothing else.`
     : `${tier.persona}\nAnswer with a single letter (A, B, C or D) and nothing else.`
-  const body = {
-    model: MODEL,
-    stream: false,
-    options: { temperature: 0.8, num_predict: 4 }, // >0 so students of a tier differ; tiny output keeps CPU inference fast
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: `${q.prompt}\n\n${options.map((o, i) => `${LETTERS[i]}. ${o}`).join('\n')}\n\nAnswer with one letter only.` },
-    ],
-  }
-  const res = await fetch(OLLAMA, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-  if (!res.ok) throw new Error(`Ollama ${res.status}: ${await res.text()}`)
-  const data = await res.json()
-  const raw = (data?.message?.content ?? '').trim().toUpperCase()
+  const user = `${q.prompt}\n\n${options.map((o, i) => `${LETTERS[i]}. ${o}`).join('\n')}\n\nAnswer with one letter only.`
+  const ask = { gemini: askGemini, openai: askOpenAI, ollama: askOllama }[PROVIDER]
+  const raw = (await ask(system, user)).trim().toUpperCase()
   const m = raw.match(/[ABCD]/)
   if (!m) return { correct: false, parsed: null, tier: tier.name }  // unparseable counts as wrong, like a real blank
   return { correct: LETTERS.indexOf(m[0]) === answer, parsed: m[0], tier: tier.name }
@@ -140,22 +204,30 @@ if (excerpts && excerpts.length !== questions.length) {
   process.exit(1)
 }
 const cohort = buildCohort(N)
-console.log(`[${LABEL}] ${cohort.length} students x ${questions.length} questions on "${MODEL}" (concurrency ${CONCURRENCY})`)
+console.log(`[${LABEL}] ${cohort.length} students x ${questions.length} questions on "${MODEL}" via ${PROVIDER} (concurrency ${CONCURRENCY})`)
 console.log(`Grounding: ${SOURCE ? (RETENTION ? 'source excerpt, thinned per tier' : 'full source excerpt for every tier') : 'none — students never saw the deck'}`)
 console.log(`Cohort: ${TIERS.map((t) => `${t.name} ${cohort.filter((c) => c === t).length}`).join(', ')}\n`)
 
 const t0 = Date.now()
 const rows = []
 let unparseable = 0
+let errors = 0
 
 for (let qi = 0; qi < questions.length; qi++) {
   const q = questions[qi]
+  // A transport error is NOT a wrong answer. Scoring one as wrong invents a hard question out of a
+  // rate limit, so errors are counted separately and the run aborts rather than publish a fiction.
   const tasks = cohort.map((tier, si) => () => askOnce(q, tier, (qi + 1) * 7919 + si * 104729, excerpts?.[qi]).catch((e) => {
     console.error(`  ! ${e.message}`)
-    return { correct: false, parsed: null, tier: tier.name }
+    errors++
+    return { correct: false, parsed: null, tier: tier.name, errored: true }
   }))
   const results = await pool(tasks, CONCURRENCY)
-  unparseable += results.filter((r) => r.parsed === null).length
+  if (errors > cohort.length * 0.02 * questions.length + 2) {
+    console.error(`\nABORTING: ${errors} transport errors. The provider is failing; these would be scored as wrong answers and the difficulty estimates would be fiction.`)
+    process.exit(1)
+  }
+  unparseable += results.filter((r) => r.parsed === null && !r.errored).length
   const p = results.filter((r) => r.correct).length / results.length
   const byTier = {}
   for (const t of TIERS) {
@@ -174,7 +246,7 @@ const spread = Math.max(...ps) - Math.min(...ps)
 
 console.log(`\n--- ${rows.length} questions, ${cohort.length * rows.length} simulated responses in ${secs.toFixed(0)}s ---`)
 console.log(`per response: ${(secs / (cohort.length * rows.length) * 1000).toFixed(0)} ms`)
-console.log(`unparseable replies: ${unparseable}`)
+console.log(`unparseable replies: ${unparseable}   transport errors: ${errors}`)
 console.log(`success rate  min ${Math.min(...ps).toFixed(2)}  mean ${mean.toFixed(2)}  max ${Math.max(...ps).toFixed(2)}  spread ${spread.toFixed(2)}`)
 
 console.log(`\nHardest first (this is the ordering to sanity-check by eye):`)
@@ -192,6 +264,6 @@ console.log(`\nGATE: spread < 0.20 means the signal is too flat to bin into 5 ba
 console.log(`      Also check the ordering above against your own read of which are hard.`)
 
 if (OUT) {
-  writeFileSync(OUT, JSON.stringify({ label: LABEL, model: MODEL, n: N, grounded: !!SOURCE, retention: RETENTION, seconds: secs, unparseable, rows }, null, 2))
+  writeFileSync(OUT, JSON.stringify({ label: LABEL, provider: PROVIDER, model: MODEL, n: N, grounded: !!SOURCE, retention: RETENTION, seconds: secs, unparseable, rows }, null, 2))
   console.log(`\nWrote ${OUT}`)
 }
