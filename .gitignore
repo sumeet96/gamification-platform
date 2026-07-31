@@ -63,3 +63,7 @@ NUL
 # reasoning as package-lock.json. .neon is local CLI state.
 .agents/
 .neon
+
+# Spike inputs/outputs: course material and simulation runs. Kept out of git — the
+# deck is the professor's, and the results belong in docs/ once summarised.
+spike-data/

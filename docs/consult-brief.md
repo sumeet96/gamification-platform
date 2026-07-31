@@ -74,9 +74,15 @@ adaptive learning.
 
 ## Known unresolved problems
 
-- **Model-asserted difficulty labels do not discriminate.** Confirmed on three independent samples: a
-  question labelled 4 was answerable cold, and 1s and 2s were indistinguishable. The
-  adaptive-difficulty lever — half the experimental design — rests on this scale.
+- **Model-asserted difficulty labels discriminate coarsely and are unreliable between adjacent
+  levels.** Corrected 31 Jul 2026. The earlier claim here — "do not discriminate, confirmed on three
+  independent samples: a question labelled 4 was answerable cold, and 1s and 2s were
+  indistinguishable" — was eyeballed, not measured. Measured by simulation on one of those samples
+  (15 items), the labels track difficulty across the full range (ρ = −0.63; d1 91%, d2 70%, d3 66%,
+  d4 33%), and the item labelled 4 is the **hardest** in the set, not answerable cold. Adjacent
+  levels do overlap heavily, so the scale is too blunt to drive the adaptive-difficulty lever — half
+  the experimental design — but it is not noise. Evidence and limits:
+  `docs/experiments/2026-07-31_grounded-difficulty-simulation.md`.
 - **Generated questions are almost entirely recall.** The model's own stated rationales read "recall
   a stated purpose," "recall a specific definition."
 - **The answer key is currently sent to the browser** and scoring happens client-side.

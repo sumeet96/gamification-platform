@@ -1,6 +1,10 @@
 # HANDOFF: Gamified Adaptive Learning Platform (FBT Research Project)
 
-**Prepared:** 22 Jul 2026. **Updated:** 30 Jul 2026, second checkpoint (cold-start item-difficulty
+**Prepared:** 22 Jul 2026. **Updated:** 31 Jul 2026 (grounded LLM student simulation for item
+difficulty — the ability tier must control how much of the source excerpt the simulated student sees,
+not just whether it is grounded; the `extract-slide-text.mjs` image-slide recovery step; the
+question-quality gate's n=4→n=30 correction; the ~10-hour full-run planning figure; see §14). Previous
+update: 30 Jul 2026, second checkpoint (cold-start item-difficulty
 research, the decision to seed difficulty by LLM student simulation on a local Ollama model rather
 than Elo, the Phase 0 spike and what it did and did not validate, and the `source_excerpt` column
 consequence; see §13). Previous update, same day: 30 Jul 2026 (transcript re-read surfacing five corrections to `CLAUDE.md`, the new `docs/PROJECT_MAP.md` project spine, per-game lever semantics and the `resolveLever` design, the platform's live-ingestion/subject-agnostic/PDF-input direction, the project's first automated tests, and a `sol-consult` GPT-5.6 Sol consultation reversing three design decisions; see §12). Previous update: 29 Jul 2026 (question-generation pipeline design decisions, 28-29 Jul, plus the source-diagnostic build, a LibreOffice rationale correction, a codex-steering correction, a `/simplify` pass removing 673 dead/misfiring lines, and a `round_stop` event-shape fix, all recorded same day; see §3a). Previous update: 28 Jul 2026 (post-pivot rebuild; authentication wired same day, commit b569cc5; app gated end to end and lifetime stats added same day, commit 408bd54). Original text consolidates 3 Claude.ai conversations (19-22 Jul 2026), the transcribed 21-minute supervisor call of 21 Jul 2026, and 8 project reference papers. The 27 Jul supervisor call pivoted the project; the 28 Jul 2026 rebuild (commit e0b3fd9) implemented the pivot, a same-day follow-up (commit b569cc5) wired real authentication, and a further same-day commit (408bd54) closed the login gate and wired lifetime stats. All three commits are pushed to `origin/main`. This doc now records both the original vision (history) and the current state.
@@ -260,6 +264,8 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
   transcript (see §12).
 - `.claude/agents/sol-consult.md` — new 30 Jul 2026, the two-pass GPT-5.6 Sol consultation agent.
 - `tests/lever.test.ts` — new 30 Jul 2026, the project's first automated tests (§12).
+- `docs/experiments/2026-07-31_grounded-difficulty-simulation.md` — new 31 Jul 2026, the grounded vs
+  ungrounded simulation run and its five results (§14).
 
 **Application code (Next 16 / React 19 / Tailwind v4):**
 - `app/page.tsx` — dashboard (entry point).
@@ -301,6 +307,12 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - `scripts/generate-questions.mjs` — Gemini-powered MCQ generator from course PDFs (reads `COURSE_PDFS` env, outputs to `db/schema.sql` seed or API). Its inline validity check (lines 79-81) clamps rather than rejects a bad answer index; see §3a, generation-path gap.
 - `scripts/inspect-source.mjs` — the permanent mandatory routing gate for the pipeline (commit `a75a79c`; OCR heuristics removed 29 Jul, commit `7895e69`, see §3a). Design decisions for the rest of the pipeline are in §3a; not yet built beyond this script.
 - `scripts/validate-questions.mjs` — rejects generated questions that break pipeline rules (commit `10fd55b`); see §3a.
+- `scripts/extract-slide-text.mjs` — new 31 Jul 2026, recovers text from image-only slides via Gemini
+  vision on the PDF; uncommitted (§14).
+- `scripts/spike-simulate-difficulty.mjs` — the difficulty-simulation spike script; gained `--source`,
+  `--retention`, `--out`, `--label` and per-tier breakdown 31 Jul 2026 (§14); uncommitted.
+- `scripts/spike-compare-arms.mjs` — new 31 Jul 2026, Spearman agreement / ability slope / ceiling-floor
+  comparison across simulation arms; uncommitted (§14).
 
 **Literature (refs for the paper):**
 - `docs/literature/` — 16 research PDFs and a README index (Gamification for Dummies-adjacent, SDT, HEXAD, MDA framework, aging/gamification, MBTI/personality, McKinsey job satisfaction, pymetrics, etc.). See `docs/literature/README.md` for full list.
@@ -503,3 +515,60 @@ carry `simulated_p`, `simulated_n`, `simulator_model`, and `source_excerpt` toge
 `scripts/spike-simulate-difficulty.mjs` (throwaway, produced the spike numbers above) are both
 uncommitted as of this session; `docs/CURRENT_STATE.md` has the working-tree detail. Last commit
 remains `559dd40`.
+
+## 14. Grounded difficulty simulation — the ability tier must gate access, not just grounding (31 Jul 2026)
+
+**The Phase 0 spike (§13) was directionally right but measured the wrong thing.** It ran the simulated
+students ungrounded — they never saw the deck — so a high success rate meant "answerable from general
+knowledge", not "easy". This session ran the grounded comparison the spike deferred. Full write-up,
+commands, and all five results: `docs/experiments/2026-07-31_grounded-difficulty-simulation.md`. Three
+arms, 15 questions, n=30 simulated students each, 1,350 responses total, 0 unparseable, all on
+`llama3.2` (~3B) via Ollama.
+
+**The headline, not predicted going in: grounding alone does not work.** Handing every ability tier the
+full source excerpt (arm B) produced 81/87/85/89% success across Below Basic/Basic/Proficient/Advanced
+— the persona instruction was ignored and the task collapsed into reading comprehension. Only when the
+excerpt was **thinned per tier** (arm C: Below Basic keeps 30% of its lines, Basic 55%, Proficient 80%,
+Advanced 100%) did a proper gradient appear: 57/71/78/89%, monotonic. Implemented as `recall()` in
+`scripts/spike-simulate-difficulty.mjs`, behind a new `--retention` flag. The published paper the method
+was cited from (arXiv 2601.09953) does not hit this because NAEP maths items are self-contained; our
+items are source-dependent recall, so with the source in context the model's own competence stops
+supplying the gradient. This is a domain-transfer finding worth reporting in the paper.
+
+Arm C passes the pre-stated gate (spread ≥ 0.20, no ceiling/floor pile-up): mean facility 0.71, spread
+0.67, 1/15 at ceiling, 0/15 at floor — bins cleanly into the existing 1–5 quintile column. Rank
+agreement across arms (A↔B 0.51, A↔C 0.66, B↔C 0.70) shows the grounding choice materially changes item
+ordering, so it is a methodological decision, not a detail. The ordering is not an artifact of excerpt
+length — neither line-count nor character-count correlation with facility is significant at n=15, and
+the character correlation runs opposite to the artifact hypothesis.
+
+**New pipeline step: `scripts/extract-slide-text.mjs`.** 12 of 26 pages of the test deck (`Pitch_Session
+12.pdf`) have no text layer — the Airbnb example slides are images. This script recovers their text by
+sending the PDF to **Gemini vision** (one call, 13,885 in / 2,841 out tokens). Consistent with the
+existing split: Gemini does content work, Ollama stays local and simulation-only, LibreOffice stays out
+of the pipeline. Gemini's `kind` classification is unreliable — it mislabelled a real example slide
+(page 16) as a template — so slide provenance is keyed on the number printed on the slide, not on
+`kind`.
+
+**Known limit for package G1: text transcription loses position.** Chart, matrix, and 2×2 slides cannot
+be difficulty-calibrated by text simulation. The one d4 item in the set (Competitive Landscape, a 2×2 of
+affordability against transaction type) scores 33/30/33% across all three arms — grounding does not help
+it at all, because every label on the slide is recovered but not the positions. Either such items need a
+different provenance representation, or they cannot be difficulty-calibrated this way. Open, affects G1.
+
+**The question-quality gate needs n≥30, not n=4.** At n=4 (the 30 Jul spike) it flagged 4/15 items as
+answerable with zero deck knowledge; at n=30 only 1/15 survives — the other three were sampling noise.
+Worth adding to `scripts/validate-questions.mjs` at n≥30.
+
+**Planning figure revised.** 2.6–5.8 s per response, ~3 s/response as the planning number: **400 items ×
+n=30 ≈ 10 hours**, an overnight job. This supersedes the 30 Jul spike's "2.1 s per response" extrapolation
+wherever it appears.
+
+**Working-tree state.** `spike-data/` (course material and run outputs) is now gitignored — added to
+`.gitignore` this session. Uncommitted as of this session: `.gitignore`,
+`scripts/spike-simulate-difficulty.mjs` (gained `--source`, `--retention`, `--out`, `--label`, per-tier
+breakdown), `scripts/extract-slide-text.mjs` (new), `scripts/spike-compare-arms.mjs` (new — Spearman
+agreement, ability slope, ceiling/floor counts), `docs/experiments/` (new). Last commit remains
+`44a2443`. Full working-tree detail, the reproduction commands, and the open question the session ended
+on (whether to correct the "labels do not discriminate" claim — **not yet answered, do not edit that
+claim without it**) are in `docs/CURRENT_STATE.md`.

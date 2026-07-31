@@ -10,12 +10,21 @@
 //
 // Usage:
 //   node scripts/spike-simulate-difficulty.mjs <questions.json> [--model llama3.2] [--n 30] [--concurrency 4]
+//                                              [--source excerpts.json] [--retention] [--out rows.json] [--label name]
 //
 // Kill criterion, stated in advance: if success rates cluster into a narrow band
 // (e.g. everything 0.8-1.0) or show no relation to human judgement of which items
 // are hard, the method does not transfer. Say so and stop.
+//
+// GROUNDING (--source). Without it the simulated students have never seen the deck, so what
+// gets measured is how much a question depends on its source, not how hard it is. --source
+// supplies the excerpt the item came from, aligned by index with the questions file.
+//   --source alone      each tier reads the full excerpt. Tests the ceiling: if an MCQ with its
+//                       source in context is just reading comprehension, everything scores ~1.0.
+//   --source --retention the excerpt is thinned per ability tier, so a weak student "remembers"
+//                       less of the slide. This is the analogue of a student who attended.
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 
 const OLLAMA = 'http://localhost:11434/api/chat'
 
@@ -32,13 +41,19 @@ if (!inPath || inPath.startsWith('--')) {
 const MODEL = arg('--model', 'llama3.2')
 const N = Number(arg('--n', 30))
 const CONCURRENCY = Number(arg('--concurrency', 4))
+const SOURCE = arg('--source', null)
+const RETENTION = process.argv.includes('--retention')
+const OUT = arg('--out', null)
+const LABEL = arg('--label', SOURCE ? (RETENTION ? 'grounded-retention' : 'grounded-full') : 'ungrounded')
 
-// Ability mix mirrors the source paper's NAEP-shaped distribution.
+// Ability mix mirrors the source paper's NAEP-shaped distribution. `retention` is the fraction of
+// the source excerpt a student at this tier still remembers — the mechanism by which an item can be
+// hard even with the material in front of you.
 const TIERS = [
-  { name: 'Below Basic', weight: 0.25, persona: 'You are a student who has struggled with this subject. You attended the session but retained little, and you often confuse similar-sounding concepts. You guess when unsure.' },
-  { name: 'Basic',       weight: 0.35, persona: 'You are an average student. You attended the session and remember the main points, but details and figures are hazy. You reason plausibly but make mistakes on specifics.' },
-  { name: 'Proficient',  weight: 0.25, persona: 'You are a solid student. You paid attention, took notes, and recall most of the material accurately, though very fine details can slip.' },
-  { name: 'Advanced',    weight: 0.15, persona: 'You are a top student. You know this material thoroughly and reason carefully about distinctions between options.' },
+  { name: 'Below Basic', weight: 0.25, retention: 0.30, persona: 'You are a student who has struggled with this subject. You attended the session but retained little, and you often confuse similar-sounding concepts. You guess when unsure.' },
+  { name: 'Basic',       weight: 0.35, retention: 0.55, persona: 'You are an average student. You attended the session and remember the main points, but details and figures are hazy. You reason plausibly but make mistakes on specifics.' },
+  { name: 'Proficient',  weight: 0.25, retention: 0.80, persona: 'You are a solid student. You paid attention, took notes, and recall most of the material accurately, though very fine details can slip.' },
+  { name: 'Advanced',    weight: 0.15, retention: 1.00, persona: 'You are a top student. You know this material thoroughly and reason carefully about distinctions between options.' },
 ]
 
 /** Expand the weighted tier mix into exactly N concrete simulated students. */
@@ -49,13 +64,18 @@ function buildCohort(n) {
   return cohort.slice(0, n)
 }
 
+/** Seeded xorshift, so every run is reproducible and the arms are directly comparable. */
+function rng(seed) {
+  let s = seed || 1
+  return () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296 }
+}
+
 /** Deterministic-per-call shuffle so option position can't bias the estimate.
  *  The generator already put 15/15 correct answers at index 0; a model with an
  *  A-bias would otherwise score high for the wrong reason. */
 function shuffled(options, answerIdx, seed) {
   const idx = options.map((_, i) => i)
-  let s = seed || 1
-  const rand = () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296 }
+  const rand = rng(seed)
   for (let i = idx.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1))
     ;[idx[i], idx[j]] = [idx[j], idx[i]]
@@ -63,16 +83,34 @@ function shuffled(options, answerIdx, seed) {
   return { options: idx.map((i) => options[i]), answer: idx.indexOf(answerIdx) }
 }
 
+/** What this student still remembers of the slide: the heading, plus a tier-sized sample of the
+ *  remaining lines in their original order. Dropping lines rather than paraphrasing keeps the
+ *  surviving text verbatim, so a wrong answer means the fact was forgotten, not garbled. */
+function recall(text, tier, seed) {
+  if (!RETENTION || tier.retention >= 1) return text
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.length <= 2) return text
+  const [head, ...rest] = lines
+  const keep = Math.max(1, Math.round(rest.length * tier.retention))
+  const rand = rng(seed)
+  const order = rest.map((l, i) => ({ l, i, r: rand() })).sort((a, b) => a.r - b.r).slice(0, keep)
+  return [head, ...order.sort((a, b) => a.i - b.i).map((o) => o.l)].join('\n')
+}
+
 const LETTERS = ['A', 'B', 'C', 'D']
 
-async function askOnce(q, tier, seed) {
+async function askOnce(q, tier, seed, excerpt) {
   const { options, answer } = shuffled(q.options, q.answer, seed)
+  const remembered = excerpt ? recall(excerpt.text, tier, seed + 1) : null
+  const system = remembered
+    ? `${tier.persona}\n\nThis is what you remember from the session slide "${excerpt.title}":\n"""\n${remembered}\n"""\nAnswer from that memory. If it does not cover the question, answer as best you can.\nAnswer with a single letter (A, B, C or D) and nothing else.`
+    : `${tier.persona}\nAnswer with a single letter (A, B, C or D) and nothing else.`
   const body = {
     model: MODEL,
     stream: false,
     options: { temperature: 0.8, num_predict: 4 }, // >0 so students of a tier differ; tiny output keeps CPU inference fast
     messages: [
-      { role: 'system', content: `${tier.persona}\nAnswer with a single letter (A, B, C or D) and nothing else.` },
+      { role: 'system', content: system },
       { role: 'user', content: `${q.prompt}\n\n${options.map((o, i) => `${LETTERS[i]}. ${o}`).join('\n')}\n\nAnswer with one letter only.` },
     ],
   }
@@ -81,8 +119,8 @@ async function askOnce(q, tier, seed) {
   const data = await res.json()
   const raw = (data?.message?.content ?? '').trim().toUpperCase()
   const m = raw.match(/[ABCD]/)
-  if (!m) return { correct: false, parsed: null }        // unparseable counts as wrong, like a real blank
-  return { correct: LETTERS.indexOf(m[0]) === answer, parsed: m[0] }
+  if (!m) return { correct: false, parsed: null, tier: tier.name }  // unparseable counts as wrong, like a real blank
+  return { correct: LETTERS.indexOf(m[0]) === answer, parsed: m[0], tier: tier.name }
 }
 
 /** Run tasks with a fixed concurrency cap — CPU inference dies under unbounded fan-out. */
@@ -96,8 +134,14 @@ async function pool(tasks, limit) {
 }
 
 const questions = JSON.parse(readFileSync(inPath, 'utf8'))
+const excerpts = SOURCE ? JSON.parse(readFileSync(SOURCE, 'utf8')) : null
+if (excerpts && excerpts.length !== questions.length) {
+  console.error(`--source has ${excerpts.length} excerpts for ${questions.length} questions; they must align by index.`)
+  process.exit(1)
+}
 const cohort = buildCohort(N)
-console.log(`Simulating ${cohort.length} students x ${questions.length} questions on "${MODEL}" (concurrency ${CONCURRENCY})`)
+console.log(`[${LABEL}] ${cohort.length} students x ${questions.length} questions on "${MODEL}" (concurrency ${CONCURRENCY})`)
+console.log(`Grounding: ${SOURCE ? (RETENTION ? 'source excerpt, thinned per tier' : 'full source excerpt for every tier') : 'none — students never saw the deck'}`)
 console.log(`Cohort: ${TIERS.map((t) => `${t.name} ${cohort.filter((c) => c === t).length}`).join(', ')}\n`)
 
 const t0 = Date.now()
@@ -106,14 +150,19 @@ let unparseable = 0
 
 for (let qi = 0; qi < questions.length; qi++) {
   const q = questions[qi]
-  const tasks = cohort.map((tier, si) => () => askOnce(q, tier, (qi + 1) * 7919 + si * 104729).catch((e) => {
+  const tasks = cohort.map((tier, si) => () => askOnce(q, tier, (qi + 1) * 7919 + si * 104729, excerpts?.[qi]).catch((e) => {
     console.error(`  ! ${e.message}`)
-    return { correct: false, parsed: null }
+    return { correct: false, parsed: null, tier: tier.name }
   }))
   const results = await pool(tasks, CONCURRENCY)
   unparseable += results.filter((r) => r.parsed === null).length
   const p = results.filter((r) => r.correct).length / results.length
-  rows.push({ i: qi, p, topic: q.topic ?? '', asserted: q.difficulty ?? null, prompt: q.prompt })
+  const byTier = {}
+  for (const t of TIERS) {
+    const rs = results.filter((r) => r.tier === t.name)
+    if (rs.length) byTier[t.name] = rs.filter((r) => r.correct).length / rs.length
+  }
+  rows.push({ i: qi, p, byTier, topic: q.topic ?? '', asserted: q.difficulty ?? null, prompt: q.prompt })
   const bar = '#'.repeat(Math.round(p * 30)).padEnd(30, '.')
   console.log(`[${String(qi).padStart(2)}] ${bar} ${(p * 100).toFixed(0).padStart(3)}%  (labelled ${q.difficulty ?? '?'})  ${String(q.topic ?? '').slice(0, 28)}`)
 }
@@ -133,5 +182,16 @@ for (const r of [...rows].sort((a, b) => a.p - b.p)) {
   console.log(`  ${(r.p * 100).toFixed(0).padStart(3)}%  labelled ${r.asserted ?? '?'}  ${r.prompt.slice(0, 88)}`)
 }
 
+console.log(`\nBy ability tier (a usable simulation should slope upward — weak students score lower):`)
+for (const t of TIERS) {
+  const vals = rows.map((r) => r.byTier[t.name]).filter((v) => v !== undefined)
+  if (vals.length) console.log(`  ${t.name.padEnd(12)} ${(vals.reduce((a, b) => a + b, 0) / vals.length * 100).toFixed(0)}%`)
+}
+
 console.log(`\nGATE: spread < 0.20 means the signal is too flat to bin into 5 bands — that is a fail.`)
 console.log(`      Also check the ordering above against your own read of which are hard.`)
+
+if (OUT) {
+  writeFileSync(OUT, JSON.stringify({ label: LABEL, model: MODEL, n: N, grounded: !!SOURCE, retention: RETENTION, seconds: secs, unparseable, rows }, null, 2))
+  console.log(`\nWrote ${OUT}`)
+}

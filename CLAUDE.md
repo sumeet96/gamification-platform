@@ -42,6 +42,16 @@ event logging is the research dataset.
     tests) is untouched. The raw score is stored in `content_items.simulated_p` and must **never** be
     written to `empirical_p`, which is reserved for observed human facility. See `docs/CURRENT_STATE.md`
     for the Phase 0 spike result and its limits.
+  - _Revised 31 Jul 2026, grounded simulation:_ the simulated student must be given the **source
+    excerpt the item came from**, and the **ability tier must control how much of that excerpt it
+    sees** — Below Basic 30% of lines, Basic 55%, Proficient 80%, Advanced 100%. Given the full
+    excerpt every tier scored the same (81/87/85/89) and the persona instruction was ignored; thinned
+    per tier the gradient appeared (57/71/78/89). Ungrounded simulation measures how much a question
+    depends on its source, not difficulty. Implemented as `recall()` in
+    `scripts/spike-simulate-difficulty.mjs`, behind `--retention`. Full run:
+    `docs/experiments/2026-07-31_grounded-difficulty-simulation.md`. Known limit for package G1: text
+    transcription loses *position*, so chart/matrix/2×2 slides cannot be difficulty-calibrated by text
+    simulation (the 2×2 competitive-matrix item scored 33/30/33 — grounding did not help it at all).
 - **Rapid and normal modes** control question velocity.
 - **Persistence loop:** "keep going → next round" incentivizes repeated engagement.
 - Log all events (session, round, per-question interactions, score, adaptivity feedback) for DSR dataset. Do not train on student data.
@@ -68,6 +78,12 @@ event logging is the research dataset.
   Course material is not a build prerequisite — the professor said any PDF on any topic works for
   building against — but pilot content is sourced from Prof. Singh's decks, no hardcoded questions.
   Clean text/prose material first; mathematics support is deferred (see HANDOFF.md §3a).
+  - _Added 31 Jul 2026:_ `scripts/extract-slide-text.mjs` recovers text from image-only slides by
+    sending the PDF to **Gemini vision** — 12 of 26 pages of the test deck have no text layer. This is
+    content work, so it stays on Gemini, consistent with the existing split: Ollama is local and
+    simulation-only, LibreOffice stays out of the pipeline. Gemini's `kind` classification is
+    unreliable (mislabelled a real example slide as a template); slide provenance is keyed on the
+    number printed on the slide, not on `kind`.
 - Total budget ~400–450 hours over 6 months and near-zero cash (~$0–15/mo dev, <$10/mo runtime during pilot). One artifact. Resist scope creep.
 
 ## Cadence
@@ -86,9 +102,13 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
   (`docs/PROJECT_MAP.md` §2.7 and §0).
 - **Tests exist now.** `npm test` runs `node --test tests/*.test.ts`. No external test framework — do
   not add vitest or jest.
-- **Do not ask a model to self-report question difficulty.** Tried, failed on three independent
-  samples. Simulate an attempt and measure the failure rate instead
-  (`docs/literature/item-difficulty-without-students.md`).
+- **Do not rely on a model's self-reported difficulty.** Measured 31 Jul 2026, the 1–5 labels are
+  **blunt, not broken**: they order items correctly across the full range (ρ = −0.63; d1 91% → d4
+  33%) but cannot separate adjacent levels, and the scale is a visible promise to the student. Earlier
+  wording here said they "failed on three independent samples" — that was eyeballed and overstated;
+  corrected in `docs/PROJECT_MAP.md` §1.6. Simulate an attempt and measure the failure rate instead
+  (`docs/literature/item-difficulty-without-students.md`,
+  `docs/experiments/2026-07-31_grounded-difficulty-simulation.md`).
 
 ## Orchestration (added 28 Jul 2026 — full rationale in `docs/architecture/agent-orchestration.md`)
 Two sessions have already died of context exhaustion. The main session is an **orchestrator**: it
