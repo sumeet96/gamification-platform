@@ -1,6 +1,11 @@
 # HANDOFF: Gamified Adaptive Learning Platform (FBT Research Project)
 
-**Prepared:** 22 Jul 2026. **Updated:** 31 Jul 2026, later the same day (three P0 packages shipped —
+**Prepared:** 22 Jul 2026. **Updated:** 1 Aug 2026 (package G2, the term/definition generator, shipped
+and unblocked four games; a validator over-rejection bug found and fixed; Wordle's viability now in
+doubt on one deck; voluntary persistence made measurable via `round_offer`; deck screening adopted as
+a standing cheap gate before full simulation; an unverified anomaly on the Thoughtworks case flagged,
+not resolved; a git-hygiene fix after a course PDF was committed by accident; see §16). Previous
+update: 31 Jul 2026, later the same day (three P0 packages shipped —
 G1 generator, D1 dashboard, Q1 quiz hardening; the simulation method replicated on two more model
 families while the difficulty values did not; simulator reproducibility via seeding; the cohort-size
 correction to 60–120; the leaderboard/XP decisions; the move to OpenAI as generation provider now that
@@ -336,6 +341,10 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
   31 Jul provider switch a flag change rather than a rewrite (§15).
 - `scripts/lib/quintile-difficulty.mjs` — new 31 Jul 2026, bins continuous `simulated_p` into the
   existing 1-5 column by quintiles, ties sharing a band; covered by `tests/quintile-difficulty.test.ts`.
+- `scripts/generate-terms.mjs`, `scripts/lib/terms-validate.mjs` — new 1 Aug 2026 (package G2),
+  extract `term_definition` primitives into `content_items`; unblocks match-the-following,
+  fill-in-the-blanks, choose-the-right-word, and Wordle (§16). The clue-leak validator was fixed this
+  session — see §16 for the multi-word rule.
 - `scripts/inspect-source.mjs` — the permanent mandatory routing gate for the pipeline (commit `a75a79c`; OCR heuristics removed 29 Jul, commit `7895e69`, see §3a). Design decisions for the rest of the pipeline are in §3a.
 - `scripts/validate-questions.mjs` — rejects generated questions that break pipeline rules (commit `10fd55b`); see §3a.
 - `scripts/extract-slide-text.mjs` — new 31 Jul 2026, recovers text from image-only slides via Gemini
@@ -709,3 +718,66 @@ paying off exactly as designed: swapping the provider under an outage is a flag,
 commit remains `9239f2a`. `docs/CURRENT_STATE.md` carries the full working-tree detail, the next
 concrete step (Step 4 of the approved plan — logging the continuation offer), and the complete
 do-not-redo list.
+
+## 16. Package G2, a validator lesson, and Wordle's viability in doubt (1 Aug 2026)
+
+**Four P0 packages are now shipped: G1, G2, D1, Q1.** `scripts/generate-terms.mjs` plus
+`scripts/lib/terms-validate.mjs` (package G2) extract `term_definition` primitives into
+`content_items`. This unblocks `match-the-following`, `fill-in-the-blanks`, `choose-the-right-word`,
+and Wordle — all four consume this primitive and were blocked on a table holding zero such rows.
+Migrations `db/005` and `db/006` remain applied and verified live on Neon project
+`ancient-brook-62806105`. 18 tests pass, `tsc --noEmit` is clean, `npx next build` succeeds.
+
+**A validator lesson worth keeping as a standing convention.** G2's first clue-leak rule tested each
+word of a multi-word term independently, so a clue for "Minimum Viable Product" was rejected for
+containing the ordinary word "product" — it rejected 5 of 8 valid items. Fixed: a single-word term
+leaks on any inflection of itself; a multi-word term only leaks if the clue contains every content
+word. Yield went from 3 items to 13 on the same deck. General lesson, worth applying beyond G2: an
+over-rejecting guard is not automatically the safe direction — it can silently destroy yield the same
+way an under-rejecting one lets bad data through.
+
+**Package A0 result: Wordle (A4) is probably not viable, pending a second deck.** 0 of the 13 terms
+G2 extracted from the Thoughtworks deck are single words of 4-8 letters. Management terminology comes
+out phrasal ("Lean and Agile Delivery Model", "Cross-functional demand analysis"); the one single
+word, "Inception", is nine letters. The A0 gate was eight candidate terms from one deck. Recorded as:
+**run A0 against a second deck before dropping A4** — but the reason likely generalises past this one
+deck, since a case study yields a taxonomy of terms, not a lexicon of words.
+
+**Voluntary persistence is now measurable.** `round_offer` was added to `EventType`
+(`lib/log/logEvent.ts`), emitted when the Keep Going affordance renders (`app/results/page.tsx`,
+`lib/game/game-context.tsx`). The event log now distinguishes accepted (`round_continue`), declined
+(`round_stop`), and abandoned (an offer with neither) — previously, declining and never being offered
+were indistinguishable in the data. The same pass fixed round-number reuse on abandoned rounds, which
+had been corrupting this same measure.
+
+**Deck screening adopted as a standing cheap gate.** An ungrounded simulation run (~20 min on
+`llama3.2`) now runs before the ~85-minute grounded `gemma2:9b` run, to check whether a source deck is
+already memorised by a model rather than genuinely being read. Screened so far, all usable: CAGE
+slides (mean facility 0.42, 0 at ceiling), the Thoughtworks case (0.51, 0 at ceiling), Thoughtworks
+slides (0.50, 0 at ceiling), Airbnb (0.45, 1 at ceiling).
+
+**An observation on the Thoughtworks case that qualifies §14's finding — UNVERIFIED, not settled.**
+The *ungrounded* screening run on the Thoughtworks case showed a monotonic positive ability gradient
+(43/51/54/63% across Below Basic/Basic/Proficient/Advanced), where every slide deck screened so far
+showed a flat or inverted one. Possible explanation, not confirmed: the case's items are
+reasoning-heavier than the slide decks' recall items, and general ability helps on a reasoning item
+even without the source, whereas a recall item gives ability nothing to work with. This is explicitly
+**unverified** — the Advanced tier in this screening run is only 3 simulated students — and the clean
+test is the grounded-retention arm on the same case, which has not been run. Do not fold this into the
+§14 grounding finding until that arm runs.
+
+**A process rule for git hygiene.** A 9.8 MB course-material deck was committed to the repo by
+accident this session via a broad `git add`, and had to be amended out. **New rule: never stage with
+a broad add (e.g. `git add -A`) when course-material PDFs are sitting in the working tree** — stage
+files by name instead. Root-level `*.pdf` is now gitignored so this cannot recur silently.
+
+**Half-built, not started: match-the-following (package A1).** Unblocked by G2 (item supply exists —
+13 terms with ~3 distractors each from the Thoughtworks deck) but not yet begun. It is the first
+`board`-grained game and has an unresolved points question (per pair vs per board) that blocks its
+scoring design.
+
+**Working tree.** Branch `main`, last commit `9728d19`, working tree clean, 14 commits ahead of
+`origin/main` — not yet pushed. `spike-data/` and root-level `*.pdf` are gitignored; three source
+PDFs sit untracked in the repo root. Full commit list, next-3-actions, and the complete do-not-redo
+list are in `docs/CURRENT_STATE.md`, rewritten at the end of this session and now the single
+authoritative snapshot (supersedes the 31 Jul checkpoint entirely).

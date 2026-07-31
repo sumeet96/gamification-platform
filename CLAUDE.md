@@ -67,6 +67,17 @@ event logging is the research dataset.
     OpenAI's `seed` is best-effort and Gemini exposes none — this only works on the local Ollama path,
     one more reason the local-model rule below is the methodologically correct choice, not a
     convenience.
+  - _Deck screening added 1 Aug 2026, now a standing cheap gate:_ before spending the ~85-minute
+    grounded `gemma2:9b` run on a source, run a ~20-minute ungrounded screen on `llama3.2` first to
+    check whether the model already knows the material from training data rather than genuinely
+    reading it. Screened so far, all usable: CAGE slides (mean facility 0.42, 0 at ceiling), the
+    Thoughtworks case (0.51, 0 at ceiling), Thoughtworks slides (0.50, 0 at ceiling), Airbnb (0.45, 1
+    at ceiling). **Unverified, flagged not resolved:** the Thoughtworks case's ungrounded screen
+    showed a monotonic positive ability gradient (43/51/54/63%) where every slide deck showed flat or
+    inverted — possibly because the case's items are reasoning-heavier and general ability helps on
+    reasoning even without the source, while recall items give ability nothing to bite on. The
+    Advanced tier here is only 3 simulated students, and the clean test — the grounded-retention arm
+    on the same case — has not run. Do not fold this into the grounding finding above until it does.
 - **Difficulty stays at five levels.** At n=30 simulated students per item the standard error on a
   success rate is ~0.09, so ten bands would be about one standard error wide — false precision. Ties
   share a band (`scripts/lib/quintile-difficulty.mjs`); do not bin by rank position.
@@ -93,15 +104,35 @@ event logging is the research dataset.
   pinned the timer for everyone, a time-lever student in rapid mode would get an inert lever. See
   `docs/PROJECT_MAP.md` §1.
 - **Persistence loop:** "keep going → next round" incentivizes repeated engagement.
+  - _Made measurable 1 Aug 2026:_ `round_offer` was added to `EventType` (`lib/log/logEvent.ts`),
+    emitted when the Keep Going affordance renders. The log now distinguishes accepted
+    (`round_continue`), declined (`round_stop`), and abandoned (an offer followed by neither) — before
+    this, declining and never being offered were the same in the data. Round-number reuse on abandoned
+    rounds, which had been corrupting this same measure, was fixed in the same pass.
 - Log all events (session, round, per-question interactions, score, adaptivity feedback) for DSR dataset. Do not train on student data.
 
 ## Stack & constraints (28 Jul 2026 rebuild — details in HANDOFF.md §4)
-- **Three P0 packages shipped 31 Jul 2026: G1 (generator), D1 (dashboard), Q1 (quiz hardening).**
-  `app/dashboard/page.tsx` drives its tiles from `GAME_REGISTRY`; `scripts/generate-questions.mjs`
-  writes `content_items` plus `source_excerpt`; `app/api/answer/route.ts` scores server-side off the
-  DB answer key and the client bundle no longer ships it. Migrations `db/005` and `db/006` are
-  applied and verified on Neon project `ancient-brook-62806105`. Tests **10 → 18**, `tsc --noEmit`
-  clean, `npx next build` succeeds.
+- **Four P0 packages shipped: G1 (generator, 31 Jul), G2 (term/definition generator, 1 Aug), D1
+  (dashboard, 31 Jul), Q1 (quiz hardening, 31 Jul).** `app/dashboard/page.tsx` drives its tiles from
+  `GAME_REGISTRY`; `scripts/generate-questions.mjs` writes `content_items` plus `source_excerpt`;
+  `scripts/generate-terms.mjs` + `scripts/lib/terms-validate.mjs` extract `term_definition`
+  primitives, unblocking match-the-following, fill-in-the-blanks, choose-the-right-word, and Wordle
+  (all four consume that primitive and were blocked on zero rows); `app/api/answer/route.ts` scores
+  server-side off the DB answer key and the client bundle no longer ships it. Migrations `db/005` and
+  `db/006` are applied and verified on Neon project `ancient-brook-62806105`. Tests **10 → 18**,
+  `tsc --noEmit` clean, `npx next build` succeeds.
+  - _Validator lesson, 1 Aug 2026:_ G2's first clue-leak rule tested each word of a multi-word term
+    independently, so a clue for "Minimum Viable Product" was rejected for containing the ordinary
+    word "product" — it rejected 5 of 8 valid items. Fixed: single-word terms leak on any inflection;
+    multi-word terms only leak if the clue contains every content word. Yield went from 3 items to 13
+    on the same deck. General lesson: an over-rejecting guard is not automatically the safe
+    direction — it can silently destroy yield the same way an under-rejecting one lets bad data
+    through. See the standing convention below.
+  - _Wordle's viability is now in doubt, 1 Aug 2026 (package A0):_ 0 of 13 terms extracted from the
+    Thoughtworks deck are single words of 4-8 letters — management terminology is phrasal ("Lean and
+    Agile Delivery Model"); the one single word, "Inception", is nine letters. Run A0 against a second
+    deck before dropping Wordle, but the reason likely generalises: a case study yields a taxonomy of
+    terms, not a lexicon of words.
 - **Runtime LLM: Gemini paid Tier 1** (Flash-class), not free tier — free tier's ~10 RPM and training-data clause fail a classroom pilot. Pending prof sign-off on the small spend; until then, develop against free tier but architect for Tier 1.
   - _Provider reality, 31 Jul 2026:_ **Gemini prepayment credits are depleted** — every Gemini call
     429s. Generation currently runs on **OpenAI** via the provider-agnostic adapter
@@ -150,6 +181,13 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
 - Prefer small, verifiable increments matching the week plan in HANDOFF.md §6.
 - Any claim destined for the paper must cite a source in `/docs/literature/` or be flagged as unverified.
 - When a design decision changes, delete the machinery it obsoleted. The OCR heuristics in `scripts/inspect-source.mjs` survived past "the image path is mandatory," got defended and duplicated across two files, and were reviewed by two model families before a 29 Jul 2026 `/simplify` pass found they never changed a routing outcome.
+- **An over-rejecting validator is not automatically the safe direction.** G2's clue-leak rule
+  (1 Aug 2026) rejected 5 of 8 valid items by testing each word of a multi-word term independently; a
+  guard that is too strict can silently destroy yield the same way a guard that is too loose lets bad
+  data through. Check yield, not just precision, before trusting a new validation rule.
+- **Never stage with a broad `git add` (e.g. `git add -A`) when course-material PDFs are in the
+  working tree.** A 9.8 MB deck was committed by accident on 1 Aug 2026 and had to be amended out.
+  Root-level `*.pdf` is now gitignored; stage files by name regardless.
 - **Read the transcript, not the summaries.** Anything stated as a professor decision cites
   `docs/meeting/Jul 27 at 3-39 PM.txt` or is marked as our inference. Five drifts in this file were
   found on 30 Jul 2026 by re-reading the transcript, because summaries are lossy
