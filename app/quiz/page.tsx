@@ -6,7 +6,7 @@ import { ChevronLeft, Check, X, Clock, Brain } from 'lucide-react'
 import { useGame } from '@/lib/game/game-context'
 import { QUESTIONS, pickQuestion, type Question } from '@/lib/game/questions'
 import {
-  roundLength, scoreDelta, nextDifficulty, timeForStreak,
+  roundLength, scoreDelta, nextDifficulty, timeForStreak, quizGameId,
   START_DIFFICULTY, TIME_BASE, POINTS_CORRECT, PENALTY_WRONG,
 } from '@/lib/game/engine'
 
@@ -69,7 +69,7 @@ export default function Quiz() {
       setFeedback('none')
       setTimeLeft(config.lever === 'time' ? timeForStreak(0) : TIME_BASE)
       qStartRef.current = Date.now()
-      emit({ event_type: 'round_start', game_type: 'quiz', mode: config.mode, lever: config.lever, round: roundNo, difficulty_level: startDiff })
+      emit({ event_type: 'round_start', game_type: quizGameId(config.mode), mode: config.mode, lever: config.lever, round: roundNo, difficulty_level: startDiff })
     })()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -100,7 +100,7 @@ export default function Quiz() {
     if (config.lever === 'adaptive') setDifficulty((prev) => nextDifficulty(prev, correct))
     setFeedback(correct ? 'correct' : 'wrong')
     emit({
-      event_type: 'question_answered', game_type: 'quiz', mode: config.mode, lever: config.lever,
+      event_type: 'question_answered', game_type: quizGameId(config.mode), mode: config.mode, lever: config.lever,
       round: roundNo, question_id: q.id, difficulty_level: difficulty,
       time_limit: limitRef.current, time_taken_ms: elapsed, is_correct: correct,
       points_delta: d.net, negative_applied: !correct, net_after: netAfter,
@@ -158,7 +158,7 @@ export default function Quiz() {
     // finish()), so roundNo — computed from session.roundsPlayed the same way
     // round_start above was — is the only correct number here. See app/results/page.tsx
     // for the already-committed counterpart, which reads it off lastRound instead.
-    emit({ event_type: 'round_stop', game_type: 'quiz', mode: config?.mode ?? null, lever: config?.lever ?? null, round: roundNo })
+    emit({ event_type: 'round_stop', game_type: config ? quizGameId(config.mode) : null, mode: config?.mode ?? null, lever: config?.lever ?? null, round: roundNo })
     router.push('/')
   }
 

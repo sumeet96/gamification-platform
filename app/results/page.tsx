@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Trophy, Zap, ArrowRight } from 'lucide-react'
 import { useGame } from '@/lib/game/game-context'
-import { POINTS_CORRECT, PENALTY_WRONG } from '@/lib/game/engine'
+import { POINTS_CORRECT, PENALTY_WRONG, quizGameId } from '@/lib/game/engine'
 import { useCountUp } from '@/lib/ui/useCountUp'
 
 export default function Results() {
@@ -39,7 +39,7 @@ export default function Results() {
     // finish() in app/quiz/page.tsx), so lastRound.round — set from quiz's roundNo at
     // that point — is the single source of truth, not session.roundsPlayed re-derived
     // after the fact.
-    emit({ event_type: 'round_stop', game_type: 'quiz', mode: lastRound.mode, lever: lastRound.lever, round: lastRound.round })
+    emit({ event_type: 'round_stop', game_type: quizGameId(lastRound.mode), mode: lastRound.mode, lever: lastRound.lever, round: lastRound.round })
     router.push('/')
   }
 

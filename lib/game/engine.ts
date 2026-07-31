@@ -31,6 +31,15 @@ export function roundLength(mode: Mode): number {
   return mode === 'rapid' ? 10 : 20
 }
 
+/** The GAME_REGISTRY id (lib/games/registry.ts) that matches a quiz mode. Every
+ *  quiz event must log this as `game_type`, not a bare 'quiz' literal — the
+ *  per-game stats query (app/api/stats/route.ts) groups by game_type and the
+ *  dashboard looks tiles up by registry id, so a mismatched literal means the
+ *  tile can never find its own rows. */
+export function quizGameId(mode: Mode): string {
+  return mode === 'rapid' ? 'quiz-rapid' : 'quiz-normal'
+}
+
 /** Points deltas for one answered question. Wrong answers cost `net` but never `potential`. */
 export function scoreDelta(correct: boolean): { net: number; potential: number } {
   return correct
