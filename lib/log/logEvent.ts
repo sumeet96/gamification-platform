@@ -1,10 +1,14 @@
 // Client-side event logging. Posts to /api/events (which writes to Neon when
 // configured, else no-ops) and mirrors to the console in dev. Fire-and-forget.
 
+// 'question_answered' is deliberately absent -- that event is scored and written
+// server-side only, from app/api/answer/route.ts (package Q1). Leaving it out of
+// this union makes "the client cannot emit a scored event" a type error, not just
+// a rule; app/api/events/route.ts still rejects it at runtime as a backstop since
+// this type doesn't constrain a raw fetch().
 export type EventType =
   | 'session_start'
   | 'round_start'
-  | 'question_answered'
   | 'round_continue'
   | 'round_stop'
 

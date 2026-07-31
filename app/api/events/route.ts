@@ -43,6 +43,17 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: 'bad json' }, { status: 400 })
   }
 
+  // question_answered carries is_correct and points_delta -- scoring facts, not
+  // interaction metadata. If this route wrote them as-sent, the event log would
+  // just be a mirror of whatever the browser claims happened. That event type is
+  // now server-scored only, written from app/api/answer/route.ts (package Q1).
+  if (e.event_type === 'question_answered') {
+    return Response.json(
+      { ok: false, error: 'question_answered is server-scored only; use POST /api/answer' },
+      { status: 403 }
+    )
+  }
+
   const sql = getSql()
   if (!sql) return Response.json({ ok: true, stored: false })
 

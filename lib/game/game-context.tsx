@@ -23,6 +23,12 @@ interface GameState {
   config: GameConfig | null
   session: SessionTotals
   lastRound: RoundSummary | null
+  // The student id this tab believes it's playing as (see fetchStudentId below).
+  // Exposed so callers that POST outside of emit()/logEvent -- namely
+  // app/quiz/page.tsx's direct fetch to /api/answer -- can attach the same
+  // cross-tab mismatch guard app/api/events/route.ts already gets via emit()
+  // (package Q1 FIX 6). Never trusted server-side as the identity to write.
+  studentId: string | null
   setConfig: (c: GameConfig) => void
   recordRound: (r: RoundSummary) => void
   registerContinue: () => void
@@ -143,7 +149,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   return (
     <GameContext.Provider
-      value={{ sessionId, config, session, lastRound, setConfig, recordRound, registerContinue, resetSession, emit }}
+      value={{ sessionId, config, session, lastRound, studentId, setConfig, recordRound, registerContinue, resetSession, emit }}
     >
       {children}
     </GameContext.Provider>

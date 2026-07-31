@@ -85,9 +85,11 @@ Do not make that edit without an answer — the user may have earlier evidence t
 - **How should `source_excerpt` represent chart/matrix slides?** Text transcription loses *position*.
   Item #8 (2×2 competitive matrix) scores 33/30/33 — grounding does not help it at all. Affects G1.
 - **The research variable across multiple games** — the professor owns it; he said he would plan it.
-- **"Rapid round" — fewer questions or less time?** Locked to fewer questions; confirm with him.
+- **Rapid mode's exact seconds are unconfirmed.** Decided 31 Jul: rapid is fewer questions *and* a
+  fixed per-question timer, not fewer questions alone. Working assumption is rapid = 10s, normal =
+  15s, but the user's phrasing ("10/15 seconds") is ambiguous between that and a choice of 10 or 15 —
+  the seconds themselves are still open. See `docs/PROJECT_MAP.md` §1.
 - **Points table numbers**, including whether rapid should pay more than normal (at parity now).
-- **Leaderboard yes/no** — his turf; ethics implications and could confound the persistence DV.
 - **Match-the-following points are `{correct: 15}` with a `// per pair` comment** — resolve at package A1.
 - **`streak` semantics** — on a wrong answer the clock snaps 5s → 10s; alternating right/wrong oscillates.
 - **Next meeting is Tuesday 4 Aug**, not Monday — the transcript has him travelling Monday.

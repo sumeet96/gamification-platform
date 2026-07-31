@@ -6,8 +6,8 @@ import { ChevronLeft, Check, X, Clock, Brain } from 'lucide-react'
 import { useGame } from '@/lib/game/game-context'
 import { QUESTIONS, pickQuestion, type Question } from '@/lib/game/questions'
 import {
-  roundLength, scoreDelta, nextDifficulty, timeForStreak, quizGameId,
-  START_DIFFICULTY, TIME_BASE, POINTS_CORRECT, PENALTY_WRONG,
+  roundLength, nextDifficulty, timeForStreak, quizGameId,
+  START_DIFFICULTY, TIME_BASE,
 } from '@/lib/game/engine'
 
 type Feedback = 'none' | 'correct' | 'wrong'
@@ -18,7 +18,7 @@ interface RoundTally {
 
 export default function Quiz() {
   const router = useRouter()
-  const { config, session, recordRound, emit } = useGame()
+  const { config, session, sessionId, studentId, recordRound, emit } = useGame()
 
   const [pool, setPool] = useState<Question[]>(QUESTIONS)
   const [q, setQ] = useState<Question | null>(null)
@@ -28,6 +28,17 @@ export default function Quiz() {
   const [picked, setPicked] = useState<number | null>(null)
   const [feedback, setFeedback] = useState<Feedback>('none')
   const [timeLeft, setTimeLeft] = useState(TIME_BASE)
+  // Which option was actually correct -- only known once /api/answer replies, since
+  // the client is never handed the answer key up front (package Q1). Null until an
+  // answer has been scored.
+  const [correctIndex, setCorrectIndex] = useState<number | null>(null)
+  // The points delta /api/answer actually recorded for the last answer -- rendered
+  // verbatim in the feedback banner rather than re-derived client-side, since the
+  // registry (lib/games/registry.ts) is the only source of truth for scoring now.
+  const [lastDelta, setLastDelta] = useState(0)
+  // True between firing the /api/answer request and getting its response, so a
+  // second click (or the timeout timer) can't double-submit.
+  const [submitting, setSubmitting] = useState(false)
   const [round, setRound] = useState<RoundTally>({
     net: 0, potential: 0, correct: 0, wrong: 0, answered: 0, peakDifficulty: START_DIFFICULTY, bestTimeMs: null,
   })
@@ -37,6 +48,19 @@ export default function Quiz() {
   const limitRef = useRef<number | null>(null) // current question's time limit (time mode)
   const configRef = useRef(config)
   configRef.current = config
+  // FIX 3: a ref-based commit guard, not the `submitting` state. The timer
+  // interval below is created inside an effect keyed on [config, feedback, q]
+  // -- if a manual commit(1) fires while that interval is still ticking (the
+  // effect hasn't re-run yet because `feedback` hasn't updated across the
+  // await), the interval's *stale closure* over `commit` still sees the
+  // `submitting` state from the render it was created in, which was `false`.
+  // A ref is shared mutable state every closure reads fresh, so setting it
+  // synchronously at the top of commit() is visible to the stale interval
+  // tick immediately, not just after the next render. React StrictMode
+  // double-invoking the setTimeLeft updater in dev made this worse, not the
+  // root cause.
+  const commitGuardRef = useRef(false)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const total = config ? roundLength(config.mode) : 0
   const isTime = config?.lever === 'time'
@@ -67,6 +91,8 @@ export default function Quiz() {
       setQ(first)
       setPicked(null)
       setFeedback('none')
+      setCorrectIndex(null)
+      setLastDelta(0)
       setTimeLeft(config.lever === 'time' ? timeForStreak(0) : TIME_BASE)
       qStartRef.current = Date.now()
       emit({ event_type: 'round_start', game_type: quizGameId(config.mode), mode: config.mode, lever: config.lever, round: roundNo, difficulty_level: startDiff })
@@ -82,48 +108,95 @@ export default function Quiz() {
     return () => clearTimeout(t)
   }, [config, router])
 
-  function commit(correct: boolean) {
-    if (feedback !== 'none' || !config || !q) return
-    const d = scoreDelta(correct)
+  // Scores the answer server-side (package Q1) instead of comparing `i === q.answer`
+  // locally -- the client never holds an answer key to compare against in the first
+  // place. `selected` is null for a time-pressure timeout (no option chosen), which
+  // /api/answer scores as wrong without treating it as a validation error.
+  async function commit(selected: number | null) {
+    if (feedback !== 'none' || commitGuardRef.current || !config || !q) return
+    commitGuardRef.current = true
+    // Stop the countdown the instant a commit starts, not just when the effect
+    // cleanup eventually runs on the next render -- see the guard comment
+    // above (FIX 3).
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    setSubmitting(true)
     const elapsed = Date.now() - qStartRef.current
-    const netAfter = round.net + d.net
-    setRound((r) => ({
-      net: r.net + d.net,
-      potential: r.potential + d.potential,
-      correct: r.correct + (correct ? 1 : 0),
-      wrong: r.wrong + (correct ? 0 : 1),
-      answered: r.answered + 1,
-      peakDifficulty: Math.max(r.peakDifficulty, difficulty),
-      bestTimeMs: correct && isTime ? (r.bestTimeMs == null ? elapsed : Math.min(r.bestTimeMs, elapsed)) : r.bestTimeMs,
-    }))
-    setStreak(correct ? streak + 1 : 0)
-    if (config.lever === 'adaptive') setDifficulty((prev) => nextDifficulty(prev, correct))
-    setFeedback(correct ? 'correct' : 'wrong')
-    emit({
-      event_type: 'question_answered', game_type: quizGameId(config.mode), mode: config.mode, lever: config.lever,
-      round: roundNo, question_id: q.id, difficulty_level: difficulty,
-      time_limit: limitRef.current, time_taken_ms: elapsed, is_correct: correct,
-      points_delta: d.net, negative_applied: !correct, net_after: netAfter,
-    })
+    try {
+      const res = await fetch('/api/answer', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          // The tab's own belief about who it's playing as -- never trusted as
+          // the identity to write, only a mismatch signal the server can use
+          // to null out attribution (package Q1 FIX 6, mirrors /api/events).
+          client_student_id: studentId ?? undefined,
+          item_id: q.id,
+          selected,
+          game_type: quizGameId(config.mode),
+          mode: config.mode,
+          lever: config.lever,
+          round: roundNo,
+          difficulty_level: difficulty,
+          time_limit: limitRef.current,
+          time_taken_ms: elapsed,
+          round_net_before: round.net,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data?.ok) {
+        console.error('quiz: /api/answer failed', data)
+        return
+      }
+      const correct: boolean = data.correct
+      const delta: number = data.pointsDelta
+      setRound((r) => ({
+        net: r.net + delta,
+        potential: r.potential + (correct ? delta : 0),
+        correct: r.correct + (correct ? 1 : 0),
+        wrong: r.wrong + (correct ? 0 : 1),
+        answered: r.answered + 1,
+        peakDifficulty: Math.max(r.peakDifficulty, difficulty),
+        bestTimeMs: correct && isTime ? (r.bestTimeMs == null ? elapsed : Math.min(r.bestTimeMs, elapsed)) : r.bestTimeMs,
+      }))
+      setStreak(correct ? streak + 1 : 0)
+      if (config.lever === 'adaptive') setDifficulty((prev) => nextDifficulty(prev, correct))
+      setCorrectIndex(typeof data.correctIndex === 'number' ? data.correctIndex : null)
+      setLastDelta(delta)
+      setFeedback(correct ? 'correct' : 'wrong')
+    } catch (err) {
+      console.error('quiz: /api/answer request failed', err)
+    } finally {
+      commitGuardRef.current = false
+      setSubmitting(false)
+    }
   }
 
   // Timer (time-pressure mode). Timeout = wrong answer.
   useEffect(() => {
     if (!config || config.lever !== 'time' || feedback !== 'none' || !q) return
     const iv = setInterval(() => {
+      // Belt-and-suspenders on top of the ref guard inside commit(): if a
+      // manual answer is already in flight, never queue a fabricated timeout
+      // on top of it (FIX 3).
+      if (commitGuardRef.current) return
       setTimeLeft((prev) => {
-        if (prev <= 1) { setPicked(-1); commit(false); return 0 }
+        if (prev <= 1) { setPicked(-1); void commit(null); return 0 }
         return prev - 1
       })
     }, 1000)
-    return () => clearInterval(iv)
+    timerRef.current = iv
+    return () => {
+      clearInterval(iv)
+      if (timerRef.current === iv) timerRef.current = null
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config, feedback, q])
 
   function handleAnswer(i: number) {
-    if (feedback !== 'none' || !q) return
+    if (feedback !== 'none' || commitGuardRef.current || !q) return
     setPicked(i)
-    commit(i === q.answer)
+    void commit(i)
   }
 
   function next() {
@@ -139,6 +212,8 @@ export default function Quiz() {
     setIndex(nextIndex)
     setPicked(null)
     setFeedback('none')
+    setCorrectIndex(null)
+    setLastDelta(0)
     setTimeLeft(isTime ? timeForStreak(streak) : TIME_BASE)
     qStartRef.current = Date.now()
   }
@@ -210,14 +285,16 @@ export default function Quiz() {
         {/* Question */}
         <div className="mb-8 rounded-2xl bg-slate-800/50 border border-slate-700/50 p-8">
           <p className="text-slate-400 text-sm uppercase font-semibold tracking-wider mb-4">Question</p>
-          <h2 className="text-2xl sm:text-3xl font-black text-white leading-tight">{q.prompt}</h2>
+          <h2 className="text-2xl sm:text-3xl font-black text-white leading-tight">{q.stem}</h2>
         </div>
 
         {/* Options */}
         <div className="space-y-3 mb-8">
           {q.options.map((option, i) => {
             const isSelected = picked === i
-            const isCorrect = i === q.answer
+            // Only known once /api/answer replies -- safe to reveal AFTER the
+            // answer is committed, never before (package Q1).
+            const isCorrect = i === correctIndex
             let cls = 'bg-slate-800/50 border-slate-700/50 hover:border-slate-600/50 text-slate-200'
             if (feedback !== 'none') {
               if (isCorrect) cls = 'bg-emerald-600/20 border-emerald-500/40 text-emerald-200'
@@ -228,7 +305,7 @@ export default function Quiz() {
               <button
                 key={i}
                 onClick={() => handleAnswer(i)}
-                disabled={feedback !== 'none'}
+                disabled={feedback !== 'none' || submitting}
                 className={`w-full rounded-xl border p-4 transition-all duration-300 ${cls} ${feedback === 'none' ? 'cursor-pointer hover:shadow-lg' : 'cursor-default'}`}
               >
                 <div className="flex items-center gap-4">
@@ -247,7 +324,11 @@ export default function Quiz() {
           <div className="space-y-4">
             <div className={`rounded-xl p-4 border text-center ${feedback === 'correct' ? 'bg-emerald-600/20 border-emerald-500/40' : 'bg-red-600/20 border-red-500/40'}`}>
               <p className={`font-black text-lg ${feedback === 'correct' ? 'text-emerald-300' : 'text-red-300'}`}>
-                {feedback === 'correct' ? `🎉 Correct! +${POINTS_CORRECT}` : (picked === -1 ? `⏱ Time up! −${PENALTY_WRONG}` : `❌ Wrong −${PENALTY_WRONG}`)}
+                {/* lastDelta is what /api/answer actually recorded -- rendered verbatim
+                    rather than re-derived from an imported constant (package Q1). */}
+                {feedback === 'correct'
+                  ? `🎉 Correct! +${lastDelta}`
+                  : (picked === -1 ? `⏱ Time up! ${lastDelta < 0 ? `−${Math.abs(lastDelta)}` : lastDelta}` : `❌ Wrong ${lastDelta < 0 ? `−${Math.abs(lastDelta)}` : lastDelta}`)}
               </p>
             </div>
             <button onClick={next} className="w-full group relative overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 p-1 shadow-lg hover:shadow-2xl transition-all duration-300">

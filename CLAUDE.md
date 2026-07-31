@@ -52,7 +52,13 @@ event logging is the research dataset.
     `docs/experiments/2026-07-31_grounded-difficulty-simulation.md`. Known limit for package G1: text
     transcription loses *position*, so chart/matrix/2×2 slides cannot be difficulty-calibrated by text
     simulation (the 2×2 competitive-matrix item scored 33/30/33 — grounding did not help it at all).
-- **Rapid and normal modes** control question velocity.
+- **Rapid mode decided 31 Jul 2026: fewer questions *and* a fixed per-question timer**, not fewer
+  questions alone. Working assumption, pending confirmation: rapid = 10s, normal = 15s, pinned for
+  difficulty-lever students while time-lever students still tighten from that base rather than from a
+  pinned value — exact seconds UNCONFIRMED. Live collision: `TIME_BASE`/`TIME_MIN`/`TIME_STEP`
+  (`lib/game/engine.ts:26-28`) currently tighten the clock only under the time lever; if rapid mode
+  pinned the timer for everyone, a time-lever student in rapid mode would get an inert lever. See
+  `docs/PROJECT_MAP.md` §1.
 - **Persistence loop:** "keep going → next round" incentivizes repeated engagement.
 - Log all events (session, round, per-question interactions, score, adaptivity feedback) for DSR dataset. Do not train on student data.
 

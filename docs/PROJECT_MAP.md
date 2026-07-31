@@ -134,7 +134,7 @@ earliest it can fire is the next board.
 | Game | Granularity | Difficulty knob | Time knob |
 |---|---|---|---|
 | Quiz — normal | item | next question ±1 difficulty | per-question clock 10→8→6→5s |
-| Quiz — rapid | item | next question ±1 difficulty | same clock; rapid is *length*, see below |
+| Quiz — rapid | item | next question ±1 difficulty | shorter fixed base (10s vs 15s, unconfirmed), same tighten/pin rule; rapid is also *length*, see below |
 | Choose-the-right-word | item | distractor distance: obvious → near-synonym | per-item clock |
 | Fill-in-the-blanks | item | word bank shown → hidden; term obscurity | per-item clock |
 | Match-the-following | **board** | next board: 4 pairs → 6; distractors get closer | whole-board timer 90→60→45s |
@@ -145,14 +145,23 @@ lever; the other sits at a constant. A match-the-following board timer does **no
 difficulty-lever student, and the fill-in-the-blanks word bank does **not** get hidden for a
 time-lever student.
 
-### Rapid mode is round length, not clock speed
+### Rapid mode — fewer questions and a fixed timer, decided 31 Jul 2026
 
-`roundLength()` returns 10 questions for rapid and 20 for normal (`lib/game/engine.ts:30-32`). The
-transcript is ambiguous — "one could be a rapid round, one could be a normal progression" reads
-naturally as *fast* — but the mutual-exclusion rule settles it. If rapid meant a tighter clock, a
-difficulty-lever student playing a rapid round would have adaptive difficulty **and** time pressure,
-which is exactly the collision we are ruling out. **Locking rapid = fewer questions.** Confirm with
-the prof, since he used the word "rapid."
+**DECIDED 31 Jul (Sumeet): rapid means fewer questions *and* a fixed per-question timer**, against
+normal mode's own (longer) fixed timer. `roundLength()` already returns 10 questions for rapid and 20
+for normal (`lib/game/engine.ts:30-32`) — that half was never in question. The clock half is new and
+creates a live collision with the lever, which must not be lost:
+
+- `lib/game/engine.ts:26-28` has `TIME_BASE = 10`, `TIME_MIN = 5`, `TIME_STEP = 2`. Today a
+  difficulty-lever student gets a pinned clock; a time-lever student's clock tightens 10s → 5s as they
+  answer correctly.
+- **If rapid mode pinned the timer for everyone**, a time-lever student in rapid mode would get an
+  inert lever, silently removing half the experimental design for those students.
+- **The intent, not yet fully confirmed in seconds:** rapid = 10s, normal = 15s, fixed for
+  difficulty-lever students, while time-lever students still tighten from that base rather than from a
+  pinned value. The user said "10/15 seconds," which reads either as "10 rapid / 15 normal" or "a
+  choice of 10 or 15" — **the exact seconds are UNCONFIRMED.** The principle that is settled: whichever
+  lever a student picked must stay live in rapid mode too.
 
 ### The resolver — how mutual exclusion survives five games
 
@@ -429,9 +438,14 @@ picks distractor C, that is a specific, nameable wrong belief the professor can 
 is a stronger paper finding than most engagement metrics, and it is currently discarded on every
 single answer. **Goes into K-3.**
 
-**Leaderboard — an open decision, not a feature.** In SDT terms it is a relatedness play, which is
-the supervisor's own research turf, so he will have a view. But public ranking of students carries
-ethics implications and could confound the persistence DV. Ask; do not build.
+**Leaderboard — decided 31 Jul 2026: build it (package L1).** The user's words: "we'll build a
+leaderboard, but that means a higher complexity build as individual sessions would be captured into a
+live and updating feed." That complexity is real and unbuilt — the app has no realtime layer today.
+Two concerns already on record stand and are **not** resolved by the decision to build: ethics
+implications for a classroom study, and the risk of confounding the persistence DV, since a
+leaderboard is itself a motivational intervention competing with the one being measured. It is also
+the supervisor's own turf in SDT terms (relatedness), so the design should be checked with him before
+it ships. Priority unset pending that conversation; see the package table.
 
 ---
 
@@ -661,12 +675,13 @@ Each package owns its files exclusively. "Do not touch" is as important as "owns
 | **A3** | ⬜ | Game: choose-the-right-word | `app/games/choose/`, `lib/games/choose.ts` | K ✅, G2 | P1 |
 | **A4** | ⬜ | Game: Wordle — daily word, streak counter, no catch-up, gap-day fallback | `app/games/wordle/`, `lib/games/wordle.ts`, `db/005` (daily schedule) | K ✅, G2, A0 | P1 |
 | **G3** | ⬜ | Adversarial critique pass over drafts — the only thing that catches an arithmetic contradiction | `scripts/lib/` (new file only) | G1 | P1 |
-| **Q2** | 🟡 | Quiz modes — rapid/normal exist. Confirm "rapid" with the prof; flip `enabled` as games ship. | `lib/game/engine.ts` | K-2 ✅ | P1 |
+| **Q2** | 🟡 | Quiz modes — rapid/normal exist. Rapid decided 31 Jul (fewer questions + fixed timer, §1); exact seconds still unconfirmed. Flip `enabled` as games ship. | `lib/game/engine.ts` | K-2 ✅ | P1 |
 | **R1** | ⬜ | Difficulty calibration — **recipe-level**, not per item. Schema is ready (`recipe`, `empirical_p`, `p_responses`); needs the recompute script and real response data. | `db/`, `scripts/calibrate.mjs` | K-1 ✅, real event data | **P0** |
 | **E1** | ⬜ | Event-log audit + analysis queries + export | `scripts/analysis/`, `docs/` | K-3 ✅ | P0 |
 | **T1** | Tests — validator first, then scoring | `tests/` | Q1, G1 | P0 |
 | **O1** | Ops — `GEMINI_MODEL`, Vercel deploy, error visibility | `.env.local`, config | — | P0 |
 | **W1** | Paper — DSR method write-up, design-cycle record, literature | `docs/literature/`, `docs/` | — | P1 |
+| **L1** | ⬜ | Leaderboard — live/updating session feed (decided 31 Jul, §1.7). Not yet designed. Needs a realtime layer the app does not have today — materially higher complexity than any package above. Ethics and persistence-DV-confound concerns are on record and unresolved by the decision to build. Supervisor's turf (SDT relatedness) — check the design with him first. | not yet designed | realtime layer (none exists) | **unprioritised — pending prof; not on the pilot critical path unless he says so** |
 
 A1/A2/A3 are near-identical in shape (one primitive, one interaction, one scorer) and are the best
 candidates to run as three simultaneous sessions. A4 (Wordle) is unlike the others — daily
@@ -699,11 +714,9 @@ Read first:     docs/PROJECT_MAP.md §1 and §2.7, docs/CURRENT_STATE.md
    his unpublished material, not a budget one.
 4. Cohort size and whether the pilot is the DT course specifically.
 5. Ethics/consent ownership and timeline.
-
-6. **Does "rapid round" mean fewer questions or less time?** We have locked it to fewer questions
-   because a faster clock would collide with the difficulty lever (§1). He used the word "rapid," so
-   confirm.
-7. Should rapid pay more than normal? At parity for now.
+6. Should rapid pay more than normal? At parity for now.
+7. Leaderboard design (L1) — SDT relatedness is his turf; ethics and persistence-DV-confound risks
+   are unresolved.
 
 **Decided by Sumeet, 30 Jul — closed, do not re-litigate:**
 
@@ -715,6 +728,14 @@ Read first:     docs/PROJECT_MAP.md §1 and §2.7, docs/CURRENT_STATE.md
 - Platform: **live ingestion, subject-agnostic, PDF input**. Multi-tenant schema built now; upload
   UI, job queue and faculty login deferred until after the pilot (§1.5).
 - LibreOffice is **out of the pipeline**. Professors export their own PDFs.
+
+**Decided by Sumeet, 31 Jul — closed, do not re-litigate:**
+
+- Rapid mode: **fewer questions and a fixed per-question timer** (not fewer questions alone). Exact
+  seconds unconfirmed (working assumption 10s rapid / 15s normal); the both-levers-stay-live principle
+  is not in question. See §1.
+- Leaderboard: **build it** (package L1). Complexity, ethics and persistence-DV-confound consequences
+  stand and are unresolved; check the design with the prof. See §1.7.
 
 **From us, with data:**
 9. Difficulty calibration (R1) — needs the pilot-of-the-pilot scheduled by week 2, not week 4.
