@@ -60,7 +60,10 @@ function formatLastPlayed(iso: string | null): string {
   // Singh's course at XLRI — IST throughout — so the display zone is pinned
   // explicitly rather than left to follow the server's clock: without this an
   // IST student playing at 01:00 on 5 Aug would see "4 Aug" here.
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'Asia/Kolkata' })
+  // Locale and timezone both pinned. `undefined` locale means "whatever the runtime defaults to",
+  // which differs between a dev machine and Vercel, and the pilot cohort is IST either way. Pinning
+  // also keeps this safe to move into a client component later without a hydration mismatch.
+  return new Date(iso).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', timeZone: 'Asia/Kolkata' })
 }
 
 /** The dashboard spine (package D1) — points, activity, and every game in
