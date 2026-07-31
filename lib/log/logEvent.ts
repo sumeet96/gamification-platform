@@ -9,6 +9,11 @@
 export type EventType =
   | 'session_start'
   | 'round_start'
+  | 'round_offer' // emitted when the results screen actually renders the "Keep Going"
+  // affordance -- i.e. the student was genuinely given the chance to continue. It
+  // carries no score, so (like the others here) it is safe as a client-emitted type.
+  // Pairs with 'round_continue' (accepted) and 'round_stop' (declined); silence after
+  // this event with neither of those two means the round was abandoned mid-decision.
   | 'round_continue'
   | 'round_stop'
 

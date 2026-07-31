@@ -9,7 +9,7 @@ import { useCountUp } from '@/lib/ui/useCountUp'
 
 export default function Results() {
   const router = useRouter()
-  const { lastRound, registerContinue, emit } = useGame()
+  const { lastRound, registerContinue, announceRoundOffer, emit } = useGame()
 
   // No round recorded (cold load) -> dashboard.
   useEffect(() => {
@@ -18,6 +18,22 @@ export default function Results() {
       return () => clearTimeout(t)
     }
   }, [lastRound, router])
+
+  // 'round_offer' means "this student was genuinely given the chance to continue" --
+  // keyed on lastRound being present, the exact condition (see the JSX below) under
+  // which the Keep Going button renders unconditionally. Every render path that
+  // shows the full results screen has lastRound truthy; the only path that doesn't
+  // is the "No round to show…" early return above, which never renders that button.
+  // announceRoundOffer's own ref guard (lib/game/game-context.tsx) is what actually
+  // makes this fire once per round -- this effect is allowed to re-run.
+  useEffect(() => {
+    if (!lastRound) return
+    announceRoundOffer(lastRound.round, {
+      game_type: quizGameId(lastRound.mode),
+      mode: lastRound.mode,
+      lever: lastRound.lever,
+    })
+  }, [lastRound, announceRoundOffer])
 
   const net = useCountUp(lastRound?.net ?? 0)
 
