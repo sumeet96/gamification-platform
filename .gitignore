@@ -67,3 +67,8 @@ NUL
 # Spike inputs/outputs: course material and simulation runs. Kept out of git — the
 # deck is the professor's, and the results belong in docs/ once summarised.
 spike-data/
+
+# Course material dropped in the repo root. Decks are the professor's and must not be
+# committed -- same reason spike-data/ is ignored. Research papers under docs/literature/
+# stay tracked, which is why this rule is anchored to the root only.
+/*.pdf

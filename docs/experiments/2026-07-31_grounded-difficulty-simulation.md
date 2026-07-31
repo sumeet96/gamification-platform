@@ -214,12 +214,143 @@ survive from the partial run:
 Operationally it is also unusable for the real job: at throttled rates a 400-item bank at n=30 would
 take about a week.
 
+## Result 8 — a third model family, and the literature's recommended model loses
+
+`gemma2:9b`, run locally through Ollama over the same 15 items. The source paper
+([arXiv 2601.09953](https://arxiv.org/html/2601.09953v2)) found Gemma 9B–27B produced the best
+correlations and beat Llama-3.3-70B. **That does not transfer to this material.**
+
+| Arm | Below Basic | Basic | Proficient | Advanced | slope |
+|---|---|---|---|---|---|
+| A ungrounded | 75% | 81% | 81% | 69% | −6, inverted |
+| B grounded full | 98% | 94% | 96% | 93% | −4, inverted |
+| C grounded retention | 78% | 90% | 92% | 93% | **+15, monotonic** |
+
+**The method replicates for the third time.** Only retention-gating produces a positive ability
+gradient; ungrounded and full-text are flat or inverted on all three model families.
+
+**But gemma cannot be the calibrator.** 8 of 15 items sit at ceiling in arm C against llama3.2's 1,
+and quintile binning needs spread — over half the bank would be unrankable. Runtime was 4.5 hours
+against llama3.2's ~80 minutes for the same three arms.
+
+**The memorisation signature is stark.** 6 of 15 items are at ceiling in *both* the ungrounded and
+retention arms — gemma answers them at 100% having never seen the deck; llama3.2 flagged 1. The
+decisive case is item 8, the 2×2 competitive matrix: it is the hardest item in the set for llama3.2
+at 33%, and gemma scores **100% in all three arms**. It is not reasoning about the matrix, it is
+recalling a famous deck. The two items gemma does find hard behave exactly as theory predicts —
+item 4 (TAM vs SAM) runs 10% → 30% → 47% and item 14 (multi-step revenue arithmetic) runs
+13% → 100% → 73%, so grounding helps precisely where the answer lives in the source.
+
+Cross-model agreement on the retention arm is **ρ = 0.23** for llama3.2 vs gemma2:9b — the same
+figure as llama3.2 vs gpt-3.5-turbo. Three model families, every pair disagreeing at ρ ≈ 0.23.
+
+**Summary of the simulator comparison:**
+
+| Simulator | Ungrounded mean | Retention mean | Slope | At ceiling | Runtime |
+|---|---|---|---|---|---|
+| **llama3.2 (~3B)** | **0.45** | **0.71** | **+31** | **1/15** | 19–44 min |
+| gpt-3.5-turbo-0125 | 0.72 | 0.86 | +23 | 7/15 | ~2 min |
+| gemma2:9b | 0.78 | 0.88 | +15 | 8/15 | 67–117 min |
+
+**llama3.2 wins on every criterion that matters** — least memorisation, most usable spread, steepest
+gradient. The likely reason the published finding does not transfer: their items were self-contained
+maths, where model competence *is* the signal. Ours are source-dependent recall about a widely
+republished deck, so a larger model's memorisation costs more than its simulation ability gains.
+
+**Consequence for the unresolved label question (Result 4/7):** correlation with the asserted 1–5
+labels on the retention arm is −0.63 (llama3.2), −0.09 (gpt-3.5), −0.09 (gemma). Two of three see no
+relationship — but **those two are the two that ceiling**, and 7–8 items tied at 100% mechanically
+destroy rank correlation. They are not evidence against the labels; they are uninformative. **A
+simulator that ceilings cannot measure label validity at all.** The question stays open.
+
+## Result 9 — reproducibility, measured rather than assumed
+
+Reproducibility is the first-listed reason the simulator is a local model (`CLAUDE.md`): a hosted
+model can change mid-pilot and silently shift calibration. On checking, **our own instrument was
+drifting between consecutive runs on the same machine.** Two runs over the same 17 items, same
+method, same n, moved facility by up to **0.10** — enough to flip items between difficulty bands.
+
+Cause: the seeds controlled option shuffling and excerpt thinning, but nothing seeded the model's
+token sampling. Temperature is deliberately 0.8 so simulated students of one tier differ from each
+other; without a seed, that variation was re-rolled every run. Ollama accepts `options.seed`, so the
+existing per-(item, student) seed is now passed through — the cohort still varies internally, the run
+no longer varies between invocations. Seeds also now derive from the item **id** rather than its
+position in the result set, so adding one item to the bank no longer changes every other item's
+difficulty.
+
+**Measured across three full runs of 510 responses each:**
+
+| | Before seeding | After |
+|---|---|---|
+| Max drift in item facility | 0.10 | **0.033** |
+| Items identical across runs | few | **14 of 17** |
+| Difficulty assignments | flipped between runs | **identical across all three runs** |
+
+**It is not bit-exact, and the write-up should not claim it is.** Three items moved by exactly
+0.033 — one simulated student in thirty changing answer — a rate of about 2 responses in 510 (0.4%).
+The drift is not on consistent items across runs. Attempts to isolate it all came back deterministic:
+12 sequential calls at a fixed seed, 12 concurrent calls at a fixed seed, and 16 heterogeneous
+prompts with distinct seeds and personas run twice at the production pool shape. At 0.4%, 28 calls
+would be expected to catch 0.1 events, so this is not evidence of absence. The residual most likely
+comes from floating-point reduction order under CPU threading in the inference backend, where a
+near-tie between two tokens tips differently.
+
+**The defensible claim:** *calibration is reproducible under a pinned model and environment — across
+three runs of 510 simulated responses, 0.4% of individual responses varied, item facility varied by
+at most 0.033, and the resulting difficulty assignments were identical.*
+
+Worth putting alongside it: the residual drift of 0.033 sits well inside the sampling noise already
+accepted, since the binomial standard error at n=30 is ≈0.09, about three times larger.
+**Run-to-run variation is not the limiting factor on precision — sample size is.** Raising n buys far
+more than chasing the last 0.4%.
+
+Note this property exists **only on the local path**: OpenAI documents `seed` as best-effort, and
+Gemini exposes none. That is a stronger argument for a local simulator than the accuracy comparison
+in Result 8.
+
+## Result 10 — applying it: the bank is lopsided, and that is a content finding
+
+Running the calibration over the 17 items G1 generated from the same deck
+(`scripts/calibrate-difficulty.mjs`, llama3.2, grounded-retention, n=30) produced:
+
+| Difficulty | Items | Facility range |
+|---|---|---|
+| 1 | **0** | — |
+| 2 | 6 | all exactly 1.00 |
+| 3 | 5 | 0.87–0.97 |
+| 4 | 2 | 0.83 |
+| 5 | 4 | 0.07–0.63 |
+
+**7 of 17 items score ≥0.95 and difficulty 1 is empty.** The adaptive lever starts at difficulty 2,
+so it can ramp *up* for a student doing well but has nothing easier for one who is struggling — half
+the adaptive response is unavailable. No amount of recalibration fixes this; it needs harder and
+easier questions, which is a generator problem.
+
+**A binning defect found on the way, worth recording because it nearly shipped.** Ranking by position
+split tied scores across band boundaries: two items both scoring 0.77 were assigned difficulty 4 and
+5, and six items all scoring exactly 1.00 were split three-and-three across difficulty 1 and 2. Those
+items are indistinguishable by measurement, so the ordering between them came from the tie-break —
+and would then have decided which questions a student was served. Groups of identical facility now
+take one bin by midrank (`scripts/lib/quintile-difficulty.mjs`), with regression tests. The fix made
+the ceiling problem visible: scattered across bands it looked like a healthy spread; grouped
+correctly it is a bank that cannot support five levels.
+
 ## Limits — do not overstate these results
 
 - **n=15 items, one deck, one topic.** Every correlation here is at the edge of significance.
-- **Difficulty values are simulator-specific** (Result 7). The method — retention-gated grounding —
-  replicates across model families; the numbers it produces do not. Never quote a facility figure
-  without naming the simulator that produced it.
+- **Difficulty values are simulator-specific** (Results 7 and 8). The method — retention-gated
+  grounding — replicates across three model families; the numbers it produces do not, with every
+  pair agreeing at only ρ ≈ 0.23. Never quote a facility figure without naming the simulator that
+  produced it.
+- **The validation deck is famous, and that is a real threat to these results.** The Airbnb pitch
+  deck is one of the most republished documents in startup history, and the cross-simulator
+  disagreement may be an artifact of larger models recognising it rather than a property of the
+  method. This is testable and untested: if agreement rises on unfamiliar conceptual material, the
+  disagreement was memorisation; if it stays near 0.23, it is the method. **Until that runs, treat
+  ρ ≈ 0.23 as an upper bound on the problem, not a measured property of retention-gated simulation.**
+- **Reproducibility is environment-bound** (Result 9). Pinned model, pinned Ollama version, same
+  hardware. A model-file update or a move from CPU to GPU can shift outputs, since floating-point
+  differences can tip a near-tie between two options.
 - **This validates the ordering, not the magnitude.** Whether a simulated 0.71 corresponds to a real
   student facility of 0.71 is untested and needs the pilot.
 - **The retention fractions (0.30/0.55/0.80/1.00) are a chosen knob**, not a calibrated one. The
