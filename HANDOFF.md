@@ -1,6 +1,11 @@
 # HANDOFF: Gamified Adaptive Learning Platform (FBT Research Project)
 
-**Prepared:** 22 Jul 2026. **Updated:** 31 Jul 2026 (grounded LLM student simulation for item
+**Prepared:** 22 Jul 2026. **Updated:** 31 Jul 2026, later the same day (three P0 packages shipped —
+G1 generator, D1 dashboard, Q1 quiz hardening; the simulation method replicated on two more model
+families while the difficulty values did not; simulator reproducibility via seeding; the cohort-size
+correction to 60–120; the leaderboard/XP decisions; the move to OpenAI as generation provider now that
+Gemini credits are depleted; see §15). Previous update, same day: 31 Jul 2026 (grounded LLM student
+simulation for item
 difficulty — the ability tier must control how much of the source excerpt the simulated student sees,
 not just whether it is grounded; the `extract-slide-text.mjs` image-slide recovery step; the
 question-quality gate's n=4→n=30 correction; the ~10-hour full-run planning figure; see §14). Previous
@@ -215,7 +220,7 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 
 ## 10. Open items and risks (updated 29 Jul)
 
-- [ ] **Next build: the question-generation pipeline** (design decisions recorded 28-29 Jul 2026 in §3a, source diagnostic built in `fa38a2a`/`a75a79c`, format adapters not yet built). LibreOffice is a prerequisite for the ingestion design and was installed and verified on the dev machine on 29 Jul 2026 (`--convert-to pdf` confirmed working on a real deck); any other build machine still needs it.
+- [x] **Resolved 31 Jul 2026 (package G1, §15):** the question-generation pipeline is built. `scripts/generate-questions.mjs` writes `content_items` rows plus `source_excerpt`, currently running on OpenAI (Gemini credits depleted, §15). LibreOffice, listed here as a prerequisite on 29 Jul, was removed from the pipeline entirely on 30 Jul (§12).
 - [ ] `db/002_add_question_format.sql` is written but **not applied** to Neon — `psql` is not installed on this machine, so it must be pasted into the Neon web SQL editor by hand.
 - [ ] `db/001_add_students.sql` (~line 60) has an unscoped `pg_constraint` existence guard: it matches by `conname` alone, which Postgres only guarantees unique per table, not database-wide. Deliberately left as is since it is already applied to the live database; would only bite in a fresh environment.
 - [x] **Resolved 28 Jul 2026 (commit b569cc5):** anonymous event log. `events.student_id` was always null under the mockup login/signup UI, which made per-student analysis impossible. Real authentication now populates it from the session cookie.
@@ -223,7 +228,7 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - [ ] New residual risk: shared devices. A student who does not log out on a shared classroom laptop leaves the session live for whoever uses it next; nothing currently forces logout.
 - [ ] New residual risk: the signup form has a cosmetic terms-of-service checkbox sitting next to the real, server-enforced research-consent checkbox. The two could be confused; needs a UI fix before the pilot.
 - [ ] Model-assigned difficulty is uncalibrated, and the adaptive-difficulty lever depends on it entirely. If an item labelled difficulty 4 is not actually harder than one labelled 2, the study's primary independent variable is noise. Needs each item's empirical p-value from `events` compared against its assigned label, ideally via a small pilot-of-the-pilot before the real cohort, since recalibrating mid-pilot would change what the difficulty scale means partway through the dataset.
-- [ ] Adaptive difficulty saturates at the ceiling by roughly question four (starts at 2, caps at 5, resets every round), so a strong student stops being differentiated by the lever for most of a round. Needs a decision: raise the starting difficulty, widen the scale, or carry difficulty across rounds within a session.
+- [x] **Superseded 31 Jul 2026 (§15):** the ceiling-saturation item below was resolved not by carrying difficulty across rounds but by requiring two consecutive same-direction answers before the ramp moves at all, which damps the run to the ceiling. The per-round reset itself is now a recorded deliberate choice, not a defect awaiting a fix — carrying difficulty across rounds would conflate performance across six different games into one global student level. Original wording, kept for the record: "Adaptive difficulty saturates at the ceiling by roughly question four (starts at 2, caps at 5, resets every round), so a strong student stops being differentiated by the lever for most of a round."
 - [ ] Confirm hosting is Vercel and identify the "Chinese model" (the transcript garbled both).
 - [ ] Get the *Gamification for Dummies* PDF.
 - [ ] Pitch Gemini paid Tier 1 to the prof (privacy plus reliability framing, about ₹500-800/pilot); verify live Tier 1 pricing and rate limits first.
@@ -234,7 +239,7 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - [ ] Scope-creep risk: build one artifact (platform plus AI designer plus HITL) and resist adding orchestration extras. The hour budget is ~400-450 total.
 - [ ] The Scopus/WoS systematic search is still pending if the paper goes ahead.
 
-## 11. File inventory (as of 29 Jul 2026; `git ls-files` reconciled)
+## 11. File inventory (as of 29 Jul 2026; `git ls-files` reconciled; additions from 30-31 Jul noted inline, not fully reconciled)
 
 **Orchestration (tracked as of df8fe57):**
 - `.claude/agents/` — scout, builder, reviewer, codex-review, gemini-bulk, db-engineer, scribe, researcher.
@@ -264,11 +269,17 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
   transcript (see §12).
 - `.claude/agents/sol-consult.md` — new 30 Jul 2026, the two-pass GPT-5.6 Sol consultation agent.
 - `tests/lever.test.ts` — new 30 Jul 2026, the project's first automated tests (§12).
+- `tests/quintile-difficulty.test.ts`, `tests/registry.test.ts` — new 31 Jul 2026 (§15), part of the
+  10 → 18 test count. Cover tie-binning monotonicity and `GAME_REGISTRY` shape/lever invariants.
 - `docs/experiments/2026-07-31_grounded-difficulty-simulation.md` — new 31 Jul 2026, the grounded vs
-  ungrounded simulation run and its five results (§14).
+  ungrounded simulation run; five results as of §14, extended same day with Result 7 (replication on
+  `gpt-3.5-turbo-0125` and `gemma2:9b`) and the abandoned Gemini Flash-Lite attempt (§15).
 
 **Application code (Next 16 / React 19 / Tailwind v4):**
-- `app/page.tsx` — dashboard (entry point).
+- `app/page.tsx` — no longer the dashboard as of 31 Jul 2026 (package D1); redirects to `/dashboard`
+  so there is one implementation, not two.
+- `app/dashboard/page.tsx` — new 31 Jul 2026 (package D1), the real dashboard: renders one tile per
+  `GAME_REGISTRY` entry, closing the gap §12 flagged as the professor's first instruction.
 - `app/game-setup/page.tsx` — quest selection and adaptivity-lever picker.
 - `app/quiz/page.tsx` — main game loop (questions, scoring, adaptivity feedback).
 - `app/results/page.tsx` — round results and persistence prompt.
@@ -276,6 +287,10 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - `app/api/auth/login/route.ts`, `app/api/auth/signup/route.ts`, `app/api/auth/logout/route.ts`, `app/api/auth/me/route.ts` — auth endpoints (added 28 Jul, commit b569cc5).
 - `app/api/events/route.ts` — event logging API; `student_id` now read from the session cookie, not the request body.
 - `app/api/questions/route.ts` — MCQ serving API (DB pool + seed-bank fallback).
+- `app/api/answer/route.ts` — new 31 Jul 2026 (package Q1), the server-side scoring route. Looks the
+  answer up from `content_items` (falling back to the seed bank), is the only writer of
+  `question_answered`, and returns `correctIndex` only on the commit that scores an item, never on a
+  repeat (§15).
 - `app/api/stats/route.ts` — new (commit 408bd54); aggregates lifetime totals (score, accuracy, sessions played) from `events` for the cookie-identified student.
 - `app/layout.tsx`, `app/globals.css` — layout and base styles.
 - `proxy.ts` — Next 16's successor to `middleware.ts`; deny-by-default as of commit 408bd54 — only `/login`, `/signup`, and the login/signup/logout API routes are public, everything else requires a valid session. Previously only gated `/quiz`, `/game-setup`, `/results` (added b569cc5).
@@ -286,6 +301,10 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
   additive, ~36 lines; see §12) — the structural fix so games never branch on `config.lever`.
 - `lib/game/game-context.tsx` — React Context for game state (survives route nav via sessionStorage).
 - `lib/game/questions.ts` — question data fetch and normalization.
+- `lib/games/registry.ts` — new 31 Jul 2026 (package K-2/D1), `GAME_REGISTRY`: the single source of
+  truth for what games exist and how each scores, read by both the dashboard (tiles) and the scorer
+  (`app/api/answer/route.ts`). Deliberately a distinct `lib/games/` (plural) from `lib/game/` (singular)
+  — see the comment in the file for why the two are not merged.
 - `lib/log/logEvent.ts` — event logging to `/api/events` (or console if DB unavailable).
 - `lib/db/client.ts` — Neon Postgres client.
 - `lib/auth/password.ts` — scrypt hashing and `timingSafeEqual` verification (added b569cc5).
@@ -296,6 +315,9 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 **Database and config:**
 - `db/schema.sql` — Neon Postgres schema (questions, events tables).
 - `db/001_add_students.sql` — adds the `students` table and the `events.student_id` FK; establishes the `NNN_short_name.sql` migration convention (added b569cc5). Applied to the live Neon database as of the 408bd54 end-to-end run — 3 tables, foreign key `events_student_id_fkey` present.
+- `db/005_add_simulated_difficulty.sql`, `db/006_add_content_item_difficulty.sql` — new 31 Jul 2026,
+  add `simulated_p`, `simulated_n`, `simulator_model`, `source_excerpt` and the binned 1-5 difficulty
+  column to `content_items`. Applied and verified live on Neon project `ancient-brook-62806105` (§15).
 - `.env.local.example` — environment variable template (Neon credentials, Gemini key, `SESSION_SECRET`); restored in b569cc5 after being lost in a move rather than a copy.
 - `.gitignore` — new (commit 408bd54); tracked so a stray Windows reserved-device-name file (`nul`/`NUL`, produced by a `> nul` redirect in Git Bash) stays out of the index.
 - `skills-lock.json` — new (commit 408bd54); lockfile pinning the `neon` and `neon-postgres` agent skills (source `neondatabase/agent-skills`) used during the Neon setup and end-to-end run.
@@ -304,13 +326,23 @@ Also this week: obtain *Gamification for Dummies* (nudge the prof by **Wed 23 Ju
 - `README.md` — project readme.
 
 **Content generation:**
-- `scripts/generate-questions.mjs` — Gemini-powered MCQ generator from course PDFs (reads `COURSE_PDFS` env, outputs to `db/schema.sql` seed or API). Its inline validity check (lines 79-81) clamps rather than rejects a bad answer index; see §3a, generation-path gap.
-- `scripts/inspect-source.mjs` — the permanent mandatory routing gate for the pipeline (commit `a75a79c`; OCR heuristics removed 29 Jul, commit `7895e69`, see §3a). Design decisions for the rest of the pipeline are in §3a; not yet built beyond this script.
+- `scripts/generate-questions.mjs` — MCQ generator from course PDFs (reads `COURSE_PDFS` env, writes
+  `content_items` plus `source_excerpt` as of package G1, 31 Jul 2026). Runs on **OpenAI** as of 31 Jul
+  2026 (`--provider openai`, default `gpt-4.1-mini`) since Gemini prepayment credits are depleted (§15);
+  provider is selected through `scripts/lib/llm-client.mjs`. Its old inline validity check (lines 79-81)
+  clamping rather than rejecting a bad answer index, noted in §3a, is superseded by G1's own validation.
+- `scripts/lib/llm-client.mjs` — new (date not recorded precisely; in place by 31 Jul), the
+  provider-agnostic adapter — Gemini/OpenAI selectable via `--provider`, the mechanism that made the
+  31 Jul provider switch a flag change rather than a rewrite (§15).
+- `scripts/lib/quintile-difficulty.mjs` — new 31 Jul 2026, bins continuous `simulated_p` into the
+  existing 1-5 column by quintiles, ties sharing a band; covered by `tests/quintile-difficulty.test.ts`.
+- `scripts/inspect-source.mjs` — the permanent mandatory routing gate for the pipeline (commit `a75a79c`; OCR heuristics removed 29 Jul, commit `7895e69`, see §3a). Design decisions for the rest of the pipeline are in §3a.
 - `scripts/validate-questions.mjs` — rejects generated questions that break pipeline rules (commit `10fd55b`); see §3a.
 - `scripts/extract-slide-text.mjs` — new 31 Jul 2026, recovers text from image-only slides via Gemini
   vision on the PDF; uncommitted (§14).
 - `scripts/spike-simulate-difficulty.mjs` — the difficulty-simulation spike script; gained `--source`,
-  `--retention`, `--out`, `--label` and per-tier breakdown 31 Jul 2026 (§14); uncommitted.
+  `--retention`, `--out`, `--label`, per-tier breakdown, and (later the same day) `options.seed` keyed
+  on item id for run-to-run reproducibility (§14, §15); uncommitted.
 - `scripts/spike-compare-arms.mjs` — new 31 Jul 2026, Spearman agreement / ability slope / ceiling-floor
   comparison across simulation arms; uncommitted (§14).
 
@@ -465,6 +497,13 @@ not repeated here.
    than converges. The documented fix, Parallel Elo (two independent rating chains, alternating which
    one updates vs which one is used to select), is noted for when this is built, not built now.
 
+**Both premises above are now stale, corrected 31 Jul 2026 (§15).** The server-authoritative answer
+path this paragraph called missing shipped the same day as package Q1 (`app/api/answer/route.ts`).
+And "~20 responses per item" assumed a ~20-student cohort; the cohort is actually 60–120 (§15), so the
+real volume is 24,000–48,000 responses across the pilot, not ~8,000 — more headroom above the
+200–500-response Elo convergence threshold, not less. The deferral decision (rate recipes, not items)
+still stands; the arithmetic behind it needs re-running before anyone quotes it.
+
 **Decisions made this session:**
 - Difficulty is seeded by LLM student simulation, not asserted by a model.
 - Simulation runs on a **small local model via Ollama**, not a hosted one — reproducibility (a hosted
@@ -572,3 +611,101 @@ agreement, ability slope, ceiling/floor counts), `docs/experiments/` (new). Last
 `44a2443`. Full working-tree detail, the reproduction commands, and the open question the session ended
 on (whether to correct the "labels do not discriminate" claim — **not yet answered, do not edit that
 claim without it**) are in `docs/CURRENT_STATE.md`.
+
+## 15. Three P0 packages built, the method replicated, three product decisions (31 Jul 2026, later the same session)
+
+**This is a continuation of the same 31 Jul 2026 day, after §14.** Where §14 closed on an open question
+(whether the "labels do not discriminate" claim needed correcting) and no job running, this stretch
+built the three highest-priority packages and ran the replication that answers part of that question.
+Source of truth for the state described here: `docs/CURRENT_STATE.md`, rewritten at the end of this
+stretch. Full simulation detail: `docs/experiments/2026-07-31_grounded-difficulty-simulation.md`
+(Result 7 and the Gemini Flash-Lite attempt were added to it this stretch).
+
+**Three P0 packages shipped: G1 (generator), D1 (dashboard), Q1 (quiz hardening).** `app/dashboard/page.tsx`
+is now real — it renders one tile per entry in `GAME_REGISTRY` (`lib/games/registry.ts`), closing the
+gap §12 flagged as the professor's first instruction and the least-built part of the app. The generator
+(`scripts/generate-questions.mjs`) writes `content_items` rows plus their `source_excerpt`. The quiz no
+longer trusts the client: `app/api/answer/route.ts` is the only place `question_answered` gets written,
+looks the answer up server-side, and returns `correctIndex` only on the commit that actually scores an
+item. Migrations `db/005` and `db/006` are applied and verified live on Neon project
+`ancient-brook-62806105`. Tests went **10 → 18** (`tests/registry.test.ts` and
+`tests/quintile-difficulty.test.ts` are new), `tsc --noEmit` is clean, `npx next build` succeeds.
+Eight commits this stretch, oldest first: `a00964d` (db/005) → `17e21e9` (G1) → `f4fa360` (D1) →
+`aefb6c5` (hydration fix) → `e7af686` (Q1) → `66853ec` (lever resolver) → `748accf` (tie binning) →
+`9239f2a` (reproducible simulator + calibration). Nothing pushed, as usual.
+
+**Process lesson worth keeping.** The first Q1 attempt reported success while the answer key still
+shipped in the client JS bundle and the scoring route returned `correctIndex` on every POST, not just
+the one that scores. Caught by a review pass, not by the builder's own report. **New standing rule:
+anything touching scoring or auth gets a `reviewer` pass before commit** — added to `CLAUDE.md`.
+
+**Cohort corrected: 60–120 students, not ~20.** This number had propagated into
+`docs/PROJECT_MAP.md:560` and `docs/literature/item-difficulty-without-students.md:112`. Three
+experimental arms now give 20–40 students per group, so underpowering is no longer the decisive
+objection to self-selected arms. Every response-budget figure computed off ~20 students needs
+revisiting — the real range is 24,000–48,000 responses across the pilot, not ~8,000, which changes the
+recipe-level Elo convergence argument in §13 (more headroom above the 200–500-response threshold, not
+less; see the correction note added there).
+
+**The simulator is now reproducible by construction, not just in principle.** `options.seed` in
+`scripts/spike-simulate-difficulty.mjs` is threaded per (item, student), and seeds derive from the
+item's **id**, not its position in the result array — seeding from position was tried and silently
+breaks reproducibility the moment item order changes between runs. The honest limit: this makes runs
+repeat under a **pinned model and environment**, not deterministic across a model update or a change of
+CPU/GPU. OpenAI's `seed` parameter is documented as best-effort, and Gemini exposes no seed parameter
+at all, so this property is only available on the local Ollama path — one more argument, alongside the
+three already in `CLAUDE.md`, for why the simulator must stay local rather than a convenience.
+
+**The method replicated on two more model families; the difficulty values did not.** The same 15
+items, same seeds, same thinning ran through `gpt-3.5-turbo-0125` and `gemma2:9b`. Two unrelated model
+families agree with `llama3.2` on the core finding: only retention-gated grounding produces an ability
+gradient; full grounding without retention gating inverts it or flattens it. They do **not** agree on
+*which* items are hard — Spearman ρ ≈ 0.23 between every pair of simulators on the grounded-retention
+arm. `llama3.2` stays the simulator: `gpt-3.5-turbo` scores 0.72 with no source material at all against
+`llama3.2`'s 0.45, and ceilings on 7 of 15 items; `gemma2:9b` ceilings on 8 of 15 and is roughly 6×
+slower. Both recognise the Airbnb pitch deck from training data, which disqualifies either one from
+playing a struggling student, however it is prompted. **New standing rule: one simulator is one
+measurement — any difficulty claim must name the simulator that produced it**, added to `CLAUDE.md`.
+A Gemini 3.5 Flash-Lite attempt was also made and abandoned: free-tier throttling ran it at ~13 s per
+response before it hit 33 consecutive 429s on the depleted prepayment credits, and the two responses
+that did complete showed the same memorisation signature as `gpt-3.5-turbo`, more pronounced.
+
+**Consequence for the "do the 1–5 labels discriminate" question, left open at the end of §14: still
+UNRESOLVED, and now provably so.** ρ between simulated facility and the asserted label is −0.63 under
+`llama3.2` and −0.09 under `gpt-3.5-turbo-0125` on the identical 15 items. A simulator that ceilings on
+7–15 items mechanically destroys rank correlation, so `gpt-3.5-turbo`'s near-zero reading cannot be
+trusted either. **No simulator available can settle this** — only observed student responses can.
+`CLAUDE.md`, `docs/PROJECT_MAP.md` §1.6 and `docs/consult-brief.md` should not claim either direction
+until the pilot runs.
+
+**Difficulty stays at five levels, decided explicitly this stretch.** At n=30 simulated students per
+item the standard error on a success rate is ~0.09, so a ten-band scale would be about one standard
+error wide — false precision the data cannot support. Ties share a band; binning by rank position was
+rejected because it invents distinctions the measurement never made.
+
+**The adaptive ramp now requires two consecutive same-direction answers, and the per-round reset is
+recorded as deliberate, not the defect §10 had flagged it as.** Two-in-a-row damps single-question
+noise in the ramp. The per-round reset stands because carrying difficulty across rounds would imply one
+global student ability level, which would conflate performance across six different games into a
+single number — exactly the kind of cross-construct mixing the per-game lever design (§12) was built to
+avoid.
+
+**Three product decisions, none yet discussed with the professor:**
+- **A leaderboard will be built (package L1).** Decided by the user.
+- **A global XP/level bar is wanted, as a wrapper over all games.** Safe only because it is an output
+  of gameplay, not an input to it: **XP must never feed back into item selection**, or it recreates the
+  cross-game conflation the per-round difficulty reset was just rejected for.
+- **Any motivational overlay (XP, leaderboard) must be identical across every experimental arm.**
+  Identical across conditions makes it a constant the study can ignore; varying by condition makes it
+  an uncontrolled confound. Leaderboard ethics and its interaction with the persistence dependent
+  variable remain unresolved despite the decision to build it.
+
+**Provider reality: Gemini prepayment credits are depleted.** Every Gemini call 429s. Generation
+currently runs on **OpenAI** through the existing provider-agnostic adapter
+(`scripts/lib/llm-client.mjs`, default `gpt-4.1-mini`, `--provider openai`) — the adapter rule from §5a
+paying off exactly as designed: swapping the provider under an outage is a flag, not a rewrite.
+
+**Not committed.** Everything in this section exists on disk but is uncommitted as of this session; last
+commit remains `9239f2a`. `docs/CURRENT_STATE.md` carries the full working-tree detail, the next
+concrete step (Step 4 of the approved plan — logging the continuation offer), and the complete
+do-not-redo list.

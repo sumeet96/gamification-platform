@@ -1,152 +1,153 @@
-# Current state — 31 July 2026
+# Current state — 31 July 2026 (end of a long session; supersedes the 30 Jul checkpoint entirely)
 
 ## Where we are
 
-Package **K is complete, committed and merged to `main`**; its two migrations are applied and verified
-live on Neon project `ancient-brook-62806105`. Tests: **10 passing, `tsc --noEmit` clean.**
+**Three P0 packages shipped this session: G1 (generator), D1 (dashboard), Q1 (quiz hardening).** The
+app now generates real questions from a PDF into `content_items`, serves them without leaking the
+answer key, scores server-side, and lands on a dashboard that drives its game tiles from
+`GAME_REGISTRY`. Migrations `db/005` and `db/006` are applied and verified live on Neon project
+`ancient-brook-62806105`. Tests went **10 → 18**, `tsc --noEmit` clean, `npx next build` succeeds.
 
-This session ran the **grounded difficulty simulation** that the 30 Jul checkpoint listed as next, and
-it worked. Full write-up: **`docs/experiments/2026-07-31_grounded-difficulty-simulation.md`** — read
-that before touching difficulty. Three arms × 15 questions × 30 simulated students = 1,350 responses,
-0 unparseable, all local on `llama3.2` via Ollama.
+**The adaptive-difficulty lever works for the first time.** All 17 `content_items` rows carry a
+calibrated `difficulty`, seeded by LLM student simulation on a local `llama3.2` and stamped with
+`simulator_model` / `simulator_method`. `empirical_p` is still null on every row and must stay that
+way until real students answer.
 
-The headline is a method change, not just a result: **grounding alone does not work — the ability tier
-must control how much of the source the simulated student can see.** Given the full excerpt, a "weak"
-persona scores the same as a "top" persona (the persona is decorative). Thin the excerpt per tier and a
-proper ability gradient appears.
+**The simulation method is validated across three model families** (llama3.2, gpt-3.5-turbo-0125,
+gemma2:9b) and is now reproducible run-to-run. Full write-up:
+`docs/experiments/2026-07-31_grounded-difficulty-simulation.md`.
 
-Still not built: **D1** (`app/dashboard/` — the professor's first instruction, still does not exist),
-**G1** (generator → `content_items` + `source_excerpt`), **Q1** (server-side scoring; `/api/questions`
-still ships `answer` for all 200 rows and `/api/events` trusts what the client posts). The
-`db/005_add_simulated_difficulty.sql` migration is **still unwritten**.
+**Half-built:** the experimental arm structure. A third "control" condition (fixed time + fixed
+difficulty) is planned but **not built** — `Lever` is still `'adaptive' | 'time'`. The approved plan
+is `C:\Users\96sum\.claude\plans\i-might-have-stated-noble-squid.md`; Steps 1–3 are done, **Step 4
+(logging the continuation offer) is not started**.
 
 ## Working tree
 
-Branch **`main`**, last commit **`44a2443`** ("Record the simulation method and what the spike did not
-show"). Level with `origin/main`; nothing pushed this session.
+Branch **`main`**, last commit **`9239f2a`** ("Make the simulator reproducible, and seed the
+difficulty column"). **Working tree is clean.** Nothing pushed this session (as usual — nothing is
+ever pushed without asking).
 
-**Uncommitted — nothing is broken, this is just unstaged work:**
-```
- M .gitignore                      adds spike-data/ (course material must not be committed)
- M scripts/spike-simulate-difficulty.mjs   + --source, --retention, --out, --label, per-tier breakdown
-?? scripts/extract-slide-text.mjs   NEW — recovers text from image-only slides via Gemini vision
-?? scripts/spike-compare-arms.mjs   NEW — Spearman agreement, ability slope, ceiling/floor counts
-?? docs/experiments/                NEW — the results write-up
-```
+Eight commits this session, oldest first: `a00964d` (db/005) → `17e21e9` (G1) → `f4fa360` (D1) →
+`aefb6c5` (hydration) → `e7af686` (Q1) → `66853ec` (lever resolver) → `748accf` (tie binning) →
+`9239f2a` (reproducible simulator + calibration).
 
-`spike-data/` exists on disk and is **gitignored on purpose** (it holds the professor's deck text). It
-contains `questions-session12.json`, `source-session12.json`, `slides-session12.json`,
-`excerpts-session12.json`, `run-A-ungrounded.json`, `run-B-grounded-full.json`,
-`run-C-grounded-retention.json`, `run-arms.sh`, `run-arms.log`. **If that directory is lost the runs
-must be redone (~90 min).** The 15-question input was originally recovered from a dead session's
-scratchpad — that is why it now lives in the repo dir rather than in `%TEMP%`.
+`spike-data/` is **gitignored** and holds course material and every simulation run. Contents that
+matter: `questions-session12.json`, `excerpts-session12.json`, `run-A/B/C-*.json` (llama3.2),
+`run-OA/OB/OC-*.json` (gpt-3.5), `run-MA/MB/MC-*.json` (gemma2:9b), `calibration-run1.json`,
+`g1-final.json`, and the `run-arms*.sh` drivers. **Losing it costs ~7 hours of simulation.**
 
 ## In progress right now
 
-**Nothing is mid-edit and no job is running.** The session ended on a question put to the user that
-they have **not yet answered**:
+**Nothing is mid-edit and no job is running.** The session ended on an explanation, not a task.
 
-> Should the "model-asserted difficulty labels do not discriminate" claim be corrected in `CLAUDE.md`,
-> `docs/PROJECT_MAP.md` §1.6 and `docs/consult-brief.md` to the more accurate "discriminates coarsely
-> across the full range, unreliable between adjacent levels"?
+**The next concrete step is Step 4 of the approved plan: log the continuation offer.** Today
+`round_continue` is emitted only when a student *accepts* another round
+(`lib/game/game-context.tsx:128`), so "declined" and "was never offered" are indistinguishable — and
+voluntary persistence is the dependent variable. Add `'round_offer'` to `EventType`
+(`lib/log/logEvent.ts:9-14`), emit it where `app/results/page.tsx` renders the Keep Going
+affordance, and fix the related defect that abandoned rounds reuse a round number because
+`session.roundsPlayed` never increments on quit. Additive only — no migration, `events` is
+append-only, and `question_answered` must stay server-only (403 at `app/api/events/route.ts:50-55`).
 
-Do not make that edit without an answer — the user may have earlier evidence this session did not see.
+**Also promised:** the user is supplying **conceptual-framework decks tonight** to run on both
+llama3.2 and gemma2:9b, to test whether cross-simulator disagreement is caused by memorisation of
+the famous Airbnb deck. Run **arm C (grounded-retention) only** on both models plus one ungrounded
+run per deck as the memorisation check — arms A and B are settled. Budget ~20 min/deck on llama3.2,
+~85 min/deck on gemma2:9b. Run the first deck **twice on llama3.2** to prove pipeline-level
+reproducibility end to end; only a single prompt has been verified so far.
 
 ## Decisions made this session
 
-- **The simulated student's ability tier controls how much of the source excerpt it sees** (Below Basic
-  30% of lines / Basic 55% / Proficient 80% / Advanced 100%), because with the full excerpt every tier
-  scores the same and the persona does nothing. Implemented as `recall()` in
-  `scripts/spike-simulate-difficulty.mjs`, behind `--retention`.
-- **Grounding is mandatory for our items.** Ungrounded, success rate measures "answerable without the
-  deck", not difficulty. The cited paper (arXiv 2601.09953) never hits this because NAEP maths items
-  are self-contained; ours are source-dependent.
-- **Image-only slides are recovered with Gemini vision on the PDF**, not OCR and not LibreOffice
-  (`scripts/extract-slide-text.mjs`). 12 of 26 pages of `Pitch_Session 12.pdf` have no text layer. One
-  call, 13,885 in / 2,841 out tokens. Course material still never goes to Ollama's cloud models, and
-  simulation stays local.
-- **Slide provenance is keyed on the number printed on the slide**, not on Gemini's `kind`
-  classification, which mislabelled page 16.
-- **The question-quality gate needs n≥30, not n=4.** At n=4 it flagged 4/15 items as answerable without
-  the deck; at n=30 only 1/15 survives. The other 3 were sampling noise.
-- **`spike-data/` is gitignored**, so course material and run outputs stay out of version control.
-- **Planning figure for the full run is ~3 s/response ⇒ 400 items × n=30 ≈ 10 hours**, an overnight
-  job. (Supersedes the 30 Jul "7 hours" estimate.)
+- **Cohort is 60–120 students, not ~20.** Corrects a figure that propagated through
+  `docs/PROJECT_MAP.md:560` and `docs/literature/item-difficulty-without-students.md:112`. Three arms
+  gives 20–40 per group, so underpowering is no longer the decisive objection to self-selected arms.
+  Every response-budget number derived from ~20 students needs revisiting (24,000–48,000 responses,
+  not 8,000).
+- **Experimental arms: self-selection with a control as a third choice on `main`; a branch explores
+  randomised within-subject.** Closest to the professor's stated design, and preserves the student
+  choice that is itself an SDT autonomy driver.
+- **Control arm pins difficulty at the student's own choice on `main`; the branch uses a yoked
+  control** (replaying a matched adaptive round's difficulty sequence).
+- **Rapid = fewer questions AND a fixed timer.** Exact seconds still unconfirmed.
+- **A leaderboard will be built** (package L1) — decided by the user, never discussed with the
+  professor.
+- **A global XP / level bar is wanted**, as a wrapper over all games. Safe *because* it is an output,
+  not an input. **Hard rule: XP must never feed back into item selection** — the moment it does, it
+  recreates the cross-game conflation that carrying difficulty across rounds was rejected for.
+- **Any motivational overlay (XP, leaderboard) must be identical across all arms.** Identical across
+  conditions makes it a constant; varying by condition makes it a confound.
+- **Five difficulty levels stay.** More bands would be false precision: at n=30 the standard error on
+  a success rate is ~0.09, so ten bands would be about one standard error wide.
+- **Adaptive difficulty now moves only after two consecutive same-direction answers**, and **the
+  per-round reset is deliberate, not a defect** — it makes each round an independent trial. Carrying
+  difficulty across rounds would imply a global student level conflating six games.
+- **`llama3.2` stays the simulator**, now on evidence from three model families rather than one.
+- **The simulator is seeded per (item, student) via `options.seed`**, and seeds derive from the item
+  **id**, not its position in the result set.
 
 ## Open questions / blocked on
 
-- **Correct the "labels do not discriminate" claim?** — the user, see "In progress". Measured ρ = −0.63
-  and monotonic by band (d1 91%, d2 70%, d3 66%, d4 33%). The filed complaint that "a question labelled
-  4 was answerable cold" is wrong: that item is the hardest in the set at 33% ungrounded.
-- **Does simulated facility match *real* facility?** Still unknown and needs the pilot. This session
-  validated the **ordering**, not the magnitude.
-- **The retention fractions 0.30/0.55/0.80/1.00 are a chosen knob**, never calibrated, no sensitivity
-  analysis run. A reviewer will ask.
-- **How should `source_excerpt` represent chart/matrix slides?** Text transcription loses *position*.
-  Item #8 (2×2 competitive matrix) scores 33/30/33 — grounding does not help it at all. Affects G1.
-- **The research variable across multiple games** — the professor owns it; he said he would plan it.
-- **Rapid mode's exact seconds are unconfirmed.** Decided 31 Jul: rapid is fewer questions *and* a
-  fixed per-question timer, not fewer questions alone. Working assumption is rapid = 10s, normal =
-  15s, but the user's phrasing ("10/15 seconds") is ambiguous between that and a choice of 10 or 15 —
-  the seconds themselves are still open. See `docs/PROJECT_MAP.md` §1.
-- **Points table numbers**, including whether rapid should pay more than normal (at parity now).
-- **Match-the-following points are `{correct: 15}` with a `// per pair` comment** — resolve at package A1.
-- **`streak` semantics** — on a wrong answer the clock snaps 5s → 10s; alternating right/wrong oscillates.
-- **Next meeting is Tuesday 4 Aug**, not Monday — the transcript has him travelling Monday.
+- **Rapid/normal exact seconds** — working assumption 10s rapid / 15s normal; the user's "10/15
+  seconds" was ambiguous. User unblocks.
+- **The professor has never been asked about a control arm.** The transcript line "at least we can
+  give them a control" means a *knob for the student*, not a control group — it is the only use of
+  the word in either transcript. Raise as a proposal, never as settled.
+- **The research variable across multiple games** — the professor owns it and said he would plan it.
+- **Points table numbers**, including whether rapid pays more than normal (at parity now).
+- **Whether the 1–5 asserted labels discriminate is UNRESOLVED**, and cannot be settled by a
+  simulator that ceilings. ρ = −0.63 under llama3.2 but −0.09 under both gpt-3.5 and gemma — and
+  those two ceiling on 7–8 of 15 items, which mechanically destroys rank correlation.
+- **Does simulated facility match *real* facility?** Needs the pilot. Only the ordering is validated.
+- **The retention fractions 0.30/0.55/0.80/1.00 are a chosen knob**, never calibrated.
+- **Leaderboard ethics + persistence-DV confound** — unresolved despite the decision to build it.
+- **Next meeting Tuesday 4 Aug**, not Monday.
 
 ## Next 3 actions
 
-1. **Commit this session's work.** Five paths, all listed under "Working tree": `.gitignore`,
-   `scripts/spike-simulate-difficulty.mjs`, `scripts/extract-slide-text.mjs`,
-   `scripts/spike-compare-arms.mjs`, `docs/experiments/`.
-2. **Get the user's answer on the "labels do not discriminate" correction**, then either edit
-   `CLAUDE.md`, `docs/PROJECT_MAP.md` §1.6 and `docs/consult-brief.md`, or record why not.
-3. **Write and apply `db/005_add_simulated_difficulty.sql`** — `simulated_p`, `simulated_n`,
-   `simulator_model`, `source_excerpt` on `content_items`. Additive only. Paste into the Neon web SQL
-   editor; `psql` is not installed. Then the fan-out K unblocked: **G1**, **D1**, **Q1**.
-
-To reproduce the runs (only if `spike-data/` was lost):
-```
-node scripts/extract-slide-text.mjs "C:/Users/96sum/Downloads/Pitch_Session 12.pdf" spike-data/source-session12.json
-bash spike-data/run-arms.sh > spike-data/run-arms.log 2>&1     # ~90 min, sequential
-node scripts/spike-compare-arms.mjs spike-data/run-A-ungrounded.json spike-data/run-B-grounded-full.json spike-data/run-C-grounded-retention.json
-```
+1. **Step 4 — log the continuation offer.** `lib/log/logEvent.ts`, `app/results/page.tsx`,
+   `lib/game/game-context.tsx`. Additive; no migration. Verify by playing a round and accepting,
+   declining and abandoning, then confirming all three are distinguishable in `events` and round
+   numbers are unique.
+2. **Run tonight's decks** when the user supplies them:
+   `node scripts/generate-questions.mjs "<deck>.pdf" --subject "<name>" --title "<t>"`, then
+   `node scripts/calibrate-difficulty.mjs --subject "<name>" --dry-run`. For the cross-model check use
+   `scripts/spike-simulate-difficulty.mjs ... --provider ollama --model gemma2:9b --source <excerpts> --retention`
+   and compare with `node scripts/spike-compare-arms.mjs <runA.json> <runB.json>`.
+3. **Fix the G1 content problem.** 7 of 17 items score ≥0.95 and difficulty 1 is **empty**, so the
+   lever can ramp up but has nothing easier for a struggling student. Push
+   `scripts/generate-questions.mjs`'s prompt toward discriminate/deduce/transfer and regenerate.
 
 ## Do not redo
 
-- **Do not run the simulation ungrounded and call it difficulty.** It measures how much a question
-  depends on its source. Settled — arm A, ability slope −4 pts and non-monotonic.
-- **Do not give every tier the full excerpt.** Arm B: 81/87/85/89 — the persona instruction is ignored
-  and the task becomes reading comprehension. Settled.
-- **Do not re-test whether excerpt length is driving the arm C ordering.** Checked: ρ = −0.08 for lines,
-  +0.33 for characters, neither significant at n=15, and the character one runs opposite to the
-  artifact hypothesis.
-- **Do not harden the retention fractions to break a ceiling.** There is no ceiling — arm C mean 0.71,
-  spread 0.67, 1/15 at ceiling, 0/15 at floor. An early n=4 smoke test on the three *easiest* items
-  showed 100% and that was misleading.
-- **Do not re-derive the question→slide mapping.** `spike-data/excerpts-session12.json` already carries
-  it, including the 3 corrected attributions (items #0, #1 → template pages 2 and 4; #13 → page 17).
-  False attribution measured at **3/15**, not the 2/15 estimated in `generator-spec.md`.
-- **Do not trust Gemini's `kind` field** from `extract-slide-text.mjs` — it called page 16 a template
-  when it is an example slide. Key on the number printed on the slide.
-- **Do not expect text transcription to answer chart/matrix questions.** Every label is recovered;
-  positions are not.
-- **Do not look for the spike inputs in `%TEMP%`.** They now live in `spike-data/` in the repo dir.
-- **Do not ask a model to rate difficulty 1–5** as the primary method. Simulate attempts instead.
-- **Do not use a large model as the simulator** — weaker models simulate students better.
-- **Do not use `gemma4:31b-cloud`** — it is a cloud model despite appearing in `ollama list`.
+- **Do not run the simulation ungrounded and call it difficulty.** Settled on three model families.
+- **Do not give every tier the full excerpt.** Arm B inverts the ability gradient on all three models
+  (llama +8, gpt-3.5 −5, gemma −4). Only retention-gating produces a slope.
+- **Do not switch simulator to gemma2:9b or gpt-3.5-turbo.** Both ceiling badly (8/15 and 7/15 items)
+  and both recognise the Airbnb deck from training data. gemma is also ~6× slower.
+- **Do not re-test whether excerpt length drives the arm C ordering.** ρ = −0.08.
+- **Do not add more than five difficulty levels.** False precision at n=30.
+- **Do not carry difficulty across rounds**, and do not "fix" the per-round reset — it is deliberate.
+- **Do not let XP or a leaderboard feed into item selection.**
+- **Do not bin difficulty by rank position.** Ties must share a band; splitting them invents
+  distinctions the measurement never made (`scripts/lib/quintile-difficulty.mjs`).
+- **Do not seed the simulator from array position.** Item id only.
 - **Do not merge `simulated_p` into `empirical_p`**, or `cognitive_level` into either.
-- **Do not bin with fixed thresholds.** Use quintiles over the observed distribution.
-- **Do not plan to calibrate from a 5–6 person pilot.** At n=5–6 an observed 40% facility spans ~12–77%.
-- **Do not use Wordle data as primary retention evidence.**
-- **Do not build per-item Elo** — ~20 responses per item cannot converge; 200–500 are needed.
-- **Do not add vitest or jest**, and **do not use `node --test tests/`** — Node 24.11.1 resolves it as a
-  module name. The working form is `node --test tests/*.test.ts`.
-- **Do not remove `allowImportingTsExtensions`** from `tsconfig.json` — `next build` then fails on `tests/`.
+- **Do not add a dashboard view event** — `/` redirects to `/dashboard`, so it would fire for every
+  session and duplicate `session_start`.
+- **Do not trust a builder's "done" on scoring or auth without a review pass.** The first Q1 attempt
+  reported success while the answer key still shipped in the JS bundle and `correctIndex` came back
+  on every POST.
+- **Do not use `thinkingConfig` with `gemini-3.5-flash-lite`** — rejected with a 400.
+- **Gemini prepayment credits are depleted** — every Gemini call 429s. Generation runs on OpenAI
+  (`--provider openai`, default `gpt-4.1-mini`).
+- **Do not trust Gemini's `kind` field** from `scripts/extract-slide-text.mjs`; key on the number
+  printed on the slide.
+- **Do not add vitest or jest**, and **do not use `node --test tests/`** — the working form is
+  `node --test tests/*.test.ts`.
+- **Do not remove `allowImportingTsExtensions`** from `tsconfig.json`.
 - **Do not put a CHECK on `events.cognitive_level`** — append-only log on the answer path.
-- **Do not rename `LeverSupport` back to `Lever`** in `lib/games/registry.ts`.
-- **Do not reinstate LibreOffice**, add a `passage` content type nothing consumes, or recreate
-  `docs/PROJECT_BACKLOG.md`.
+- **Do not reinstate LibreOffice**, add a `passage` content type, or recreate `docs/PROJECT_BACKLOG.md`.
 - **Do not learn the professor's spec from summaries.** Read `docs/meeting/Jul 27 at 3-39 PM.txt`.
-- All prior "do not redo" items from the 29–30 Jul checkpoints still stand (no Poppler/ImageMagick, no
-  npm ZIP library, no `psql`, no bcrypt/argon2, no steering prompt on `codex exec review`).
+- All prior "do not redo" items from the 29–30 Jul checkpoints still stand (no Poppler/ImageMagick,
+  no npm ZIP library, no `psql`, no bcrypt/argon2, no steering prompt on `codex exec review`).

@@ -5,8 +5,10 @@ spine: decomposition, work packages, and what is decided vs assumed. This file i
 
 ## What we're building
 A gamified adaptive-learning dashboard — the dashboard is the spine and the quiz is one tile in it,
-per the professor's first instruction (`docs/meeting/Jul 27 at 3-39 PM.txt`; not yet built, no
-`app/dashboard/` exists). Points are fixed *within* a game and vary *across* games and difficulty —
+per the professor's first instruction (`docs/meeting/Jul 27 at 3-39 PM.txt`). **Built 31 Jul 2026**
+(package D1): `app/dashboard/page.tsx` renders one tile per entry in `GAME_REGISTRY`
+(`lib/games/registry.ts`), the single source of truth for what games exist and how each scores.
+Points are fixed *within* a game and vary *across* games and difficulty —
 that spread is the intended "high and low" feeling, not a flat rate. Each student picks exactly one
 adaptivity lever: either adaptive difficulty (which ramps up/down per performance) or time pressure
 (clock tightens), never both. Rapid and normal modes. A "keep going → next round" loop drives
@@ -17,9 +19,9 @@ event logging is the research dataset.
 
 ## Core design rules
 - **Dashboard is the spine, quiz is one tile.** "You need to have a dashboard kind of a thing where
-  quiz is one part of it... start with the dashboard" (`docs/meeting/Jul 27 at 3-39 PM.txt`). This is
-  the professor's first instruction and the least-built part of the app; see `docs/PROJECT_MAP.md` §3,
-  package D1.
+  quiz is one part of it... start with the dashboard" (`docs/meeting/Jul 27 at 3-39 PM.txt`). This was
+  the professor's first instruction; **shipped 31 Jul 2026** as package D1 — see `docs/PROJECT_MAP.md`
+  §3.
 - **Points: fixed within a game, varying across games and difficulty.** Corrected 30 Jul 2026 against
   the transcript — "Fixed point economy: +20/−10 everywhere" was a misreading. A hard game pays more
   than an easy one; that variability is the mechanic the professor asked for, resolved by a published,
@@ -52,6 +54,37 @@ event logging is the research dataset.
     `docs/experiments/2026-07-31_grounded-difficulty-simulation.md`. Known limit for package G1: text
     transcription loses *position*, so chart/matrix/2×2 slides cannot be difficulty-calibrated by text
     simulation (the 2×2 competitive-matrix item scored 33/30/33 — grounding did not help it at all).
+  - _Replicated 31 Jul 2026 on two more model families (`gpt-3.5-turbo-0125`, `gemma2:9b`):_ the
+    method — retention-gated grounding produces an ability gradient — holds on all three. The
+    difficulty **values** it produces do not replicate, ρ ≈ 0.23 between every pair. `llama3.2` stays
+    the simulator: `gemma2:9b` and `gpt-3.5-turbo` ceiling (8/15 and 7/15 items) and recognise the
+    source deck from training data, which a struggling-student simulator cannot afford. See the
+    standing rule under Conventions: **one simulator is one measurement.**
+  - _Reproducibility is now a build property, not an aspiration (31 Jul 2026):_ `options.seed` in
+    `scripts/spike-simulate-difficulty.mjs` is threaded per (item, student) so a run repeats; seeds
+    derive from the item **id**, never its position in the result set. Honest limit: reproducible
+    under a pinned model and environment, not deterministic across model updates or CPU/GPU changes.
+    OpenAI's `seed` is best-effort and Gemini exposes none — this only works on the local Ollama path,
+    one more reason the local-model rule below is the methodologically correct choice, not a
+    convenience.
+- **Difficulty stays at five levels.** At n=30 simulated students per item the standard error on a
+  success rate is ~0.09, so ten bands would be about one standard error wide — false precision. Ties
+  share a band (`scripts/lib/quintile-difficulty.mjs`); do not bin by rank position.
+- **Adaptive difficulty moves only after two consecutive same-direction answers, and resets every
+  round — both deliberate, not defects.** Two-in-a-row damps single-question noise; carrying
+  difficulty across rounds would imply one global student level, conflating six different games'
+  worth of performance into a single number.
+- **Cohort is 60–120 students, not ~20.** Corrects a figure that had propagated into
+  `docs/PROJECT_MAP.md` and `docs/literature/item-difficulty-without-students.md`. Response-budget
+  figures derived from ~20 students (e.g. "~8,000 responses") are wrong — the real range is
+  24,000–48,000 — which also changes the recipe-level Elo convergence argument in `HANDOFF.md` §13
+  (more headroom above the 200–500-response convergence threshold, not less).
+- **A leaderboard (package L1) and a global XP/level bar are planned**, decided by the user, not yet
+  discussed with the professor. XP is a wrapper over all games and is safe only because it is an
+  output, not an input: **XP must never feed back into item selection** — that would recreate exactly
+  the cross-game conflation the per-round difficulty reset (above) exists to avoid. **Any motivational
+  overlay (XP, leaderboard) must be identical across every experimental arm**, or it becomes a
+  confound rather than a constant.
 - **Rapid mode decided 31 Jul 2026: fewer questions *and* a fixed per-question timer**, not fewer
   questions alone. Working assumption, pending confirmation: rapid = 10s, normal = 15s, pinned for
   difficulty-lever students while time-lever students still tighten from that base rather than from a
@@ -63,12 +96,27 @@ event logging is the research dataset.
 - Log all events (session, round, per-question interactions, score, adaptivity feedback) for DSR dataset. Do not train on student data.
 
 ## Stack & constraints (28 Jul 2026 rebuild — details in HANDOFF.md §4)
+- **Three P0 packages shipped 31 Jul 2026: G1 (generator), D1 (dashboard), Q1 (quiz hardening).**
+  `app/dashboard/page.tsx` drives its tiles from `GAME_REGISTRY`; `scripts/generate-questions.mjs`
+  writes `content_items` plus `source_excerpt`; `app/api/answer/route.ts` scores server-side off the
+  DB answer key and the client bundle no longer ships it. Migrations `db/005` and `db/006` are
+  applied and verified on Neon project `ancient-brook-62806105`. Tests **10 → 18**, `tsc --noEmit`
+  clean, `npx next build` succeeds.
 - **Runtime LLM: Gemini paid Tier 1** (Flash-class), not free tier — free tier's ~10 RPM and training-data clause fail a classroom pilot. Pending prof sign-off on the small spend; until then, develop against free tier but architect for Tier 1.
+  - _Provider reality, 31 Jul 2026:_ **Gemini prepayment credits are depleted** — every Gemini call
+    429s. Generation currently runs on **OpenAI** via the provider-agnostic adapter
+    (`scripts/lib/llm-client.mjs`, default `gpt-4.1-mini`, `--provider openai`). This is the
+    adapter-abstraction rule above paying off exactly as designed — a provider outage is a flag
+    change, not a rewrite.
   - _Model guidance revised 29 Jul 2026:_ `gemini-2.0-flash` is two generations stale. As of 21 Jul 2026 the current tier is **Gemini 3.6 Flash** ($1.50/$7.50 per 1M tokens) and **Gemini 3.5 Flash-Lite** ($0.30/$2.50). **Flash-Lite is the right default for bulk MCQ generation** — the task is schema-constrained, not reasoning-heavy. Confirm the exact API model string in Google AI Studio and set it via `GEMINI_MODEL` in `.env.local`, not by editing the script fallback. Google no longer publishes universal RPM limits; they are project-specific in the console.
 - **All LLM calls through one provider-agnostic adapter** (Vercel AI SDK pattern). Fallback: Gemini → retry → alternate. **Hard rule: student-derived data never goes to Chinese-hosted endpoints.** Non-student calls (MCQ drafts from course material) may use cheap open-model providers.
 - **Rate-limit-proof by design:** MCQs pre-generated from session PDFs and served from DB; no live LLM calls on the critical path. Queue + backoff + cache.
 - **DB: Neon serverless Postgres** — SQL queryable event logs for the DSR dataset; schema in `db/schema.sql`. Vercel Hobby hosting. Front-end: Next.js 16 / React 19 / Tailwind v4.
 - **Auth (28 Jul 2026, commits b569cc5 + 408bd54):** real email+password login/signup; `events.student_id` is populated from the session cookie, never the request body. The whole app is gated (`proxy.ts`, deny-by-default) — only `/login`, `/signup` and the login/signup/logout API routes are public. Dashboard reads lifetime totals from `GET /api/stats`. Exercised end to end against live Neon on 28 Jul. First automated tests landed 30 Jul 2026 (`tests/lever.test.ts`) — see the testing rule below.
+- **Quiz hardening (Q1, 31 Jul 2026):** the quiz no longer ships the answer key to the browser.
+  `app/api/answer/route.ts` looks the answer up server-side, scores the submission, and is the only
+  place `question_answered` gets written — `correctIndex` comes back only on the one POST that
+  actually scores an item, never on a repeat. See the reviewer-pass rule under Conventions.
 - **Dev tools:** Claude Code = primary builder. v0 free = frontend scaffolds. Antigravity = free overflow agent. DeepSeek/Qwen via OpenRouter = code review 2nd opinion. Codex = diffs-only review, never the builder. Cursor and Emergent are deliberately excluded.
   - _Revised 28 Jul 2026:_ the original "mini model, $10/mo cap" rule is superseded. `gpt-5.1-codex-mini` was retired by OpenAI (API 404s), and Codex now runs on pay-per-token API-key auth: **`gpt-5.6-terra` for routine diff review, `gpt-5.6-sol` only when explicitly requested.** Cost control moved from model choice to usage discipline: one run per invocation, scoped diffs, no retry fan-out. Watch the credit balance.
   - _Added 28 Jul 2026:_ **GPT-5.6's role in this project is adversary, not author.** Gemini Flash-class models generate bulk content such as question drafts; GPT-5.6 is used to attack and validate that output, and for anything requiring schema-guaranteed JSON via Structured Outputs. It is not the bulk generator — that would spend premium tokens on exactly the high-volume, low-stakes work cheap models are for.
@@ -107,7 +155,12 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
   found on 30 Jul 2026 by re-reading the transcript, because summaries are lossy
   (`docs/PROJECT_MAP.md` §2.7 and §0).
 - **Tests exist now.** `npm test` runs `node --test tests/*.test.ts`. No external test framework — do
-  not add vitest or jest.
+  not add vitest or jest. 18 tests as of 31 Jul 2026 (`tests/lever.test.ts`,
+  `tests/quintile-difficulty.test.ts`, `tests/registry.test.ts`).
+- **Anything touching scoring or auth gets a `reviewer` pass before commit.** The first Q1 attempt
+  reported success while the answer key still shipped in the client JS bundle and
+  `app/api/answer/route.ts` returned `correctIndex` on every POST, not just the one that scores. A
+  builder's "done" is not sufficient evidence on this class of change.
 - **Do not rely on a model's self-reported difficulty, and do not claim it has been disproved
   either.** Status as of 31 Jul 2026 is **unresolved**: the old "failed on three independent samples"
   was eyeballed, never measured; measuring it gave ρ = −0.63 under `llama3.2` but −0.09 under
@@ -115,11 +168,14 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
   student responses settle it. Simulate an attempt and measure the failure rate rather than asking
   for a rating (`docs/literature/item-difficulty-without-students.md`,
   `docs/experiments/2026-07-31_grounded-difficulty-simulation.md`, `docs/PROJECT_MAP.md` §1.6).
-- **One simulator is one measurement, not a result.** Any difficulty claim must name the simulator
-  and, where it matters, be replicated on a second. Simulators disagree with each other (ρ = 0.23
-  between `llama3.2` and `gpt-3.5-turbo-0125`), and a simulator strong enough to recognise the source
-  material from training data cannot represent a struggling student — `gpt-3.5-turbo` scores 0.72
-  with no material at all against `llama3.2`'s 0.45, and ceilings on 7 of 15 items.
+- **One simulator is one measurement, not a result.** Any difficulty claim must name the simulator,
+  and anything load-bearing must be replicated on a second. Tested on three model families as of
+  31 Jul 2026 (`llama3.2`, `gpt-3.5-turbo-0125`, `gemma2:9b`): the *method* — retention-gated
+  grounding — replicates on all three, but the difficulty **values** do not, ρ ≈ 0.23 between every
+  pair. `llama3.2` stays the simulator: `gpt-3.5-turbo` scores 0.72 with no material at all against
+  `llama3.2`'s 0.45 (ceilings on 7 of 15 items), and `gemma2:9b` ceilings on 8 of 15 and is ~6× slower
+  — both recognise the source deck from training data, which a struggling-student simulator cannot
+  afford.
 
 ## Orchestration (added 28 Jul 2026 — full rationale in `docs/architecture/agent-orchestration.md`)
 Two sessions have already died of context exhaustion. The main session is an **orchestrator**: it
