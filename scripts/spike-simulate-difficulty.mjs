@@ -23,10 +23,14 @@
 //                       source in context is just reading comprehension, everything scores ~1.0.
 //   --source --retention the excerpt is thinned per ability tier, so a weak student "remembers"
 //                       less of the slide. This is the analogue of a student who attended.
+//
+// The tier mix, retention thinning, seeded shuffle and provider calls live in
+// scripts/lib/simulate-students.mjs, shared with scripts/calibrate-difficulty.mjs. This file is
+// the instrument the published results in docs/experiments/2026-07-31_grounded-difficulty-simulation.md
+// came from — its flags, seeds and output format must stay exactly as they were.
 
 import { readFileSync, writeFileSync } from 'node:fs'
-
-const OLLAMA = 'http://localhost:11434/api/chat'
+import { TIERS, buildCohort, makeAsker, simulateQuestion } from './lib/simulate-students.mjs'
 
 // --- .env.local, for --provider gemini (no dependency) ---
 try {
@@ -60,142 +64,11 @@ const RETENTION = process.argv.includes('--retention')
 const OUT = arg('--out', null)
 const LABEL = arg('--label', SOURCE ? (RETENTION ? 'grounded-retention' : 'grounded-full') : 'ungrounded')
 
-// Ability mix mirrors the source paper's NAEP-shaped distribution. `retention` is the fraction of
-// the source excerpt a student at this tier still remembers — the mechanism by which an item can be
-// hard even with the material in front of you.
-const TIERS = [
-  { name: 'Below Basic', weight: 0.25, retention: 0.30, persona: 'You are a student who has struggled with this subject. You attended the session but retained little, and you often confuse similar-sounding concepts. You guess when unsure.' },
-  { name: 'Basic',       weight: 0.35, retention: 0.55, persona: 'You are an average student. You attended the session and remember the main points, but details and figures are hazy. You reason plausibly but make mistakes on specifics.' },
-  { name: 'Proficient',  weight: 0.25, retention: 0.80, persona: 'You are a solid student. You paid attention, took notes, and recall most of the material accurately, though very fine details can slip.' },
-  { name: 'Advanced',    weight: 0.15, retention: 1.00, persona: 'You are a top student. You know this material thoroughly and reason carefully about distinctions between options.' },
-]
-
-/** Expand the weighted tier mix into exactly N concrete simulated students. */
-function buildCohort(n) {
-  const cohort = []
-  for (const t of TIERS) cohort.push(...Array(Math.round(n * t.weight)).fill(t))
-  while (cohort.length < n) cohort.push(TIERS[1])
-  return cohort.slice(0, n)
-}
-
-/** Seeded xorshift, so every run is reproducible and the arms are directly comparable. */
-function rng(seed) {
-  let s = seed || 1
-  return () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296 }
-}
-
-/** Deterministic-per-call shuffle so option position can't bias the estimate.
- *  The generator already put 15/15 correct answers at index 0; a model with an
- *  A-bias would otherwise score high for the wrong reason. */
-function shuffled(options, answerIdx, seed) {
-  const idx = options.map((_, i) => i)
-  const rand = rng(seed)
-  for (let i = idx.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1))
-    ;[idx[i], idx[j]] = [idx[j], idx[i]]
-  }
-  return { options: idx.map((i) => options[i]), answer: idx.indexOf(answerIdx) }
-}
-
-/** What this student still remembers of the slide: the heading, plus a tier-sized sample of the
- *  remaining lines in their original order. Dropping lines rather than paraphrasing keeps the
- *  surviving text verbatim, so a wrong answer means the fact was forgotten, not garbled. */
-function recall(text, tier, seed) {
-  if (!RETENTION || tier.retention >= 1) return text
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
-  if (lines.length <= 2) return text
-  const [head, ...rest] = lines
-  const keep = Math.max(1, Math.round(rest.length * tier.retention))
-  const rand = rng(seed)
-  const order = rest.map((l, i) => ({ l, i, r: rand() })).sort((a, b) => a.r - b.r).slice(0, keep)
-  return [head, ...order.sort((a, b) => a.i - b.i).map((o) => o.l)].join('\n')
-}
-
-const LETTERS = ['A', 'B', 'C', 'D']
-
-async function askOllama(system, user) {
-  const body = {
-    model: MODEL,
-    stream: false,
-    options: { temperature: 0.8, num_predict: 4 }, // >0 so students of a tier differ; tiny output keeps CPU inference fast
-    messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-  }
-  const res = await fetch(OLLAMA, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-  if (!res.ok) throw new Error(`Ollama ${res.status}: ${await res.text()}`)
-  return (await res.json())?.message?.content ?? ''
-}
-
-/** Same prompt, same temperature, hosted model. NOTE: `thinkingConfig.thinkingBudget` is rejected by
- *  gemini-3.5-flash-lite with a 400, so thinking cannot be turned off — the hosted simulator gets a
- *  reasoning step the local one does not. That asymmetry favours Gemini and must be stated with any
- *  comparison. Retries on 429/5xx because free-tier RPM is low and project-specific. */
-/** OpenAI chat completions. Default is the PINNED snapshot gpt-3.5-turbo-0125, not the floating
- *  `gpt-3.5-turbo` alias — a simulator that silently changes underneath the calibration would
- *  invalidate the item bank mid-pilot, which is the same reproducibility argument that put the
- *  primary simulator on a local model. */
-async function askOpenAI(system, user) {
-  const messages = [{ role: 'system', content: system }, { role: 'user', content: user }]
-  for (let attempt = 0; ; attempt++) {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-      body: JSON.stringify({ model: MODEL, messages, temperature: 0.8, max_tokens: 4 }),
-    })
-    if (res.ok) return (await res.json())?.choices?.[0]?.message?.content ?? ''
-    const text = await res.text()
-    if ((res.status === 429 || res.status >= 500) && attempt < 6) {
-      await new Promise((r) => setTimeout(r, Math.min(60000, 2000 * 2 ** attempt)))
-      continue
-    }
-    throw new Error(`OpenAI ${res.status}: ${text.slice(0, 200)}`)
-  }
-}
-
-async function askGemini(system, user) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`
-  const body = {
-    systemInstruction: { parts: [{ text: system }] },
-    contents: [{ role: 'user', parts: [{ text: user }] }],
-    generationConfig: { temperature: 0.8, maxOutputTokens: 8 },
-  }
-  for (let attempt = 0; ; attempt++) {
-    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-    if (res.ok) {
-      const data = await res.json()
-      return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
-    }
-    const text = await res.text()
-    if ((res.status === 429 || res.status >= 500) && attempt < 6) {
-      await new Promise((r) => setTimeout(r, Math.min(60000, 2000 * 2 ** attempt)))
-      continue
-    }
-    throw new Error(`Gemini ${res.status}: ${text.slice(0, 200)}`)
-  }
-}
-
-async function askOnce(q, tier, seed, excerpt) {
-  const { options, answer } = shuffled(q.options, q.answer, seed)
-  const remembered = excerpt ? recall(excerpt.text, tier, seed + 1) : null
-  const system = remembered
-    ? `${tier.persona}\n\nThis is what you remember from the session slide "${excerpt.title}":\n"""\n${remembered}\n"""\nAnswer from that memory. If it does not cover the question, answer as best you can.\nAnswer with a single letter (A, B, C or D) and nothing else.`
-    : `${tier.persona}\nAnswer with a single letter (A, B, C or D) and nothing else.`
-  const user = `${q.prompt}\n\n${options.map((o, i) => `${LETTERS[i]}. ${o}`).join('\n')}\n\nAnswer with one letter only.`
-  const ask = { gemini: askGemini, openai: askOpenAI, ollama: askOllama }[PROVIDER]
-  const raw = (await ask(system, user)).trim().toUpperCase()
-  const m = raw.match(/[ABCD]/)
-  if (!m) return { correct: false, parsed: null, tier: tier.name }  // unparseable counts as wrong, like a real blank
-  return { correct: LETTERS.indexOf(m[0]) === answer, parsed: m[0], tier: tier.name }
-}
-
-/** Run tasks with a fixed concurrency cap — CPU inference dies under unbounded fan-out. */
-async function pool(tasks, limit) {
-  const out = []
-  let cursor = 0
-  await Promise.all(Array(Math.min(limit, tasks.length)).fill(0).map(async () => {
-    while (cursor < tasks.length) out.push(await tasks[cursor++]())
-  }))
-  return out
-}
+const ask = makeAsker({
+  provider: PROVIDER,
+  model: MODEL,
+  apiKey: PROVIDER === 'openai' ? process.env.OPENAI_API_KEY : PROVIDER === 'gemini' ? process.env.GEMINI_API_KEY : undefined,
+})
 
 const questions = JSON.parse(readFileSync(inPath, 'utf8'))
 const excerpts = SOURCE ? JSON.parse(readFileSync(SOURCE, 'utf8')) : null
@@ -215,25 +88,18 @@ let errors = 0
 
 for (let qi = 0; qi < questions.length; qi++) {
   const q = questions[qi]
+  const { p, byTier, errorCount, unparseableCount } = await simulateQuestion({
+    ask, question: q, excerpt: excerpts?.[qi], cohort,
+    seedBase: (qi + 1) * 7919, retention: RETENTION, concurrency: CONCURRENCY,
+  })
+  errors += errorCount
   // A transport error is NOT a wrong answer. Scoring one as wrong invents a hard question out of a
   // rate limit, so errors are counted separately and the run aborts rather than publish a fiction.
-  const tasks = cohort.map((tier, si) => () => askOnce(q, tier, (qi + 1) * 7919 + si * 104729, excerpts?.[qi]).catch((e) => {
-    console.error(`  ! ${e.message}`)
-    errors++
-    return { correct: false, parsed: null, tier: tier.name, errored: true }
-  }))
-  const results = await pool(tasks, CONCURRENCY)
   if (errors > cohort.length * 0.02 * questions.length + 2) {
     console.error(`\nABORTING: ${errors} transport errors. The provider is failing; these would be scored as wrong answers and the difficulty estimates would be fiction.`)
     process.exit(1)
   }
-  unparseable += results.filter((r) => r.parsed === null && !r.errored).length
-  const p = results.filter((r) => r.correct).length / results.length
-  const byTier = {}
-  for (const t of TIERS) {
-    const rs = results.filter((r) => r.tier === t.name)
-    if (rs.length) byTier[t.name] = rs.filter((r) => r.correct).length / rs.length
-  }
+  unparseable += unparseableCount
   rows.push({ i: qi, p, byTier, topic: q.topic ?? '', asserted: q.difficulty ?? null, prompt: q.prompt })
   const bar = '#'.repeat(Math.round(p * 30)).padEnd(30, '.')
   console.log(`[${String(qi).padStart(2)}] ${bar} ${(p * 100).toFixed(0).padStart(3)}%  (labelled ${q.difficulty ?? '?'})  ${String(q.topic ?? '').slice(0, 28)}`)

@@ -6,7 +6,8 @@ import { ChevronLeft, Check, X, Clock, Brain } from 'lucide-react'
 import { useGame } from '@/lib/game/game-context'
 import { QUESTIONS, pickQuestion, type Question } from '@/lib/game/questions'
 import {
-  roundLength, nextDifficulty, timeForStreak, quizGameId,
+  roundLength, quizGameId,
+  initialLeverState, resolveLever, advanceLeverState, type LeverState,
   START_DIFFICULTY, TIME_BASE,
 } from '@/lib/game/engine'
 
@@ -23,8 +24,12 @@ export default function Quiz() {
   const [pool, setPool] = useState<Question[]>(QUESTIONS)
   const [q, setQ] = useState<Question | null>(null)
   const [index, setIndex] = useState(0)
-  const [difficulty, setDifficulty] = useState(START_DIFFICULTY)
-  const [streak, setStreak] = useState(0)
+  // Both difficulty and streak are now a single `LeverState` (lib/game/engine.ts),
+  // read and advanced only through resolveLever/advanceLeverState -- see the
+  // per-site comments below for exactly which decisions moved through the
+  // resolver and which stayed inline (Change 1). Placeholder before `config`
+  // arrives; the pool-fetch effect replaces it with initialLeverState(config).
+  const [leverState, setLeverState] = useState<LeverState>({ difficulty: START_DIFFICULTY, streak: 0 })
   const [picked, setPicked] = useState<number | null>(null)
   const [feedback, setFeedback] = useState<Feedback>('none')
   const [timeLeft, setTimeLeft] = useState(TIME_BASE)
@@ -78,14 +83,19 @@ export default function Quiz() {
         if (Array.isArray(data?.questions) && data.questions.length) p = data.questions
       } catch { /* seed fallback */ }
       if (cancelled) return
-      const startDiff = config.lever === 'adaptive' ? START_DIFFICULTY : config.fixedDifficulty
+      // Change 1: starting difficulty/time limit come from the resolver, not a
+      // re-implemented `config.lever === 'adaptive' ? ... : ...` here.
+      const startState = initialLeverState(config)
+      const { difficulty: startDiff, timeLimit: startLimit } = resolveLever(config, startState)
       usedRef.current = new Set()
       const first = pickQuestion(p, startDiff, usedRef.current)
       if (first) usedRef.current.add(first.id)
-      limitRef.current = config.lever === 'time' ? timeForStreak(0) : null
+      // time_limit is only meaningful (and only logged) for the time lever --
+      // resolveLever always returns a number, so the null-out here is a logging
+      // convention (db/schema.sql), not a re-decision of which lever is active.
+      limitRef.current = config.lever === 'time' ? startLimit : null
       setPool(p)
-      setDifficulty(startDiff)
-      setStreak(0)
+      setLeverState(startState)
       setIndex(0)
       setRound({ net: 0, potential: 0, correct: 0, wrong: 0, answered: 0, peakDifficulty: startDiff, bestTimeMs: null })
       setQ(first)
@@ -93,7 +103,7 @@ export default function Quiz() {
       setFeedback('none')
       setCorrectIndex(null)
       setLastDelta(0)
-      setTimeLeft(config.lever === 'time' ? timeForStreak(0) : TIME_BASE)
+      setTimeLeft(startLimit)
       qStartRef.current = Date.now()
       emit({ event_type: 'round_start', game_type: quizGameId(config.mode), mode: config.mode, lever: config.lever, round: roundNo, difficulty_level: startDiff })
     })()
@@ -137,7 +147,7 @@ export default function Quiz() {
           mode: config.mode,
           lever: config.lever,
           round: roundNo,
-          difficulty_level: difficulty,
+          difficulty_level: leverState.difficulty,
           time_limit: limitRef.current,
           time_taken_ms: elapsed,
           round_net_before: round.net,
@@ -156,11 +166,16 @@ export default function Quiz() {
         correct: r.correct + (correct ? 1 : 0),
         wrong: r.wrong + (correct ? 0 : 1),
         answered: r.answered + 1,
-        peakDifficulty: Math.max(r.peakDifficulty, difficulty),
+        peakDifficulty: Math.max(r.peakDifficulty, leverState.difficulty),
+        // isTime here is bookkeeping for the round summary (which lever's "best
+        // time" stat to fill in), not a difficulty/time DECISION -- it doesn't
+        // feed back into what the student is given, so it's exempt from the
+        // resolver like the header badge below.
         bestTimeMs: correct && isTime ? (r.bestTimeMs == null ? elapsed : Math.min(r.bestTimeMs, elapsed)) : r.bestTimeMs,
       }))
-      setStreak(correct ? streak + 1 : 0)
-      if (config.lever === 'adaptive') setDifficulty((prev) => nextDifficulty(prev, correct))
+      // Change 1: difficulty AND streak advance together through the resolver's
+      // partner function, instead of a separate setStreak + conditional setDifficulty.
+      setLeverState((prev) => advanceLeverState(config, prev, correct))
       setCorrectIndex(typeof data.correctIndex === 'number' ? data.correctIndex : null)
       setLastDelta(delta)
       setFeedback(correct ? 'correct' : 'wrong')
@@ -203,18 +218,21 @@ export default function Quiz() {
     if (!config) return
     const nextIndex = index + 1
     if (nextIndex >= total) return finish()
-    const targetDiff = config.lever === 'adaptive' ? difficulty : config.fixedDifficulty
+    // Change 1: next question's difficulty + time limit both come from the
+    // resolver, not a re-implemented `config.lever === 'adaptive' ? ... : ...`.
+    const { difficulty: targetDiff, timeLimit } = resolveLever(config, leverState)
     const nq = pickQuestion(pool, targetDiff, usedRef.current)
     if (!nq) return finish()
     usedRef.current.add(nq.id)
-    limitRef.current = isTime ? timeForStreak(streak) : null
+    // time_limit null-out is the same logging convention as the round-start site above.
+    limitRef.current = isTime ? timeLimit : null
     setQ(nq)
     setIndex(nextIndex)
     setPicked(null)
     setFeedback('none')
     setCorrectIndex(null)
     setLastDelta(0)
-    setTimeLeft(isTime ? timeForStreak(streak) : TIME_BASE)
+    setTimeLeft(timeLimit)
     qStartRef.current = Date.now()
   }
 
@@ -257,6 +275,10 @@ export default function Quiz() {
               <p className="text-slate-400 text-xs uppercase font-semibold">Score</p>
               <p className={`text-2xl font-black ${round.net < 0 ? 'text-red-300' : 'text-emerald-300'}`}>{round.net}</p>
             </div>
+            {/* This branch is presentation, not a difficulty/time DECISION -- it only
+                chooses which stat to display (clock vs. level); the values shown
+                (timeLeft, leverState.difficulty) already came from the resolver
+                above. Exempt from the Change 1 routing requirement for that reason. */}
             {isTime ? (
               <div className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${timeLeft <= 3 ? 'bg-red-500/20 border border-red-500/40' : 'bg-slate-800/50 border border-slate-700/50'}`}>
                 <Clock className={`w-4 h-4 ${timeLeft <= 3 ? 'text-red-400 animate-pulse' : 'text-slate-400'}`} />
@@ -265,7 +287,7 @@ export default function Quiz() {
             ) : (
               <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
                 <Brain className="w-4 h-4 text-emerald-400" />
-                <p className="font-black text-sm text-emerald-300">Level {difficulty}</p>
+                <p className="font-black text-sm text-emerald-300">Level {leverState.difficulty}</p>
               </div>
             )}
           </div>

@@ -47,8 +47,26 @@ export function scoreDelta(correct: boolean): { net: number; potential: number }
     : { net: -PENALTY_WRONG, potential: 0 }
 }
 
-/** Adaptive mode: correct -> +1 level (capped), wrong -> -1 level (floored). */
-export function nextDifficulty(current: number, correct: boolean): number {
+/** Signed run-length: positive while a correct streak continues, negative while
+ *  a wrong streak continues; flips sign (never straddles zero) the instant
+ *  correctness changes. Feeds the two-consecutive rule in `nextDifficulty` below
+ *  (Change 3) -- reuses the same `streak` field on `LeverState` rather than
+ *  adding a parallel counter, so the adaptive branch of `advanceLeverState`
+ *  gives it this signed meaning while the time branch keeps its old
+ *  reset-on-wrong meaning (see that branch for why). */
+function nextStreak(streak: number, correct: boolean): number {
+  if (correct) return streak > 0 ? streak + 1 : 1
+  return streak < 0 ? streak - 1 : -1
+}
+
+/** Adaptive mode: the level moves only once a run of TWO CONSECUTIVE
+ *  same-direction answers completes (Change 3) -- `consecutive` is the
+ *  unsigned run length after this answer (2, 4, 6... for two-, four-,
+ *  six-in-a-row). A single correct answer right after a wrong one (or vice
+ *  versa) leaves the level untouched, which is what stops adaptive difficulty
+ *  saturating a handful of questions into a round. Capped/floored as before. */
+export function nextDifficulty(current: number, correct: boolean, consecutive: number): number {
+  if (consecutive % 2 !== 0) return current
   const d = correct ? current + 1 : current - 1
   return Math.max(DIFFICULTY_MIN, Math.min(DIFFICULTY_MAX, d))
 }
@@ -70,29 +88,63 @@ export interface LeverState {
   streak: number
 }
 
-/** Starting state for a student's chosen lever. */
+/** Starting state for a student's chosen lever.
+ *  Written as an exhaustive switch (Change 2), not `config.lever === 'adaptive' ? A : B`
+ *  -- the `default` branch assigns `config.lever` to a `never`-typed variable, so
+ *  adding a third `Lever` member is a COMPILE ERROR here, not a silent fall-through
+ *  into the time-mode branch. */
 export function initialLeverState(config: GameConfig): LeverState {
-  return {
-    difficulty: config.lever === 'adaptive' ? START_DIFFICULTY : config.fixedDifficulty,
-    streak: 0,
+  switch (config.lever) {
+    case 'adaptive':
+      return { difficulty: START_DIFFICULTY, streak: 0 }
+    case 'time':
+      return { difficulty: config.fixedDifficulty, streak: 0 }
+    default: {
+      const exhaustive: never = config.lever
+      throw new Error(`initialLeverState: unhandled lever ${exhaustive}`)
+    }
   }
 }
 
-/** Difficulty + time limit for the next question, given the lever and current state. */
+/** Difficulty + time limit for the next question, given the lever and current state.
+ *  Exhaustive switch, see `initialLeverState` above for why. */
 export function resolveLever(
   config: GameConfig,
   state: LeverState
 ): { difficulty: number; timeLimit: number } {
-  return config.lever === 'adaptive'
-    ? { difficulty: state.difficulty, timeLimit: TIME_BASE }
-    : { difficulty: config.fixedDifficulty, timeLimit: timeForStreak(state.streak) }
+  switch (config.lever) {
+    case 'adaptive':
+      return { difficulty: state.difficulty, timeLimit: TIME_BASE }
+    case 'time':
+      return { difficulty: config.fixedDifficulty, timeLimit: timeForStreak(state.streak) }
+    default: {
+      const exhaustive: never = config.lever
+      throw new Error(`resolveLever: unhandled lever ${exhaustive}`)
+    }
+  }
 }
 
-/** Advance the lever state after one answered question. */
+/** Advance the lever state after one answered question. Exhaustive switch, see
+ *  `initialLeverState` above for why.
+ *  Adaptive branch: `streak` carries the SIGNED run length from `nextStreak`
+ *  (Change 3), consumed by `nextDifficulty`'s two-consecutive rule.
+ *  Time branch: `streak` keeps its original meaning -- an unsigned consecutive-
+ *  correct count that resets to 0 on any wrong answer -- because `timeForStreak`
+ *  needs exactly that, not a signed run length. Same field, different meaning
+ *  per lever; the two branches never see each other's state. */
 export function advanceLeverState(config: GameConfig, state: LeverState, correct: boolean): LeverState {
-  return config.lever === 'adaptive'
-    ? { difficulty: nextDifficulty(state.difficulty, correct), streak: correct ? state.streak + 1 : 0 }
-    : { difficulty: state.difficulty, streak: correct ? state.streak + 1 : 0 }
+  switch (config.lever) {
+    case 'adaptive': {
+      const streak = nextStreak(state.streak, correct)
+      return { difficulty: nextDifficulty(state.difficulty, correct, Math.abs(streak)), streak }
+    }
+    case 'time':
+      return { difficulty: state.difficulty, streak: correct ? state.streak + 1 : 0 }
+    default: {
+      const exhaustive: never = config.lever
+      throw new Error(`advanceLeverState: unhandled lever ${exhaustive}`)
+    }
+  }
 }
 
 export interface RoundSummary {
