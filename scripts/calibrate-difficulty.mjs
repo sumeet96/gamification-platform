@@ -26,6 +26,7 @@
 // scripts/lib/quintile-difficulty.mjs is therefore inverted: top quintile of simulated_p ->
 // difficulty 1, bottom quintile -> difficulty 5. Verified by tests/quintile-difficulty.test.ts.
 
+import { readFileSync, writeFileSync } from 'node:fs'
 import { neon } from '@neondatabase/serverless'
 import { loadEnv } from './lib/llm-client.mjs'
 import { buildCohort, makeAsker, simulateQuestion } from './lib/simulate-students.mjs'
@@ -33,7 +34,7 @@ import { quintileDifficulty } from './lib/quintile-difficulty.mjs'
 
 loadEnv()
 
-const USAGE = 'Usage: node scripts/calibrate-difficulty.mjs [--subject "Name"] [--n 30] [--dry-run]'
+const USAGE = 'Usage: node scripts/calibrate-difficulty.mjs [--subject "Name"] [--n 30] [--dry-run] [--out run.json] [--from run.json]'
 const die = (msg) => { console.error(`${msg}\n${USAGE}`); process.exit(1) }
 const flag = (name, fallback = null) => {
   const i = process.argv.indexOf(name)
@@ -47,6 +48,17 @@ const subject = flag('--subject')
 const N = Number(flag('--n', 30))
 if (!Number.isInteger(N) || N < 1) die('--n must be a positive integer.')
 const DRY_RUN = process.argv.includes('--dry-run')
+const RUN_OUT = flag('--out')
+const FROM = flag('--from') // re-apply a saved run without re-simulating
+
+/** Seed from the item's own id, not its position in the result set. Index-based seeds would change
+ *  every existing item's simulated_p as soon as one item is added to the bank, making a
+ *  bank-composition change indistinguishable from a real difficulty change. */
+const seedFor = (id) => {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0
+  return (h >>> 0) % 2147483647 || 1
+}
 const CONCURRENCY = 4 // CPU-bound local inference, not a network limit; matches the spike's default
 
 const MODEL = 'llama3.2'
@@ -90,6 +102,35 @@ if (!eligible.length) {
 // --- 2. simulate every eligible item (nothing is written yet) ---
 const ask = makeAsker({ provider: 'ollama', model: MODEL })
 const cohort = buildCohort(N)
+
+// --from re-applies a saved run. The bins are recomputed from the saved scores rather than trusted,
+// so a fix to the binning rule reaches an already-simulated run without paying for the simulation
+// again. Guarded on the item set matching: quintiles are ranks within one distribution, so applying
+// a run computed over a different set of items would silently mean something else.
+if (FROM) {
+  const saved = JSON.parse(readFileSync(FROM, 'utf8'))
+  const savedIds = new Set(saved.results.map((r) => r.id))
+  const eligibleIds = new Set(eligible.map((r) => r.id))
+  const same = savedIds.size === eligibleIds.size && [...savedIds].every((id) => eligibleIds.has(id))
+  if (!same) die(`${FROM} covers ${savedIds.size} item(s) but ${eligibleIds.size} are eligible now. Difficulty is a rank within one run's distribution, so a saved run cannot be applied to a different item set. Re-simulate.`)
+  const reapplied = saved.results.map(({ id, p }) => ({ id, p }))
+  const bins = quintileDifficulty(reapplied.map((r) => r.p))
+  reapplied.forEach((r, i) => { r.difficulty = bins[i] })
+  console.log(`\nRe-applying ${FROM}: ${reapplied.length} item(s), model "${saved.model}", n=${saved.n}. No simulation run.`)
+  if (DRY_RUN) {
+    for (const r of [...reapplied].sort((a, b) => b.p - a.p)) console.log(`  difficulty ${r.difficulty}  p=${r.p.toFixed(2)}  ${r.id}`)
+    console.log('\n--dry-run: nothing written to the database.')
+    process.exit(0)
+  }
+  await sql.transaction(reapplied.map((r) => sql`
+    update content_items
+    set simulated_p = ${r.p}, simulated_n = ${saved.n}, simulator_model = ${saved.model},
+        simulator_method = ${saved.method}, difficulty = ${r.difficulty}
+    where id = ${r.id}
+  `))
+  console.log(`Wrote ${reapplied.length} item(s) from the saved run.`)
+  process.exit(0)
+}
 console.log(`\nSimulating ${eligible.length} item(s) x ${cohort.length} student(s) on "${MODEL}" via Ollama (${METHOD})...`)
 
 const results = []
@@ -101,7 +142,7 @@ for (let i = 0; i < eligible.length; i++) {
   const excerpt = { text: row.source_excerpt, title: row.topic || row.source_title || 'this item' }
   const { p, errorCount, unparseableCount } = await simulateQuestion({
     ask, question, excerpt, cohort,
-    seedBase: (i + 1) * 7919, retention: true, concurrency: CONCURRENCY,
+    seedBase: seedFor(row.id), retention: true, concurrency: CONCURRENCY,
   })
   errors += errorCount
   unparseable += unparseableCount
@@ -126,6 +167,20 @@ for (const r of [...results].sort((a, b) => b.p - a.p)) {
 }
 const counts = [1, 2, 3, 4, 5].map((d) => results.filter((r) => r.difficulty === d).length)
 console.log(`Distribution: ${counts.map((c, i) => `d${i + 1}=${c}`).join('  ')}`)
+
+// Persist the computed run to disk BEFORE touching the network. The first real run spent ~20
+// minutes simulating 510 responses, then lost all of it to a transient DNS failure resolving the
+// Neon host -- the results existed only in memory. Simulation is the expensive half and the write
+// is the cheap half, so the expensive half must survive the cheap half failing.
+// Re-apply a saved run with --from <file>, no re-simulation.
+const stamp = RUN_OUT ?? `spike-data/calibration-${MODEL.replace(/[^a-z0-9]+/gi, '-')}-latest.json`
+try {
+  writeFileSync(stamp, JSON.stringify({ model: MODEL, method: METHOD, n: cohort.length, results }, null, 2))
+  console.log(`\nRun saved to ${stamp} (re-apply with --from ${stamp} if the write fails).`)
+} catch (err) {
+  console.error(`WARNING: could not save the run to ${stamp}: ${err.message}`)
+  console.error('Continuing to the database write, but a failure here loses the simulation.')
+}
 
 if (DRY_RUN) {
   console.log('\n--dry-run: nothing written to the database.')

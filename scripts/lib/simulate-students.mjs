@@ -66,11 +66,24 @@ export function recall(text, tier, seed, retentionEnabled) {
   return [head, ...order.sort((a, b) => a.i - b.i).map((o) => o.l)].join('\n')
 }
 
-async function askOllama(model, system, user) {
+async function askOllama(model, system, user, seed) {
   const body = {
     model,
     stream: false,
-    options: { temperature: 0.8, num_predict: 4 }, // >0 so students of a tier differ; tiny output keeps CPU inference fast
+    options: {
+      temperature: 0.8, // >0 so students of a tier differ; tiny output keeps CPU inference fast
+      num_predict: 4,
+      // Deterministic sampling. Without this the calibration was not reproducible: two consecutive
+      // runs over the same 17 items with the same n moved success rates by up to 0.10 -- the
+      // binomial noise you expect at n=30 -- which was enough to flip items between difficulty
+      // bands. Reproducibility is the whole reason the simulator is a local model rather than a
+      // hosted one ("a hosted model can change mid-pilot and silently shift calibration"), so an
+      // instrument that shifts between runs on the same machine defeats the point.
+      //
+      // The seed varies per (item, student), so simulated students still differ from each other --
+      // it removes run-to-run drift, not the variation between the cohort.
+      seed,
+    },
     messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
   }
   const res = await fetch(OLLAMA, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
@@ -132,7 +145,10 @@ async function askGemini(model, apiKey, system, user) {
  * @param {{provider: 'ollama'|'gemini'|'openai', model: string, apiKey?: string}} opts
  */
 export function makeAsker({ provider, model, apiKey }) {
-  if (provider === 'ollama') return (system, user) => askOllama(model, system, user)
+  // `seed` is threaded through so the local provider can sample deterministically. The hosted
+  // providers ignore it: OpenAI's `seed` is documented as best-effort only and Gemini exposes none,
+  // which is one more reason the primary simulator is local.
+  if (provider === 'ollama') return (system, user, seed) => askOllama(model, system, user, seed)
   if (provider === 'openai') return (system, user) => askOpenAI(model, apiKey, system, user)
   if (provider === 'gemini') return (system, user) => askGemini(model, apiKey, system, user)
   throw new Error(`Unknown provider "${provider}". Known: ollama, gemini, openai`)
@@ -146,7 +162,7 @@ export async function askOnce({ ask, question, tier, seed, excerpt, retention })
     ? `${tier.persona}\n\nThis is what you remember from the session slide "${excerpt.title}":\n"""\n${remembered}\n"""\nAnswer from that memory. If it does not cover the question, answer as best you can.\nAnswer with a single letter (A, B, C or D) and nothing else.`
     : `${tier.persona}\nAnswer with a single letter (A, B, C or D) and nothing else.`
   const user = `${question.prompt}\n\n${options.map((o, i) => `${LETTERS[i]}. ${o}`).join('\n')}\n\nAnswer with one letter only.`
-  const raw = (await ask(system, user)).trim().toUpperCase()
+  const raw = (await ask(system, user, seed)).trim().toUpperCase()
   const m = raw.match(/[ABCD]/)
   if (!m) return { correct: false, parsed: null, tier: tier.name }  // unparseable counts as wrong, like a real blank
   return { correct: LETTERS.indexOf(m[0]) === answer, parsed: m[0], tier: tier.name }
