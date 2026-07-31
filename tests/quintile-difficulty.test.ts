@@ -40,3 +40,30 @@ test('ties tie-break deterministically by original index, not thrown away', () =
   assert.deepEqual(diff, quintileDifficulty(ps), 'same input must always produce the same output')
   assert.equal(diff.length, 5)
 })
+
+// Regression: the first calibration dry run assigned difficulty 4 and 5 to two items that both
+// scored p=0.77, and split six items all at p=1.00 across difficulty 1 and 2. Identical evidence
+// must produce identical difficulty -- otherwise the adaptive lever serves questions based on a
+// distinction the measurement never made.
+test('items with identical simulated_p always get identical difficulty', () => {
+  const ps = [0.13, 0.37, 0.47, 0.77, 0.77, 0.8, 0.8, 0.9, 0.93, 0.97, 0.97, 1, 1, 1, 1, 1, 1]
+  const d = quintileDifficulty(ps)
+  const byScore = new Map<number, Set<number>>()
+  ps.forEach((p, i) => {
+    if (!byScore.has(p)) byScore.set(p, new Set())
+    byScore.get(p)!.add(d[i])
+  })
+  for (const [p, levels] of byScore) {
+    assert.equal(levels.size, 1, `p=${p} produced difficulties ${[...levels].join(',')}`)
+  }
+})
+
+test('ties never break monotonicity: a higher score is never rated harder', () => {
+  const ps = [0.13, 0.37, 0.47, 0.77, 0.77, 0.8, 0.8, 0.9, 0.93, 0.97, 0.97, 1, 1, 1, 1, 1, 1]
+  const d = quintileDifficulty(ps)
+  for (let i = 0; i < ps.length; i++) {
+    for (let j = 0; j < ps.length; j++) {
+      if (ps[i] > ps[j]) assert.ok(d[i] <= d[j], `p=${ps[i]}→d${d[i]} vs p=${ps[j]}→d${d[j]}`)
+    }
+  }
+})

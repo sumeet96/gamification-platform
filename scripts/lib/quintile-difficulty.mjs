@@ -17,13 +17,28 @@
 export function quintileDifficulty(ps) {
   const n = ps.length
   if (n === 0) return []
-  // Rank ascending by p: rank 0 = lowest p = hardest item in the run. Tie-break by original index
-  // so two items with identical p always land the same way, run after run.
+  // Rank ascending by p: rank 0 = lowest p = hardest item in the run.
   const order = ps.map((p, i) => ({ p, i })).sort((a, b) => a.p - b.p || a.i - b.i)
   const difficulty = Array(n)
-  order.forEach(({ i }, rank) => {
-    const bin = Math.floor((rank * 5) / n) // 0 (lowest p in the run) .. 4 (highest p in the run)
-    difficulty[i] = 5 - bin // lowest p -> difficulty 5 (hardest); highest p -> difficulty 1 (easiest)
-  })
+
+  // TIES MUST BIN TOGETHER. Binning on raw rank position splits equal scores across a band
+  // boundary: a first run produced two items both at p=0.77 that landed on difficulty 4 and 5, and
+  // six items all at p=1.00 split three-and-three across difficulty 1 and 2. Those items are
+  // indistinguishable by measurement, so any ordering between them is invented, and the invention
+  // would then drive which questions a student is served.
+  //
+  // Every group of identical p therefore takes ONE bin, chosen by the group's midrank -- the same
+  // tied-rank convention Spearman uses. A consequence worth understanding rather than tuning away:
+  // when a large group ties, whole bands can come out empty. That is the honest signal that the
+  // bank cannot support five levels, not a bug to smooth over.
+  let start = 0
+  while (start < n) {
+    let end = start
+    while (end + 1 < n && order[end + 1].p === order[start].p) end++
+    const midRank = (start + end) / 2
+    const bin = Math.min(4, Math.floor((midRank * 5) / n)) // 0 = lowest p .. 4 = highest p
+    for (let k = start; k <= end; k++) difficulty[order[k].i] = 5 - bin
+    start = end + 1
+  }
   return difficulty
 }
