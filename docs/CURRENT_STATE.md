@@ -1,58 +1,73 @@
-# Current state — 1 August 2026, continued (supersedes the earlier 1 Aug checkpoint)
+# Current state — 1 August 2026, continued (supersedes the A1 checkpoint)
 
 ## Where we are
 
-**Five packages are shipped: G1 (MCQ generator), G2 (term/definition generator), D1 (dashboard),
-Q1 (quiz hardening), A1 (match-the-following).** The app generates questions from a PDF into
-`content_items`, serves them without leaking the answer key, scores server-side, and lands on a
-registry-driven dashboard with three playable tiles. Migrations `db/005`, `db/006` and `db/007` are
-applied and verified live on Neon project `ancient-brook-62806105`.
+**Six packages are shipped: G1 (MCQ generator), G2 (term/definition generator), D1 (dashboard),
+Q1 (quiz hardening), A1 (match-the-following), A3 (choose-the-right-word).** The app generates
+questions from a PDF into `content_items`, serves them without leaking the answer key, scores
+server-side, and lands on a registry-driven dashboard with four playable tiles. Migrations
+`db/005` through `db/008` are applied and verified live on Neon project `ancient-brook-62806105`.
 
-**Match-the-following (package A1) is SHIPPED, COMMITTED and PUSHED.** Commit `fe871e1` on `main`,
-level with `origin/main` — 24 files, 2942 insertions. **68 tests pass**, `tsc --noEmit` clean,
-`npx next build` succeeds, and it was verified end to end against the live Neon database, not just
-unit-tested. The points question that had blocked it is resolved (see Decisions below). Two review
-passes (adversarial + Codex) found 17 defects across two rounds before this landed — see "Review
-findings worth remembering" below.
+**A3, choose-the-right-word, is SHIPPED, COMMITTED and PUSHED.** Commit `1805d62` on `main` —
+22 files, 2404 insertions. **100 tests pass**, `tsc --noEmit` clean, `npx next build` succeeds,
+verified end to end against live Neon, including a deliberate 12-way concurrency salvo and a full
+50-item round.
 
-**The adaptive-difficulty lever is real for the first time** — all 17 `content_items` rows carry a
-calibrated `difficulty`, seeded by local `llama3.2` student simulation and stamped with
+**The adaptive-difficulty lever is real for the first time** — all 17 MCQ `content_items` rows
+carry a calibrated `difficulty`, seeded by local `llama3.2` student simulation and stamped with
 `simulator_model` / `simulator_method`. `empirical_p` is still null on every row and must stay that
-way until real students answer.
+way until real students answer. The 50 `term_definition` rows still have no `difficulty` — see
+Decisions below for why that gap is now smaller than previously recorded.
 
-**Voluntary persistence is now measurable.** `round_offer` fires when the Keep Going affordance
-renders, so the log distinguishes accepted / declined / abandoned.
+**Voluntary persistence is measurable.** `round_offer` fires when the Keep Going affordance
+renders, so the log distinguishes accepted / declined / abandoned. `abandonRound()` is now a
+shared obligation (`lib/game/game-context.tsx`), closing the gap where match had reintroduced a
+bug already fixed once for the quiz.
 
-**Background simulation work has widened beyond the case.** Two chained Ollama jobs are running
-locally (see below) to pool 45 unmemorised items across three sources, aimed at fixing an
-underpowered replication claim already flagged in `CLAUDE.md` (ρ ≈ 0.23 on only 15 items).
+**A same-question concurrency race, present since Q1, is closed.** 12 concurrent POSTs for one
+question used to all score (12× points, 11 excess rows); after db/008 the same salvo yields
+exactly 1 scored row and 11 idempotent 409s, verified live. This was not an A3 regression — A3
+inherited the exposure via the shared extraction described below, and closing it fixed the quiz
+and match's submit path along with word.
+
+**The cross-simulator replication claim is corrected** (see Decisions below): the previously
+recorded ρ ≈ 0.23 was measured on a memorised deck; pooled across unmemorised, genre-matched slide
+decks the two simulators agree at ρ = 0.62, CI [0.26, 0.83].
 
 ## Working tree
 
-Branch **`main`**, last commit **`fe871e1`** ("Ship match-the-following, the first board-grained
-game"). **Level with `origin/main` and pushed.** Working tree clean — nothing uncommitted.
+Branch **`main`**, last commit **`1805d62`** ("Ship choose-the-right-word, and close a race the
+quiz has had since Q1"). Working tree clean.
 
-Shipped in that commit: `app/api/match/board/route.ts`, `app/api/match/submit/route.ts`,
-`app/games/match/page.tsx`, `lib/games/match.ts`, `lib/games/match-board-select.ts`,
-`lib/games/potential.ts`, `lib/auth/board-token.ts`, `db/007_add_board_dedupe.sql`, plus changes to
-`app/api/events/route.ts`, `app/api/stats/route.ts`, `app/dashboard/page.tsx`, `lib/game/engine.ts`,
-`lib/games/registry.ts`, `lib/log/logEvent.ts`, `lib/auth/session.ts`. `match.enabled` is `true` in
-the registry — the third dashboard tile is live.
+New files: `app/api/word/question/route.ts`, `app/api/word/answer/route.ts`,
+`app/games/word/page.tsx`, `lib/game/answer-commit.ts`, `lib/games/item-select.ts`,
+`lib/games/word.ts`, `db/008_add_answer_dedupe.sql`, `tests/answer-commit.test.ts`,
+`tests/item-select.test.ts`, `tests/word.test.ts`. Modified: `app/api/answer/route.ts`,
+`app/quiz/page.tsx`, `app/games/match/page.tsx`, `app/dashboard/page.tsx`,
+`lib/game/game-context.tsx`, `lib/games/registry.ts`, `lib/games/match-board-select.ts`,
+`lib/log/logEvent.ts`, `scripts/lib/terms-validate.mjs`, `db/schema.sql`.
 
 `spike-data/` and root-level `*.pdf` are **gitignored**. `spike-data/` holds all simulation runs and
-generated item sets; losing it costs many hours of local inference. New this session:
-`spike-data/run-case-arms.sh` / `run-case-arms.log`, `spike-data/run-deck-arms.sh` /
-`run-deck-arms.log`, and three new excerpt files: `excerpts-case-tw.json` (19 items),
-`excerpts-cage.json` (17), `excerpts-tw.json` (9).
+generated item sets; losing it costs many hours of local inference.
 
 Three source PDFs sit in the repo root, untracked: `_CB0257-PDF-ENG.pdf` (Thoughtworks case),
 `Session 7 - Thoughtworks.pdf`, `INM -Session 6_CAGE-...pdf`.
 
+## The game (A3)
+
+Clue is the prompt, term is the answer, `distractors` supply the wrong options (4 options shown).
+Item-grained, `FlatPoints` 15/−5 — reuses the quiz's shapes unchanged. A3 went before A2
+(fill-in-the-blanks) because all 50 term rows have ≥3 distractors while only 35 have an
+`example_sentence`.
+
 ## In progress right now
 
-Nothing is mid-build. A1 closed out the item above. The two background Ollama simulation jobs (see
-below) are still running and must not be interrupted or joined by a second concurrent Ollama job.
-Next up is package A3 (choose-the-right-word) — see Next 3 actions.
+Nothing is mid-build. A3 closed out the item above.
+`spike-data/run-simulator-bakeoff.sh` (log `run-simulator-bakeoff.log`) is running in the
+background: pulls `llama3.2:1b`, `qwen2.5:1.5b`, `gemma2:2b` and runs arm C on the CAGE deck
+(17 items × 30 students) for each, sequentially, behind the ollama-idle + mutex guards. Outputs
+`spike-data/bakeoff-<model>.json`. Must not be interrupted or joined by a second concurrent Ollama
+job.
 
 ## Decisions made this session
 
@@ -64,173 +79,161 @@ Next up is package A3 (choose-the-right-word) — see Next 3 actions.
 - Five difficulty levels stay (SE ≈ 0.09 at n=30, so ten bands would be false precision).
 - The simulator is seeded per (item, student) via Ollama `options.seed`, derived from item id, never
   array position.
-- `llama3.2` stays the simulator, on evidence from three model families.
+- `llama3.2` stays the simulator as the working default, on evidence from three model families —
+  but see the new discrimination criterion below, which is now the stated reason, not weakness.
 - Cohort is 60–120 students, not ~20.
 - A leaderboard (L1) and a global XP bar are wanted; XP must never feed item selection, and any
   motivational overlay must be identical across arms.
 - G2's clue-leak rule was wrong and is fixed — multi-word terms only leak if the clue contains every
   content word. Yield went from 3 items to 13 on the same deck.
+- Match points are resolved (15/pair, +30 clean-board bonus, −20 floor at ≤2 pairs) and boards are
+  selected by least-recently-served ranking, not whole-history exclusion. See the A1 checkpoint
+  history in git for the full reasoning; both stand unchanged this session.
 
-### New this session
+### New this session (A3)
 
-**Match points — RESOLVED (was the top open question). Per board, graded, with a clean-board bonus
-and a failure floor.**
+**The quiz's hardened commit path was EXTRACTED, not copied**, into `lib/game/answer-commit.ts`
+(cookie-only attribution, the `client_student_id` mismatch downgrade, `is not distinct from`
+dedupe, the 23503 FK retry). Both `/api/answer` and `/api/word/answer` consume it. Two reviewers
+independently verified line-by-line that the extraction is behaviour-preserving for the quiz,
+including the properties its comments record: the `'seed-fallback'` marker, the 409 that must not
+carry `correctIndex`, `round_net_before` staying informational-only, and scoring still being
+returned when logging fails.
 
-The reasoning is load-bearing, not just the number:
-- On a bijection board (n clues, n terms, every term used exactly once, **no distractors**), the
-  count of correct pairs is the fixed-point count of a permutation. One mistake always drags at least
-  one other pair down with it. Out of 6, the achievable scores are 6, 4, 3, 2, 1, 0 — **never 5**. A
-  flat per-pair penalty would therefore bill a single error twice. The old registry value
-  `{ correct: 15, wrong: -5 } // per pair` was wrong for exactly this reason.
-- The reachability rule is "no singleton errors", **not parity** — 3 and 1 are both reachable (a
-  3-cycle, or a 5-cycle among the wrong tiles, respectively). This was a live misconception mid-session
-  and would silently corrupt any tier-based scoring table if reintroduced — record it explicitly.
-- Shipped table: **15 points per correct pair, +30 clean-board bonus, −20 floor penalty if 2 or fewer
-  pairs land.** Achievable totals: 6→120, 4→60, 3→45, 2→10, 1→−5, 0→−20.
-- The −20 floor is deliberate, not decoration: a random permutation has exactly 1 expected fixed
-  point at any board size, so accrual alone would pay 15 points for pure guessing. The floor makes
-  guessing negative-EV. A test asserts `perPair + floorPenalty < 0` so the floor can't be quietly
-  raised away as "too harsh".
-- An all-or-nothing board was considered and **rejected**: it emits no graded facility signal
-  (blinding `simulated_p`/`empirical_p` for this game), it flatlines the board-grained lever so
-  adaptive difficulty never ramps, and an unreachable jackpot stops being thrilling rather than
-  starts. Thrill belongs in the reveal animation, not the payout table.
-- Scoring and logging are deliberately at different grains: **score per board, log per pair.**
+**`abandonRound()` is now a shared obligation** in `lib/game/game-context.tsx`, exposed via
+`useGame()`, documented next to `round_stop` in `lib/log/logEvent.ts`. Every path that ends a
+started round without finishing must call it. The abandoned-round bug was fixed for the quiz on
+1 Aug *inside the quiz page*, and match reintroduced it two days later — the shared helper closes
+that seam. "Declined an offer" (a direct `round_stop` from the Keep Going screen) stays DISTINCT
+in the data from "abandoned" — do not blur them.
 
-**A1 shipped in full: tests 18 → 68, `tsc --noEmit` clean, `npx next build` succeeds, verified end to
-end against live Neon. Commit `fe871e1`, pushed to `origin/main`.**
-- `lib/games/registry.ts`: new `BoardPoints` points shape (`kind: 'board'` with
-  perPair/perfectBonus/floorAtOrBelow/floorPenalty); the `match` entry repoints to it. `enabled` is
-  now `true` — Match is a live dashboard tile.
-- `lib/games/match.ts` (new, pure, DB-free): `BOARD_SIZE = 6`, `normaliseTerm`, `matchesTerm` (term +
-  declared `variants`, case/punctuation-insensitive, **no fuzzy matching by design**), `scoreBoard`,
-  `boardSucceeded` (strictly more than half correct — the board-grained analogue of one correct quiz
-  answer).
-- `lib/games/match-board-select.ts` (new): board selection is **least-recently-served ranking**, not
-  whole-history exclusion — see the review findings below for why exclusion was rejected.
-- `lib/auth/board-token.ts` (new): a signed, single-use board token; issuing a new board supersedes
-  the old one.
-- `app/api/match/board/route.ts` (new): serves a board's clues and shuffled bare term strings, never
-  the term↔clue mapping.
-- `app/api/match/submit/route.ts` (new): scores a board server-side off the DB, writes
-  `question_answered` per pair and `board_complete` per board.
-- `app/games/match/page.tsx` (new): the match UI.
-- `db/007_add_board_dedupe.sql` (new, applied and verified on Neon): see below.
-- `tests/match.test.ts`, `tests/match-board.test.ts`, `tests/board-token.test.ts`,
-  `tests/events-allowlist.test.ts`, `tests/stats-potential.test.ts` (new): pin the points table, the
-  achievable-score set, the negative-EV property, board-token single-use/supersession, the
-  `EventType`/allowlist derivation, and per-game potential.
-- `tests/registry.test.ts`: the "wrong/miss payout" guard was a two-branch if/else that let
-  `BoardPoints` fall into the Wordle branch; rewritten as an exhaustive `switch` with a `never`
-  default.
-- `app/dashboard/page.tsx`: `pointsBlurb` (line 54) had the same two-kinds assumption and would have
-  advertised Wordle's economy on the Match tile. Now an exhaustive switch.
-- **General lesson recorded:** adding a third `Points` kind surfaced two latent two-kinds assumptions
-  in code that had nothing to do with match itself. `never`-defaulted switches are the house idiom
-  for this and were already used in `lib/game/engine.ts` — apply it the next time a discriminated
-  union grows a case.
+**Selection ranking is shared** (`lib/games/item-select.ts`); `match-board-select.ts` delegates to
+it after picking a subject. Match's behaviour is unchanged (`tests/match-board.test.ts` untouched
+and passing).
 
-**`board_complete` is a new server-written event type**, not added to the client `EventType` union in
-`lib/log/logEvent.ts` — same rule already applied to `question_answered`: scored/completion events
-that touch points are server-written only. No migration needed; `events.event_type` is unconstrained
-text.
+**Round exhaustion is a distinct outcome from an empty pool.** `GET /api/word/question` returns
+`409 'round exhausted'` (items already answered in this session+round are excluded) versus
+`409 'not enough term items'` (the content pool itself is too small). The page treats the first as
+a graceful early round-end running the normal `round_offer`/`round_continue`/`round_stop` flow —
+NOT as abandonment. Necessary because normal mode is 20 questions against a ~50-item pool.
 
-**db/007 (applied and verified on Neon `ancient-brook-62806105`):**
-- Partial unique index `events_board_nonce_uidx on events (question_id) where event_type =
-  'board_complete'`. **Partial is mandatory** — `question_id` already holds `'seed-fallback'` markers
-  on ~80 `question_answered` rows across 20 distinct values, so a non-partial unique index would fail
-  to build and break the quiz's seed-fallback path.
-- `events.submitted_text text` (nullable) — the free-text answer when the answer is not an option
-  index. Match writes the placed term; A2/A3 will use it too. No CHECK (append-only log rule).
-- `db/004`'s prose describing `boards_completed` as "boards completed so far" is **superseded**: the
-  shipped code writes the 1-indexed ordinal of the board being completed.
+**db/008 — APPLIED and verified on Neon `ancient-brook-62806105`.** Partial unique index making
+the answer insert its own lock:
+`events_answer_commit_uidx on events (session_id, round, content_item_id, student_id,
+boards_completed) NULLS NOT DISTINCT where event_type='question_answered' and content_item_id is
+not null`.
+- `NULLS NOT DISTINCT` is required (Postgres 18.4 confirmed on this server). Without it, NULL
+  `student_id` and NULL `boards_completed` would each count as distinct and the index would dedupe
+  nothing.
+- `boards_completed` is in the key because **match legitimately writes the same `content_item_id`
+  twice within one `(session, round)` across different boards**. All 18 of match's apparent
+  duplicate groups were exactly that; ZERO were true duplicates. A naive key without that column
+  would break match.
 
-**Review findings worth remembering (17 defects across two review rounds, two model families):**
-- The board never ships its key, but a single clean response was insufficient to protect it —
-  **polling GET and intersecting term bags across responses recovered the mapping**. Fixed with a
-  signed, single-use board token that is superseded when a new board is issued.
-- **Dedupe by SELECT is not atomic on the Neon HTTP driver** — N parallel submits of one token all
-  scored. The insert is now the lock, via db/007's partial index.
-- `/api/stats` aggregated only `question_answered`, so match's bonus and floor never reached the
-  dashboard. Splitting economics across two row types caused this. `potential` is now derived per
-  game from `GAME_REGISTRY` (`lib/games/potential.ts`) instead of a hardcoded quiz constant.
-- `/api/events` was a **denylist**; it is now an allowlist, and `EventType` is derived from the same
-  const array the route uses (`lib/log/logEvent.ts`), so type guard and runtime guard cannot drift.
-- **Abandoned-round number reuse regressed** — fixed for the quiz on 1 Aug but in the quiz page, not
-  shared code, so match reintroduced it. A shared `abandonRound` helper is planned before A3.
-- **Found only by playing the game against the real database, not by static review or unit tests:**
-  whole-history exclusion for board selection locked a student out after exactly 8 boards,
-  permanently, in every future session — which would have manufactured the ceiling the persistence
-  loop exists to measure. Selection is now **least-recently-served ranking**
-  (`lib/games/match-board-select.ts`), which degrades instead of starving. General lesson: exercise
-  the artifact against real data before believing a package is done — 66 unit tests and two clean
-  builds did not catch this.
+**The race — proven, not theorised.** 12 concurrent POSTs for one question ALL scored: 12× points,
+11 excess `question_answered` rows. This was not an A3 regression — `app/api/answer/route.ts` has
+had the identical SELECT-then-INSERT since package Q1, and A3 inherited it via the extraction.
+After db/008 the same salvo yields exactly 1 scored row and 11 idempotent 409s, verified live.
 
-**Content supply generated this session:** `content_items` now holds **50 `term_definition` rows** —
-32 International Management (CAGE deck), 18 Digital Transformation (Thoughtworks case + slides).
-A2-ready (has `example_sentence`): 35. A3-ready (≥3 distractors): **50/50**. All have `difficulty`
-NULL.
-- **Wordle (A4) is effectively settled and should be raised with the professor rather than silently
-  cut.** Only 5 of 50 terms are single words of 4–8 letters, and all five are proper nouns: Licca,
-  Barbie, Baidu, Bing, Yandex. No *concept* clears the bar; the shortest term on the Thoughtworks case
-  deck is 9 characters. A Wordle on this corpus would test brand recall, not understanding.
+**The 409 is now idempotent**: it returns the originally recorded result (`correct`,
+`pointsDelta`, correct answer, `duplicate: true`). Safety argument, reviewed and accepted: it
+awards nothing (no new row) and reveals nothing new (the answer was already returned by the commit
+that scored). Two conditions were required and implemented — `netAfter` must be read from the
+stored column, never recomputed from the replayed request; and the client gates accumulation on
+"have I already applied a result for this itemId", never on "did this fetch return ok".
 
-**Known open gap — needs the professor.** Term items have no calibrated difficulty, and the existing
-simulator cannot produce one: `scripts/lib/simulate-students.mjs` ends every prompt with "Answer with
-a single letter (A, B, C or D)" — it simulates an MCQ attempt, and a term/definition pair has no
-options. Consequences: match asserts NO `difficulty_level` in the event log rather than fabricating
-one (correct), but **match's adaptive arm measures nothing** until a match-shaped simulator exists.
-Time-lever students are unaffected (difficulty is pinned for them anyway). Options are: build a
-match-shaped simulator (new package), ship as-is and document, or mark match `lever: 'none'`. Not
-decided.
+**Ten defects found by two reviewers — the memorable ones:**
+- `choose-word` was still `enabled: false`, so the package would have **shipped invisible** behind
+  a dead dashboard tile.
+- `resetSession` cleared `offeredRoundRef` but NOT `abandonedRoundRef` — silently reviving
+  round-number reuse across students on a shared tab, through the very helper added to prevent it.
+- An item with zero distractors rendered as a **one-option question worth a guaranteed +15** (a
+  wrong answer was unrepresentable). Eligibility now requires ≥3 distractors.
+- `-Infinity - -Infinity === NaN`, so the difficulty tiebreak was dead while still reporting
+  `difficultyHonored: true` — a false claim in the event log that the whole uncalibrated path
+  exists to prevent. Fixed with a finite sentinel; the test that "covered" it only passed by
+  fixture ordering and was rewritten.
+- One calibrated row would have collapsed the entire pool (a vacuous `>= count` guard); now
+  requires an absolute minimum of 20 calibrated rows.
+- A distractor could equal a declared variant, making two options correct. `terms-validate.mjs`
+  now rejects that. 0 collisions among the 50 existing rows (checked under a looser SQL
+  normalisation, so it is an upper bound).
+- **Found by neither reviewer, only by playing it:** the question route COMPUTED
+  `difficultyHonored` and never sent it in the response, so the page's Level badge was hidden for
+  the wrong reason and would have stayed hidden after calibration landed. This is the second
+  instance of the standing rule — exercise the artifact, cross-agent seams fail silently. (The
+  first instance was A1's whole-history board exclusion, found only by playing the game.)
 
-**Outstanding, not yet decided by the user.** End-to-end testing created **5 test students** and their
-event rows in the live research dataset (`e2e-%@test.local`, `session_id like 'e2e-sess-%'`, plus
-`starve-%@test.local`). Cleanup SQL was proposed and the user has **not yet approved it**. Record as
-pending so it is not forgotten.
+**CORRECTION — term items ARE calibratable now.** Earlier checkpoints and CLAUDE.md said term
+items cannot be difficulty-calibrated because the simulator is MCQ-only ("answer A, B, C or D")
+and a term/definition pair has no options. That is now outdated. A3 renders each term item as a
+clue plus four options built from `distractors` — i.e. an MCQ. So all 50 term rows are calibratable
+today with a rendering shim (clue as stem, term+distractors as options), no new method. Match can
+borrow that per-item estimate as a defensible proxy, since a match board is essentially six
+simultaneous choose-word items with elimination. This shrinks "match's adaptive arm measures
+nothing" from a research package to a rendering change. Still true meanwhile: no term row has a
+difficulty yet, so `difficultyHonored` is false everywhere for word and match, and the Level badge
+is correctly hidden.
 
-**Simulation runs widened from "case only" to case + two slide decks, for two stated reasons:**
-1. **Confounded contrast.** The Thoughtworks case differs from the Airbnb baseline in two ways at
-   once — probably-unmemorised *and* a different genre (reasoning-heavy case prose, 183–1111 char
-   excerpts vs terse slide bullets). Agreement measured on the case alone can't be attributed to
-   either variable. CAGE and Thoughtworks slides are unmemorised slide decks, holding genre constant
-   while varying only memorisation — the only way to test the genre hypothesis `CLAUDE.md` already
-   flags unverified (that the case's reasoning-heavy items let ability help even ungrounded, while
-   slide recall items give ability nothing to bite on).
-2. **The original finding is underpowered.** ρ ≈ 0.23 was computed on 15 items; its 95% CI is roughly
-   [−0.32, +0.66] — consistent with near-perfect agreement. `CLAUDE.md`'s current claim that "the
-   difficulty values do not replicate" is not something 15 items can support. Pooling case (19) +
-   CAGE (17) + TW slides (9) = 45 unmemorised items roughly halves that CI. Treat this as a
-   correction pending the runs, not a settled reversal.
-- Known instrument caveat, deliberately left unfixed: the simulation prompt says "this is what you
-  remember from the session slide," but the case is a case PDF, not a slide. Left as-is because the
-  script header requires flags/seeds/prompt stay fixed for comparability across runs, and the
-  mismatch hits both models equally so the llama-vs-gemma comparison itself is unaffected.
-- Advanced tier remains only 3 simulated students per item — same small-n caveat as before.
+**CORRECTION — cross-simulator replication.** All arm-C runs finished (llama3.2 vs gemma2:9b,
+grounded + retention-gated, n=30 per item). Spearman ρ between the two simulators:
 
-## Long-running simulation jobs (background, ~5h15m total, started this session)
+| deck | items | ρ (all) | ρ (ties excluded) | gemma at ceiling |
+|---|---|---|---|---|
+| Airbnb slides (memorised baseline) | 15 | 0.23 | 0.14 | 8/15 |
+| CAGE slides (unmemorised) | 17 | 0.75 | 0.70 | 8/17 |
+| Thoughtworks slides (unmemorised) | 9 | 0.75 | 0.44 | 5/9 |
+| Thoughtworks case (unmemorised) | 19 | 0.46 | 0.06 | 16/19 |
 
-Record the scripts so a fresh session can find and monitor them:
-- `spike-data/run-case-arms.sh` → log `spike-data/run-case-arms.log`. Arm C (grounded + retention) on
-  the Thoughtworks CASE, 19 items × 30 students, `llama3.2` then `gemma2:9b`. Outputs
-  `run-case-llama-retention.json`, `run-case-gemma-retention.json`.
-- `spike-data/run-deck-arms.sh` → log `spike-data/run-deck-arms.log`. Arm C on CAGE (17 items) and
-  Thoughtworks slides (9 items), `llama3.2` then `gemma2:9b`, grouped by model so each loads once.
-  Outputs `run-{cage,tw}-{llama,gemma}-retention.json`.
-- The second job is blocked behind the first by three independent guards: it waits for the literal
-  string `=== CASE ARMS DONE ===` in the first job's log (bounded at 5h), then polls `ollama ps`
-  until idle, then takes an atomic `mkdir spike-data/.ollama-run.lock` mutex (released via an EXIT
-  trap). **Nothing may run a second Ollama job while one of these is active** — explicit instruction.
+Pooled genre-matched slide decks: **ρ = 0.62, 95% CI [0.26, 0.83]** (excludes zero). Memorised
+baseline: ρ = 0.14, CI [−0.42, 0.62].
 
-When these finish: read the outputs and write up the pooled ρ, correcting the `CLAUDE.md` claim if
-warranted (widen or narrow the CI, do not just assert a new number without showing the pooled
-calculation).
+**Interpretation:** the previously standing claim was "the difficulty values do not replicate,
+ρ ≈ 0.23". That figure came from the Airbnb deck — the one the other model families recognise from
+training data. On unmemorised material the same two simulators agree substantially better on both
+the permissive and conservative measures. The memorisation hypothesis is **supported**. Limits
+stay explicit: the CI is not tight; only two simulators; `gemma2:9b` ceilings badly everywhere so
+it remains a poor instrument regardless (this does NOT reopen keeping `llama3.2`); the
+ties-excluded filter is a researcher choice, which is why both numbers are reported.
+
+**The genre control was decisive.** Pooling all three unmemorised decks together (case + both slide
+decks) gives ρ = 0.36, CI [−0.01, 0.64] — ambiguous. The case ceilings at 16/19 under gemma and
+contributes almost no ranking information. Had the run been case-only as the earlier checkpoint
+specified, the result would have been ρ = 0.46/0.06 and the opposite conclusion. Only the two
+genre-matched slide decks are pooled for the headline 0.62 figure above.
+
+**Simulator selection criterion — corrects a standing claim.** CLAUDE.md's "weaker models simulate
+students better" framing is not the selection rule in practice. The bake-off in flight (see above)
+selects on **discrimination, not weakness**: what has broken every run so far is CEILING (an item
+scored ~1.0 carries no ranking information), not a model being too strong per se. Target: mean
+facility ~0.50–0.65, <~20% at ceiling, <~10% at floor, a MONOTONIC gradient across the four
+retention tiers (guards against a model at chance, which shows no gradient and measures noise),
+and IQR > ~0.3. `llama3.2` (3B) sits slightly too able at 0.71–0.79 on some decks. All inference is
+100% CPU, so smaller models are dramatically faster (gemma2:9b ~108 min per deck vs llama3.2 ~25).
+
+## Test data
+
+All end-to-end test students and events were deleted with the user's explicit approval; 2 real
+students and 104 real events remain untouched. The earlier "pending cleanup" item is resolved.
+
+## Next actions
+
+1. Read the bake-off results and pick a simulator against the discrimination criterion above;
+   whichever wins, `llama3.2` becomes the replication partner (one simulator is still one
+   measurement).
+2. Calibrate the 50 term rows via the choose-word MCQ rendering, writing `simulated_p` and binned
+   `difficulty` — never `empirical_p`. This unblocks the Level badge for word and gives match a
+   defensible per-item proxy.
+3. Package A2 (fill-in-the-blanks, 35 rows have `example_sentence`), or L1 leaderboard.
+4. Tue 4 Aug with Prof. Singh: points table numbers, Wordle's viability (5 of 50 terms qualify and
+   all five are proper nouns — Licca, Barbie, Baidu, Bing, Yandex), rapid/normal exact seconds,
+   whether there is a control arm, and the term-difficulty calibration plan.
 
 ## Open questions / blocked on
 
-- **Wordle (A4) may be structurally unviable.** 0 of 13 terms from the Thoughtworks deck are single
-  words of 4–8 letters. Run A0 against the CAGE deck before deciding; if it also returns zero, drop
-  A4 and tell the professor why. Not yet run.
+- **Wordle (A4) may be structurally unviable.** Only 5 of 50 terms across both decks are single
+  words of 4–8 letters, and all five are proper nouns. No *concept* clears the bar. Raise with the
+  professor rather than silently cutting it.
 - **Rapid/normal exact seconds** — working assumption 10s rapid / 15s normal, unconfirmed.
 - **The professor has never been asked about a control arm.** "At least we can give them a control"
   in the transcript means a *knob for the student*, not a control group. Raise as a proposal.
@@ -241,31 +244,9 @@ calculation).
   simulator cannot answer it (ρ = −0.63 under llama3.2, −0.09 under both gpt-3.5 and gemma, which
   both ceiling).
 - **Does simulated facility track real facility?** Needs the pilot.
-- **Cross-simulator replication (ρ ≈ 0.23) may be an underpowered artefact of 15 items**, not a real
-  finding — pending the case+CAGE+TW pooled run described above.
-- **Term items have no calibrated difficulty and the existing simulator cannot produce one** (it
-  simulates an MCQ attempt, not a term/definition match). Match's adaptive arm measures nothing until
-  this is resolved. Not decided: build a match-shaped simulator, ship as-is and document, or mark
-  match `lever: 'none'`.
-- **5 test students' event rows are still in the live research dataset** from A1's end-to-end
-  verification (`e2e-%@test.local`, `starve-%@test.local`). Cleanup SQL proposed, not yet approved by
-  the user.
+- **Term items now have a calibration path (the MCQ rendering shim) but no calibrated values yet.**
+  Next action 2 above closes this.
 - **Next meeting Tuesday 4 Aug.**
-
-## Next 3 actions
-
-1. **Build the shared `abandonRound` helper** (in flight) — match reintroduced the abandoned-round
-   number-reuse bug that was already fixed for the quiz, because the quiz's fix lived in the quiz page
-   rather than shared code. Land this before A3 so a third game does not repeat it.
-2. **Package A3, choose-the-right-word.** 50/50 term supply is ready; it reuses `FlatPoints` and
-   item-level granularity, so it should be a smaller build than A1.
-3. **Run A0 against the CAGE deck** to settle Wordle:
-   `node scripts/generate-terms.mjs "INM -Session 6_CAGE- Challenges of Entering Foreign Markets_claude.pdf" --subject "International Management" --per-window 5 --dry-run`
-   and read the "Wordle-eligible" line it prints. (Independent of the Ollama jobs — safe to run now.)
-
-After that: read the simulation logs when the background jobs finish and write up the pooled ρ. Raise
-with Prof. Singh on Tue 4 Aug: the points table numbers, Wordle's viability, the term-difficulty
-calibration gap, rapid/normal exact seconds, and whether there is a control arm.
 
 ## Do not redo
 
@@ -274,22 +255,27 @@ calibration gap, rapid/normal exact seconds, and whether there is a control arm.
   board-grained lever.
 - **Do not pad the match board with `distractors`** — that column is for choose-the-right-word and
   fill-in-the-blanks; padding breaks the bijection the scoring rests on.
-- **Do not select boards by whole-history exclusion** — it locked a student out permanently after 8
-  boards in live testing. Selection is least-recently-served ranking
-  (`lib/games/match-board-select.ts`).
-- **Do not fabricate a `difficulty_level` for match events** — the current simulator cannot produce
-  one for term/definition pairs; match correctly logs no difficulty rather than guessing.
-- **Do not delete the 5 test-student rows from the live dataset without the user's explicit
-  approval** — proposed cleanup SQL is pending, not yet approved.
+- **Do not select boards (or word items) by whole-history exclusion** — it locked a student out
+  permanently after 8 boards in live testing. Selection is least-recently-served ranking, shared
+  via `lib/games/item-select.ts`.
+- **Do not copy the quiz's answer-commit logic into a new game — extract and share it via
+  `lib/game/answer-commit.ts`.** A3 followed this; the quiz, match's submit path, and word's answer
+  route all benefited from the same race fix in one place.
+- **Do not add a new "declined a round" state that blurs with abandonment** — `round_stop` (a
+  direct decline) and an unresolved `round_offer` (abandonment) must stay distinct in the log.
+- **Do not claim `difficultyHonored: true` without sending it in the API response** — the badge
+  bug that shipped silently under two reviews and 100 tests.
 - **Do not assume match scores come in even numbers only** — 3 and 1 are reachable (odd-length
   cycles); the only forbidden score is 5-of-6 (no singleton errors).
-- **Do not run two Ollama jobs concurrently** — the deck-arms job's lock/wait guards exist for
-  exactly this; don't add a third job that bypasses them.
+- **Do not run two Ollama jobs concurrently** — the bake-off's lock/wait guards exist for exactly
+  this; don't add a second job that bypasses them.
 - **Do not run the simulation ungrounded and call it difficulty.** Settled on three model families.
 - **Do not give every tier the full excerpt** — arm B inverts the ability gradient on all three
   models.
-- **Do not switch simulator to gemma2:9b or gpt-3.5-turbo.** Both ceiling (8/15 and 7/15) and both
-  recognise the Airbnb deck from training data; gemma is also ~6× slower.
+- **Do not switch simulator to gemma2:9b or gpt-3.5-turbo without re-checking the bake-off.** Both
+  ceiling badly (8/15 and 7/15 on the Airbnb baseline) and both recognise course decks from
+  training data; gemma is also ~6× slower. The bake-off may still surface a better small-model
+  alternative — that is what it is for.
 - **Do not add more than five difficulty levels**, and **do not bin by rank position** — ties must
   share a band (`scripts/lib/quintile-difficulty.mjs`).
 - **Do not seed the simulator from array position.** Item id only.
@@ -298,10 +284,11 @@ calibration gap, rapid/normal exact seconds, and whether there is a control arm.
 - **Do not merge `simulated_p` into `empirical_p`**, or `cognitive_level` into either.
 - **Do not add a dashboard view event** — `/` redirects to `/dashboard`, so it duplicates
   `session_start`.
-- **Do not revert G2's multi-word clue-leak rule** to per-word matching; it rejected 5 of 8 valid items.
-- **Do not trust a builder's "done" on scoring or auth without a `reviewer` pass.** Q1's first attempt
-  reported success while the answer key still shipped in the JS bundle. Match's submit route is the
-  current instance of this rule.
+- **Do not revert G2's multi-word clue-leak rule** to per-word matching; it rejected 5 of 8 valid
+  items.
+- **Do not trust a builder's "done" on scoring or auth without a `reviewer` pass.** Q1's first
+  attempt reported success while the answer key still shipped in the JS bundle. A3's concurrency
+  race is the current instance of this rule paying off.
 - **Do not `git add -A` with course-material PDFs in the tree** — a 9.8 MB deck was committed by
   accident and had to be amended out. Root `*.pdf` is now gitignored.
 - **Gemini prepayment credits are depleted** — every Gemini call 429s. Generation runs on OpenAI
@@ -311,7 +298,9 @@ calibration gap, rapid/normal exact seconds, and whether there is a control arm.
   `node --test tests/*.test.ts`.
 - **Do not remove `allowImportingTsExtensions`** from `tsconfig.json`.
 - **Do not put a CHECK on `events.cognitive_level`** — append-only log on the answer path.
-- **Do not reinstate LibreOffice**, add a `passage` content type, or recreate `docs/PROJECT_BACKLOG.md`.
-- **Do not learn the professor's spec from summaries.** Read `docs/meeting/Jul 27 at 3-39 PM.txt`.
+- **Do not reinstate LibreOffice**, add a `passage` content type, or recreate
+  `docs/PROJECT_BACKLOG.md`.
+- **Do not learn the professor's spec from summaries.** Read
+  `docs/meeting/Jul 27 at 3-39 PM.txt`.
 - All prior "do not redo" items from the 29–31 Jul checkpoints still stand (no Poppler/ImageMagick,
   no npm ZIP library, no `psql`, no bcrypt/argon2, no steering prompt on `codex exec review`).

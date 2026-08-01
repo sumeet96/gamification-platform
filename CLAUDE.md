@@ -78,6 +78,16 @@ event logging is the research dataset.
     reasoning even without the source, while recall items give ability nothing to bite on. The
     Advanced tier here is only 3 simulated students, and the clean test — the grounded-retention arm
     on the same case — has not run. Do not fold this into the grounding finding above until it does.
+  - _Correction, 1 Aug 2026 — term items are calibratable after all:_ this file and
+    `docs/CURRENT_STATE.md` previously said term/definition items cannot be difficulty-calibrated
+    because the simulator is MCQ-only ("answer A, B, C or D") and a term/definition pair has no
+    options. That is now outdated. Package A3 renders each term item as a clue plus four options
+    built from `distractors` — i.e. an MCQ — so all 50 term rows are calibratable today with a
+    rendering shim (clue as stem, term+distractors as options), no new method needed. Match can
+    borrow the same per-item estimate as a proxy, since a match board is essentially six
+    simultaneous choose-word items with elimination. This shrinks "match's adaptive arm measures
+    nothing" from a research package to a rendering change. Not yet done: no term row has a
+    `difficulty` value yet, so `difficultyHonored` is still correctly false for word and match.
 - **Difficulty stays at five levels.** At n=30 simulated students per item the standard error on a
   success rate is ~0.09, so ten bands would be about one standard error wide — false precision. Ties
   share a band (`scripts/lib/quintile-difficulty.mjs`); do not bin by rank position.
@@ -112,9 +122,9 @@ event logging is the research dataset.
 - Log all events (session, round, per-question interactions, score, adaptivity feedback) for DSR dataset. Do not train on student data.
 
 ## Stack & constraints (28 Jul 2026 rebuild — details in HANDOFF.md §4)
-- **Five packages shipped: G1 (generator, 31 Jul), G2 (term/definition generator, 1 Aug), D1
-  (dashboard, 31 Jul), Q1 (quiz hardening, 31 Jul), A1 (match-the-following, 1 Aug).**
-  `app/dashboard/page.tsx` drives its tiles from
+- **Six packages shipped: G1 (generator, 31 Jul), G2 (term/definition generator, 1 Aug), D1
+  (dashboard, 31 Jul), Q1 (quiz hardening, 31 Jul), A1 (match-the-following, 1 Aug), A3
+  (choose-the-right-word, 1 Aug).** `app/dashboard/page.tsx` drives its tiles from
   `GAME_REGISTRY`; `scripts/generate-questions.mjs` writes `content_items` plus `source_excerpt`;
   `scripts/generate-terms.mjs` + `scripts/lib/terms-validate.mjs` extract `term_definition`
   primitives, unblocking match-the-following, fill-in-the-blanks, choose-the-right-word, and Wordle
@@ -149,6 +159,21 @@ event logging is the research dataset.
     reintroduced. Score per board, log per pair: board economics on `board_complete`, per-pair facility
     on `question_answered`. 68 tests, `tsc --noEmit` clean, `npx next build` succeeds, verified end to
     end against live Neon.
+  - _A3, choose-the-right-word, shipped 1 Aug 2026 (commit `1805d62`):_ clue is the prompt, term is
+    the answer, `distractors` supply the wrong options. Item-grained, `FlatPoints` 15/−5, the
+    dashboard's fourth tile. Went before A2 (fill-in-the-blanks) because all 50 term rows have ≥3
+    distractors while only 35 have an `example_sentence`. Two things worth keeping: the quiz's
+    hardened answer-commit path (cookie-only attribution, dedupe, the 23503 FK retry) was
+    **extracted, not copied**, into `lib/game/answer-commit.ts`, so `/api/answer` and
+    `/api/word/answer` share one implementation instead of two that can drift — this closed a
+    same-question concurrency race (12 concurrent POSTs all scoring) that had existed since Q1 and
+    affected the quiz and match too, not just word. And `abandonRound()` is now a shared obligation
+    in `lib/game/game-context.tsx` — the abandoned-round bug was fixed for the quiz on 1 Aug inside
+    the quiz page, then match reintroduced it two days later because the fix wasn't shared; every
+    game now calls the same helper. 100 tests, `tsc --noEmit` clean, `npx next build` succeeds,
+    verified end to end including a 12-way concurrency salvo (db/008's partial unique index makes
+    the answer insert its own lock; the 409 it returns on a repeat is idempotent, reading the
+    already-stored result rather than recomputing it).
 - **Runtime LLM: Gemini paid Tier 1** (Flash-class), not free tier — free tier's ~10 RPM and training-data clause fail a classroom pilot. Pending prof sign-off on the small spend; until then, develop against free tier but architect for Tier 1.
   - _Provider reality, 31 Jul 2026:_ **Gemini prepayment credits are depleted** — every Gemini call
     429s. Generation currently runs on **OpenAI** via the provider-agnostic adapter
@@ -209,10 +234,11 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
   found on 30 Jul 2026 by re-reading the transcript, because summaries are lossy
   (`docs/PROJECT_MAP.md` §2.7 and §0).
 - **Tests exist now.** `npm test` runs `node --test tests/*.test.ts`. No external test framework — do
-  not add vitest or jest. 68 tests as of 1 Aug 2026 (`tests/lever.test.ts`,
+  not add vitest or jest. 100 tests as of 1 Aug 2026 (`tests/lever.test.ts`,
   `tests/quintile-difficulty.test.ts`, `tests/registry.test.ts`, `tests/match.test.ts`,
   `tests/match-board.test.ts`, `tests/board-token.test.ts`, `tests/events-allowlist.test.ts`,
-  `tests/stats-potential.test.ts`, and others).
+  `tests/stats-potential.test.ts`, `tests/answer-commit.test.ts`, `tests/item-select.test.ts`,
+  `tests/word.test.ts`, and others).
 - **Anything touching scoring or auth gets a `reviewer` pass before commit.** The first Q1 attempt
   reported success while the answer key still shipped in the client JS bundle and
   `app/api/answer/route.ts` returned `correctIndex` on every POST, not just the one that scores. A
@@ -238,16 +264,43 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
     well, collapsing the task toward reading comprehension. `gemma2:9b` and `gpt-3.5-turbo` were
     rejected as simulators for ceilinging on 8/15 and 7/15, but that was never purely a model fact
     either. This does not overturn keeping `llama3.2` (the recognition-of-famous-decks argument for
-    rejecting the other two stands), but the stated reason needed correcting. Also flag: the ρ ≈ 0.23
-    figure above was computed on 15 items, 95% CI roughly [−0.32, +0.66] — too wide to support "the
-    values do not replicate" as currently stated; a pooled run across 45 unmemorised items is in
-    progress to narrow it (`docs/CURRENT_STATE.md`).
+    rejecting the other two stands), but the stated reason needed correcting.
+  - _Correction, 1 Aug 2026 — the pooled run finished and revises the headline ρ ≈ 0.23 figure:_
+    that number was computed on only 15 items (95% CI roughly [−0.32, +0.66], too wide to support
+    "the values do not replicate") and, worse, on the **Airbnb deck specifically, which every model
+    family recognises from training data.** The pooled arm-C run (llama3.2 vs gemma2:9b) on three
+    unmemorised decks gives: CAGE slides ρ = 0.75 (17 items), Thoughtworks slides ρ = 0.75 (9 items),
+    Thoughtworks case ρ = 0.46 (19 items, gemma ceilings on 16/19 so it carries little ranking
+    information). **Pooled across the two genre-matched slide decks: ρ = 0.62, 95% CI [0.26, 0.83]**
+    — a real, if not tight, agreement — versus ρ = 0.14, CI [−0.42, 0.62] on the memorised Airbnb
+    baseline. The memorisation hypothesis is supported: the genre control was decisive, since
+    pooling all three unmemorised decks together (including the case, which ceilings on gemma) gives
+    an ambiguous ρ = 0.36. Update the standing claim from "ρ ≈ 0.23, values do not replicate" to:
+    **on unmemorised, genre-matched material the two simulators substantially agree; the earlier
+    figure was an artefact of testing on a deck the larger models had memorised.** Full detail:
+    `docs/CURRENT_STATE.md`.
+  - _Simulator selection criterion, 1 Aug 2026 — corrects "weaker models simulate students
+    better" as a selection rule:_ the standing bake-off (`llama3.2:1b`, `qwen2.5:1.5b`, `gemma2:2b`
+    on the CAGE deck) selects on **discrimination, not weakness**. What has broken every run so far
+    is CEILING — an item scored ~1.0 carries no ranking information — not a model simply being too
+    strong. Target: mean facility ~0.50–0.65, <~20% at ceiling, <~10% at floor, a monotonic gradient
+    across the four retention tiers (guards against a model at chance, which shows no gradient and
+    measures noise), IQR > ~0.3. `llama3.2` (3B) sits slightly too able (0.71–0.79) on some decks —
+    it may be replaced by whichever bake-off model best fits the criterion, not automatically kept
+    for being small.
 - **Exercise the artifact against real data before believing a package is done.** A1's board-selection
   logic passed 66 unit tests and two adversarial review passes (17 defects found and fixed across
   them), but whole-history exclusion still locked a test student out of match permanently after
   exactly 8 boards — which would have manufactured the ceiling the persistence loop exists to measure.
   It was found only by playing the game against the live database and counting. Static review and unit
   tests are necessary, not sufficient, for anything with state that accumulates across sessions.
+  - _Second instance, A3, 1 Aug 2026:_ `app/api/word/question/route.ts` computed
+    `difficultyHonored` and never sent it in the response. This passed **100 tests, a clean
+    `tsc --noEmit`, a clean build, and two adversarial reviewer passes** — every static check the
+    project has. It surfaced only by playing the game: the Level badge was hidden, for the wrong
+    reason, and would have stayed hidden even after the term rows get calibrated. Cross-agent seams
+    — one route computing a value, another consuming it — are exactly where static review looks
+    away from, because each side individually looks correct.
 - **`EventType` is derived from `CLIENT_EMITTABLE_EVENT_TYPES`, not maintained in parallel with it**
   (`lib/log/logEvent.ts`). `/api/events` used to be a denylist checked against a separately-written
   type; the two could drift. Now the runtime allowlist and the compile-time type come from the same
