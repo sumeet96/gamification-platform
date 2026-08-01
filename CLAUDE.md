@@ -9,9 +9,13 @@ per the professor's first instruction (`docs/meeting/Jul 27 at 3-39 PM.txt`). **
 (package D1): `app/dashboard/page.tsx` renders one tile per entry in `GAME_REGISTRY`
 (`lib/games/registry.ts`), the single source of truth for what games exist and how each scores.
 Points are fixed *within* a game and vary *across* games and difficulty —
-that spread is the intended "high and low" feeling, not a flat rate. Each student picks exactly one
-adaptivity lever: either adaptive difficulty (which ramps up/down per performance) or time pressure
-(clock tightens), never both. Rapid and normal modes. A "keep going → next round" loop drives
+that spread is the intended "high and low" feeling, not a flat rate. Each student was to pick exactly
+one adaptivity lever: either adaptive difficulty (which ramps up/down per performance) or time
+pressure (clock tightens), never both. **Superseded, reported 1 Aug 2026 (not yet transcribed):** the
+professor has reportedly dropped the adaptive-difficulty lever — difficulty tagging proved difficult,
+and every student is to get time pressure. See "Core design rules" below for the full status, the
+open experimental-design gap this creates, and why the machinery stays in the codebase. Rapid and
+normal modes. A "keep going → next round" loop drives
 persistence. Course material is not a build prerequisite — the professor said any PDF on any topic
 works for building the pipeline — but the pilot itself is Prof. Singh's Digital Transformation course
 (~20 sessions), from ~mid-Sept 2026. The artifact is a Design Science Research piece; per-question
@@ -26,8 +30,30 @@ event logging is the research dataset.
   the transcript — "Fixed point economy: +20/−10 everywhere" was a misreading. A hard game pays more
   than an easy one; that variability is the mechanic the professor asked for, resolved by a published,
   predictable points table (values are placeholders pending his sign-off; see `docs/PROJECT_MAP.md` §1).
-- **One adaptivity lever per student:** adaptive difficulty (ramps) or time pressure (clock). Not both.
-  Clean experimental design.
+- **SUPERSEDED 1 Aug 2026 — one adaptivity lever per student:** adaptive difficulty (ramps) or time
+  pressure (clock). Not both. Clean experimental design. Kept here, marked superseded rather than
+  deleted, because it is the rule that made the levers a two-arm experiment in the first place.
+  - _Superseded by, reported 1 Aug 2026, NOT YET TRANSCRIBED:_ per the user, Prof. Singh has said to
+    drop the adaptive-difficulty lever — difficulty tagging is proving difficult — and stick with time
+    pressure for everyone. The project rule that professor decisions cite a transcript in
+    `docs/meeting/` (five drifts were found on 30 Jul 2026 by re-reading one) applies here: there is no
+    transcript or recording for this yet. Treat as reported, not settled, until one exists.
+  - **OPEN AND URGENT: this removes the between-arm contrast.** The difficulty-vs-time split WAS the
+    independent variable. If everyone gets time pressure, nothing is established to vary between
+    conditions — time-on vs time-off? rapid vs normal? something else? Without a contrast there is no
+    experiment, only an instrumented app. This is the top item for the 4 Aug meeting, ahead of any
+    further build work that assumes a design.
+  - **Difficulty moves from item-selection INPUT to analysis COVARIATE, not out of the project.** Even
+    under random or least-recently-served item assignment, item difficulty is still needed to say
+    anything credible about a time-pressure effect — otherwise a student who drew harder items merely
+    looks slower. It also opens whether time pressure hurts disproportionately on hard items. The
+    calibration work below (bake-off, term-MCQ rendering) keeps a home in the paper.
+  - **Do not delete the adaptive machinery.** The "delete obsoleted machinery" convention below was
+    written for code that never changed an outcome; this is a working, tested capability the professor
+    may want back once tagging is easier. `nextDifficulty`, the adaptive branch of
+    `resolveLever()`/`advanceLeverState()` in `lib/game/engine.ts`, and the difficulty ranking in
+    `lib/games/item-select.ts` all stay, parked behind the registry flag, until the decision is
+    confirmed in writing. Full detail: `docs/CURRENT_STATE.md`.
 - **Both levers must never be active at once, enforced structurally.** Games consume `resolveLever()`
   from `lib/game/engine.ts` and never branch on `config.lever` themselves — both-levers-at-once becomes
   a single tested function instead of ~25 scattered branches. Not literally unrepresentable — the
@@ -88,6 +114,17 @@ event logging is the research dataset.
     simultaneous choose-word items with elimination. This shrinks "match's adaptive arm measures
     nothing" from a research package to a rendering change. Not yet done: no term row has a
     `difficulty` value yet, so `difficultyHonored` is still correctly false for word and match.
+  - _Bake-off complete, 1 Aug 2026 — simulator choice is ITEM-TYPE dependent, no global winner:_ five
+    local models (`llama3.2:1b`, `qwen2.5:1.5b`, `gemma2:2b`, `llama3.2:3b`, `gemma2:9b`) run on two
+    arms, both grounded + retention-gated, n=30 per item. Slide MCQs (CAGE deck, 17 items):
+    `llama3.2:3b` is best (mean 0.72, 2/17 ceiling, monotonic gradient); `llama3.2:1b` is unusable
+    (0/17 ceiling looks good but the gradient does not resolve, 0.30/0.40/0.44/0.35). Term MCQs
+    (50 items, rendered via `build-term-mcq-spike.mjs`): the ranking flips — `llama3.2:1b` is best
+    (mean 0.54, 0/50 ceiling, monotonic though step-shaped) and `llama3.2:3b` is marginal (31/50 at
+    ceiling). **Recommendation: `llama3.2:3b` for the quiz's MCQs, `llama3.2:1b` for term items
+    (match, choose-the-right-word).** Mechanism: a choose-word item is recognition (match a definition
+    to a short label among near-miss options), which saturates a competent model; a slide MCQ is
+    reasoning, which does not. Full tables: `docs/CURRENT_STATE.md`.
 - **Difficulty stays at five levels.** At n=30 simulated students per item the standard error on a
   success rate is ~0.09, so ten bands would be about one standard error wide — false precision. Ties
   share a band (`scripts/lib/quintile-difficulty.mjs`); do not bin by rank position.
@@ -196,9 +233,21 @@ event logging is the research dataset.
   (that stays on Gemini).** Already installed, v0.32.1. Three reasons it must be local, in order:
   (1) reproducibility — a hosted model can change mid-pilot and silently shift calibration, which
   would break the paper's instrument; (2) course material never leaves the machine; (3) the research
-  finds **weaker models simulate students better** (`docs/literature/item-difficulty-without-students.md`),
-  so a small local model is the methodologically correct choice, not a compromise. **Warning:
-  `gemma4:31b-cloud` shows up in `ollama list` but is a CLOUD model — do not use it for simulation.**
+  finds **weaker models simulate students better up to a point — the live selection rule is
+  discrimination, not raw weakness** (`docs/literature/item-difficulty-without-students.md`; corrected
+  1 Aug 2026, see the bake-off result above), so a small local model is the methodologically correct
+  choice, not a compromise. **Warning: `gemma4:31b-cloud` shows up in `ollama list` but is a CLOUD
+  model — do not use it for simulation.** **Locally installed as of 1 Aug 2026:** `llama3.2:1b`,
+  `qwen2.5:1.5b`, `gemma2:2b`, plus the earlier `llama3.2` (3B) and `gemma2:9b`.
+  - _Tooling lesson, 1 Aug 2026:_ the simulation runner scripts guarded against concurrent Ollama jobs
+    by waiting for `ollama ps` to be **empty**. That check is wrong: `ollama ps` lists **loaded**
+    models, not **busy** ones, and Ollama keeps a model resident ~5 minutes after use — a warm idle
+    model is not a conflict, and two runs sat in the wait loop until they aborted instead of running.
+    The check was **removed, not repaired**; the mutex is the real protection. Second half: a hard
+    kill does not fire an EXIT trap, so a killed run left its lock directory behind and silently
+    blocked the next run. **A mutex whose release depends on graceful exit is only half a mutex** —
+    the lock now records the owning PID so a stale lock is distinguishable from a live one
+    (`spike-data/run-term-llama3b.sh` has the working pattern; copy it, don't re-derive the fix).
 - Knowledge layer: **input is PDF. LibreOffice is out of the pipeline** (corrected 30 Jul 2026 —
   professors export PDFs from PowerPoint themselves; rationale in `docs/architecture/generator-spec.md`).
   Course material is not a build prerequisite — the professor said any PDF on any topic works for
@@ -250,6 +299,16 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
   student responses settle it. Simulate an attempt and measure the failure rate rather than asking
   for a rating (`docs/literature/item-difficulty-without-students.md`,
   `docs/experiments/2026-07-31_grounded-difficulty-simulation.md`, `docs/PROJECT_MAP.md` §1.6).
+  - _Reopened, not reversed, 1 Aug 2026:_ Hoard et al. (2026 arXiv preprint, math items only) reports
+    that pairwise comparison plus calibration examples substantially rescues direct LLM difficulty
+    rating, where plain absolute rating still fails. This is an untested middle ground on prose, not
+    evidence the project's own finding was wrong — cheap to try later, not prioritised over settling
+    the experimental-contrast question. See `docs/literature/publishing-llm-item-difficulty.md`.
+- **Expect r ≈ 0.5 for management prose, not the 0.75–0.82 figure already cited.** That figure
+  (Acquaye et al.) is confirmed NAEP-mathematics-MCQ only. SMART (Chen et al., preprint) reports
+  Spearman 0.57 on reading comprehension and 0.42 on coding with the same simulation approach —
+  reading-comprehension-style domains land near r ≈ 0.5–0.7. Tell Prof. Singh before the pilot, not
+  after. `docs/literature/publishing-llm-item-difficulty.md`.
 - **One simulator is one measurement, not a result.** Any difficulty claim must name the simulator,
   and anything load-bearing must be replicated on a second. Tested on three model families as of
   31 Jul 2026 (`llama3.2`, `gpt-3.5-turbo-0125`, `gemma2:9b`): the *method* — retention-gated
@@ -280,14 +339,21 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
     figure was an artefact of testing on a deck the larger models had memorised.** Full detail:
     `docs/CURRENT_STATE.md`.
   - _Simulator selection criterion, 1 Aug 2026 — corrects "weaker models simulate students
-    better" as a selection rule:_ the standing bake-off (`llama3.2:1b`, `qwen2.5:1.5b`, `gemma2:2b`
-    on the CAGE deck) selects on **discrimination, not weakness**. What has broken every run so far
-    is CEILING — an item scored ~1.0 carries no ranking information — not a model simply being too
+    better" as a selection rule:_ the bake-off (`llama3.2:1b`, `qwen2.5:1.5b`, `gemma2:2b`,
+    `llama3.2:3b`, `gemma2:9b`, two arms) selects on **discrimination, not weakness**. What breaks a
+    run is CEILING — an item scored ~1.0 carries no ranking information — not a model simply being too
     strong. Target: mean facility ~0.50–0.65, <~20% at ceiling, <~10% at floor, a monotonic gradient
     across the four retention tiers (guards against a model at chance, which shows no gradient and
-    measures noise), IQR > ~0.3. `llama3.2` (3B) sits slightly too able (0.71–0.79) on some decks —
-    it may be replaced by whichever bake-off model best fits the criterion, not automatically kept
-    for being small.
+    measures noise), IQR > ~0.3.
+  - _Bake-off COMPLETE, 1 Aug 2026 — the result is item-type dependent, not one winner:_ on slide
+    MCQs (CAGE deck) `llama3.2:3b` wins (mean 0.72, 2/17 ceiling, monotonic); `llama3.2:1b` fails
+    there (0/17 ceiling but the gradient does not resolve, 0.30/0.40/0.44/0.35). On term MCQs
+    (50 items, `build-term-mcq-spike.mjs`) the ranking flips: `llama3.2:1b` wins (mean 0.54, 0/50
+    ceiling) and `llama3.2:3b` is marginal (31/50 at ceiling). **Recommendation: `llama3.2:3b` for
+    quiz MCQs, `llama3.2:1b` for term items.** Recognition tasks (choose-word) saturate a competent
+    model; reasoning tasks (slide MCQs) do not. `llama3.2:1b`'s term gradient is step-shaped
+    (0.49/0.49 then 0.63/0.63) — it separates low from high retention but does not resolve four
+    tiers cleanly; state that caveat in any write-up. Full tables: `docs/CURRENT_STATE.md`.
 - **Exercise the artifact against real data before believing a package is done.** A1's board-selection
   logic passed 66 unit tests and two adversarial review passes (17 defects found and fixed across
   them), but whole-history exclusion still locked a test student out of match permanently after
