@@ -26,7 +26,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { neon } from '@neondatabase/serverless'
 import { loadEnv, createClient } from './lib/llm-client.mjs'
-import { validateTerms } from './lib/terms-validate.mjs'
+import { validateTerms, revalidateItem } from './lib/terms-validate.mjs'
 
 loadEnv()
 
@@ -105,11 +105,11 @@ const promptFor = (from, to) => `You are extracting term/definition study primit
 Use ONLY pages ${from} to ${to} of this PDF. Ignore every other page completely.
 
 Write ${perWindow} term/definition items. For each one:
-- "term": the thing being learned — a word or short phrase (at most 5 words), taken from or clearly named in the material.
-- "clue": a definition or description of the term, usable as a crossword clue, a match-the-following target, and a Wordle hint. It must NOT contain the term itself, or any obvious variant of it (e.g. if the term is "automation", the clue may not contain "automate" or "automating" either) — that would hand every one of those games its own answer.
+- "term": the thing being learned — a word or short phrase (at most 5 words), taken from or clearly named in the material. It must be a CONCEPT a student could learn and reuse, not a chart or exhibit caption. If a slide's title is "Netflix Subscribers Statistics 2025" or "Mattel Japan Market Share", do not lift that title as the term — either skip the slide or name the underlying concept it illustrates instead. A term that is mostly a country, a year, or a metric word ("Market Share", "Statistics", "Subscribers") is almost always a caption, not a concept.
+- "clue": a definition or description of the term, usable as a crossword clue, a match-the-following target, and a Wordle hint. It must NOT contain the term itself, or any obvious variant of it (e.g. if the term is "automation", the clue may not contain "automate" or "automating" either) — that would hand every one of those games its own answer. It also must not contain a detail (a country, a year, a proper noun) that appears in the correct term but in NONE of the distractors — a student could answer on that one word alone without knowing the material, even if the clue never uses the term's own words.
 - "example_sentence": a sentence from or faithful to the source material that CONTAINS the term verbatim. This is what a fill-in-the-blanks game blanks out. If no such sentence exists on these pages, use null rather than inventing one that misrepresents the source.
 - "variants": other acceptable answers for the term — abbreviations, plurals, common alternate spellings. Return an empty array if there are none.
-- "distractors": 2-4 other terms that are plausible but WRONG matches for this clue — near misses, not synonyms of the term (a synonym would make the item unanswerable, since it would also be correct). Return an empty array only if the material genuinely offers nothing suitable.
+- "distractors": 2-4 other terms that are plausible but WRONG matches for this clue — near misses, not synonyms of the term (a synonym would make the item unanswerable, since it would also be correct). Where the term has a natural head noun, share it across the distractor set rather than avoiding it — "Story Wall" -> "Release Wall", "Story Board"; "User story cards" -> "Task cards", "Index cards"; "Minimum Viable Product" -> "Minimum Marketable Feature", "Product Increment". A clue almost always has to use that same head noun to define the term at all, and if only the correct answer carries it, a student can pick it out by keyword alone without knowing the material. Return an empty array only if the material genuinely offers nothing suitable.
 - "page": the single page the term comes from. It MUST be between ${from} and ${to}.
 - "source_excerpt": the words on that page, transcribed verbatim, including words inside images.
 - "source_layout": if the page is a diagram, chart, matrix or quadrant, describe where things sit — what each axis means, which end is which, and which items fall in which quadrant or region. If the page has no meaningful spatial arrangement, use an empty string.
@@ -121,12 +121,41 @@ Hard rules:
 - Base every item strictly on pages ${from} to ${to}. Do not use outside knowledge.
 - If these pages are a title page, a divider, or otherwise carry no teachable terminology, return an empty terms array. Do not invent content to fill the quota.`
 
+// --- distractor repair ---
+// checkOptionSetGiveaway (terms-validate.mjs) fires when a clue shares a content word with the
+// term and NO distractor carries that same word — a student can then pick the answer by keyword
+// alone. Rejecting the whole item for that is what CLAUDE.md's "over-rejecting guard" incident
+// warned against: the giveaway lives in the DISTRACTOR SET, not the term or clue, and is fixable
+// by rewriting distractors rather than throwing the item away. One extra call per repairable item,
+// no loop — cost discipline, not because a second retry couldn't also work.
+const REPAIR_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['distractors'],
+  properties: { distractors: { type: 'array', items: { type: 'string' } } },
+}
+const repairPromptFor = (item, token) => `You previously wrote this term/definition study item, but its distractor set has a defect: the clue and the correct term both contain "${token}", and NONE of the current distractors do. That means a student can pick the correct answer just by spotting "${token}" among the options, without knowing the material.
+
+Term: "${item.term}"
+Clue: "${item.clue}"
+Current distractors: ${JSON.stringify(item.distractors)}
+
+Write a REPLACEMENT set of ${item.distractors.length} distractors for this same term and clue.
+- At least one new distractor MUST also contain "${token}" (or an obvious inflection of it), so that word alone no longer identifies the correct answer.
+- Every distractor must stay plausible but WRONG — a near miss, not a synonym of the term (a synonym would make the item unanswerable, since it would also be correct).
+- Do not reuse the term itself or any of the current distractors verbatim.`
+
 // --- window loop ---
 console.log(`${title}: ${numpages} pages, generating over ${firstPage}-${lastPage} in windows of ${windowSize} on ${client.provider}/${client.model}${dryRun ? ' (dry run)' : ''}`)
 const ref = await client.uploadPdf(pdfPath)
 const drafts = []
 let outOfWindow = 0
 let tokensIn = 0, tokensOut = 0
+
+// Declared outside the try so they survive to the reporting section below; the repair loop needs
+// `ref` (the uploaded PDF reference), which is only alive until the `finally` deletes it, so both
+// validation and repair run inside the try, before that happens.
+let passed, rejected, repaired = [], repairFailed = []
 
 try {
   for (let from = firstPage; from <= lastPage; from += windowSize) {
@@ -152,14 +181,38 @@ try {
     drafts.push(...kept)
     console.log(`  pages ${String(from).padStart(2)}-${String(to).padStart(2)}: ${kept.length} kept${batch.length - kept.length ? `, ${batch.length - kept.length} out-of-window` : ''}`)
   }
+
+  // --- the mandatory guard: nothing reaches the database unvalidated ---
+  const validated = validateTerms(drafts)
+  rejected = validated.rejected
+  passed = validated.passed
+
+  // --- distractor repair: one extra call per item flagged option-set-giveaway, not a loop ---
+  for (const r of validated.repairable) {
+    const original = drafts[r.index]
+    try {
+      const { data, usage } = await client.generateJSON({ ref, prompt: repairPromptFor(original, r.token), schema: REPAIR_SCHEMA })
+      tokensIn += usage.in ?? 0; tokensOut += usage.out ?? 0
+      const candidate = { ...original, distractors: Array.isArray(data?.distractors) ? data.distractors : original.distractors }
+      const fail = revalidateItem(candidate)
+      if (fail) repairFailed.push({ index: r.index, ...fail })
+      else repaired.push(candidate)
+    } catch (err) {
+      // Same principle as a dead generation window: one failed repair call must not lose the item
+      // silently — it falls through to rejected, logged with why.
+      repairFailed.push({ index: r.index, rule: 'repair-call-failed', quote: err.message })
+    }
+  }
+  passed = [...passed, ...repaired]
+  rejected = [...rejected, ...repairFailed]
 } finally {
   await client.deleteFile(ref)
 }
 
-// --- the mandatory guard: nothing reaches the database unvalidated ---
-const { passed, rejected } = validateTerms(drafts)
-console.log(`\n${drafts.length} drafts, ${outOfWindow} rejected out-of-window, ${rejected.length} rejected by the validator, ${passed.length} usable.`)
+console.log(`\n${drafts.length} drafts, ${outOfWindow} rejected out-of-window, ${rejected.length} rejected by the validator ` +
+  `(${repairFailed.length} of those after a failed distractor repair), ${repaired.length} repaired and kept, ${passed.length} usable.`)
 for (const r of rejected) console.log(`  [${r.index}] ${r.rule}: ${r.quote}`)
+for (const t of repaired) console.log(`  [repaired] "${t.term}": new distractors ${JSON.stringify(t.distractors)}`)
 const pages = [...new Set(passed.map((t) => t.page))].sort((a, b) => a - b)
 console.log(`Pages covered: ${pages.join(', ') || '(none)'}`)
 const noDistractors = passed.filter((t) => t.distractors.length === 0).length
