@@ -112,8 +112,9 @@ event logging is the research dataset.
 - Log all events (session, round, per-question interactions, score, adaptivity feedback) for DSR dataset. Do not train on student data.
 
 ## Stack & constraints (28 Jul 2026 rebuild — details in HANDOFF.md §4)
-- **Four P0 packages shipped: G1 (generator, 31 Jul), G2 (term/definition generator, 1 Aug), D1
-  (dashboard, 31 Jul), Q1 (quiz hardening, 31 Jul).** `app/dashboard/page.tsx` drives its tiles from
+- **Five packages shipped: G1 (generator, 31 Jul), G2 (term/definition generator, 1 Aug), D1
+  (dashboard, 31 Jul), Q1 (quiz hardening, 31 Jul), A1 (match-the-following, 1 Aug).**
+  `app/dashboard/page.tsx` drives its tiles from
   `GAME_REGISTRY`; `scripts/generate-questions.mjs` writes `content_items` plus `source_excerpt`;
   `scripts/generate-terms.mjs` + `scripts/lib/terms-validate.mjs` extract `term_definition`
   primitives, unblocking match-the-following, fill-in-the-blanks, choose-the-right-word, and Wordle
@@ -133,6 +134,21 @@ event logging is the research dataset.
     Agile Delivery Model"); the one single word, "Inception", is nine letters. Run A0 against a second
     deck before dropping Wordle, but the reason likely generalises: a case study yields a taxonomy of
     terms, not a lexicon of words.
+  - _A1, match-the-following, shipped 1 Aug 2026 (commit `fe871e1`):_ the dashboard's third playable
+    tile, and the first game that is not the quiz. `app/games/match/page.tsx` +
+    `app/api/match/{board,submit}/route.ts` + `lib/games/match.ts`. **Scoring is per board, graded, not
+    per pair:** on a bijection board (n clues, n terms, every term used exactly once, no distractors)
+    the correct-pair count is the fixed-point count of a permutation, so one mistake always drags at
+    least one other pair down — out of 6 the achievable scores are 6, 4, 3, 2, 1, 0, **never 5**. A
+    flat per-pair penalty would bill a single error twice. Shipped table: 15 points per correct pair,
+    +30 clean-board bonus, −20 floor penalty at 2 or fewer pairs. The floor is deliberate: a random
+    permutation has exactly 1 expected fixed point at any board size, so accrual alone would pay for
+    pure guessing — a test asserts `perPair + floorPenalty < 0`. The reachability rule is "no singleton
+    errors", **not parity** — 3 and 1 are both reachable via odd-length cycles; this was a live
+    misconception during the session and would silently corrupt any tier-based scoring table if
+    reintroduced. Score per board, log per pair: board economics on `board_complete`, per-pair facility
+    on `question_answered`. 68 tests, `tsc --noEmit` clean, `npx next build` succeeds, verified end to
+    end against live Neon.
 - **Runtime LLM: Gemini paid Tier 1** (Flash-class), not free tier — free tier's ~10 RPM and training-data clause fail a classroom pilot. Pending prof sign-off on the small spend; until then, develop against free tier but architect for Tier 1.
   - _Provider reality, 31 Jul 2026:_ **Gemini prepayment credits are depleted** — every Gemini call
     429s. Generation currently runs on **OpenAI** via the provider-agnostic adapter
@@ -193,8 +209,10 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
   found on 30 Jul 2026 by re-reading the transcript, because summaries are lossy
   (`docs/PROJECT_MAP.md` §2.7 and §0).
 - **Tests exist now.** `npm test` runs `node --test tests/*.test.ts`. No external test framework — do
-  not add vitest or jest. 18 tests as of 31 Jul 2026 (`tests/lever.test.ts`,
-  `tests/quintile-difficulty.test.ts`, `tests/registry.test.ts`).
+  not add vitest or jest. 68 tests as of 1 Aug 2026 (`tests/lever.test.ts`,
+  `tests/quintile-difficulty.test.ts`, `tests/registry.test.ts`, `tests/match.test.ts`,
+  `tests/match-board.test.ts`, `tests/board-token.test.ts`, `tests/events-allowlist.test.ts`,
+  `tests/stats-potential.test.ts`, and others).
 - **Anything touching scoring or auth gets a `reviewer` pass before commit.** The first Q1 attempt
   reported success while the answer key still shipped in the client JS bundle and
   `app/api/answer/route.ts` returned `correctIndex` on every POST, not just the one that scores. A
@@ -214,6 +232,26 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
   `llama3.2`'s 0.45 (ceilings on 7 of 15 items), and `gemma2:9b` ceilings on 8 of 15 and is ~6× slower
   — both recognise the source deck from training data, which a struggling-student simulator cannot
   afford.
+  - _Correction, 1 Aug 2026:_ **ceilinging is model × material, not a model property.** `llama3.2`
+    itself ceilinged on 11 of 19 items on the Thoughtworks case (grounded-retention arm), where it
+    ceilings on only 1 of 15 on the Airbnb slide baseline — the case's connected prose grounds too
+    well, collapsing the task toward reading comprehension. `gemma2:9b` and `gpt-3.5-turbo` were
+    rejected as simulators for ceilinging on 8/15 and 7/15, but that was never purely a model fact
+    either. This does not overturn keeping `llama3.2` (the recognition-of-famous-decks argument for
+    rejecting the other two stands), but the stated reason needed correcting. Also flag: the ρ ≈ 0.23
+    figure above was computed on 15 items, 95% CI roughly [−0.32, +0.66] — too wide to support "the
+    values do not replicate" as currently stated; a pooled run across 45 unmemorised items is in
+    progress to narrow it (`docs/CURRENT_STATE.md`).
+- **Exercise the artifact against real data before believing a package is done.** A1's board-selection
+  logic passed 66 unit tests and two adversarial review passes (17 defects found and fixed across
+  them), but whole-history exclusion still locked a test student out of match permanently after
+  exactly 8 boards — which would have manufactured the ceiling the persistence loop exists to measure.
+  It was found only by playing the game against the live database and counting. Static review and unit
+  tests are necessary, not sufficient, for anything with state that accumulates across sessions.
+- **`EventType` is derived from `CLIENT_EMITTABLE_EVENT_TYPES`, not maintained in parallel with it**
+  (`lib/log/logEvent.ts`). `/api/events` used to be a denylist checked against a separately-written
+  type; the two could drift. Now the runtime allowlist and the compile-time type come from the same
+  const array, so they cannot diverge. Applied 1 Aug 2026 during the A1 review pass.
 
 ## Orchestration (added 28 Jul 2026 — full rationale in `docs/architecture/agent-orchestration.md`)
 Two sessions have already died of context exhaustion. The main session is an **orchestrator**: it

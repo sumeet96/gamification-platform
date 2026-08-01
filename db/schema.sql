@@ -112,6 +112,29 @@ create unique index if not exists events_board_nonce_uidx
   on events (question_id)
   where event_type = 'board_complete';
 
+-- db/008_add_answer_dedupe.sql: NOT YET APPLIED as of this snapshot -- blocked
+-- on 11 duplicate choose-word question_answered rows from a live race test
+-- (session_id 'e2e-sess-word-1785536102762', round 3) that must be cleared
+-- with explicit user sign-off before this index can build. Included here so
+-- schema.sql documents the intended shape; see db/008 for the full preflight
+-- and the commented-out dedupe SQL a human must run first.
+--
+-- Makes the quiz's and choose-word's answer-commit dedupe atomic, closing the
+-- same class of race db/007 closed for match's board-submit: a
+-- SELECT-then-INSERT dedupe is not atomic on the Neon HTTP driver (no
+-- transaction), so N concurrent POSTs for the same question can all pass the
+-- check and all score. boards_completed is in the key because match
+-- legitimately repeats a content_item_id within one (session_id, round) when
+-- the same term appears on more than one board -- omitting it would make the
+-- index reject match's real data. NULLS NOT DISTINCT (Postgres 15+; this
+-- server is 18.4) is required so a NULL student_id (unauthenticated) or NULL
+-- boards_completed (quiz / choose-word, which never write it) still collapse
+-- correctly instead of each being treated as distinct.
+create unique index if not exists events_answer_commit_uidx
+  on events (session_id, round, content_item_id, student_id, boards_completed)
+  nulls not distinct
+  where event_type = 'question_answered' and content_item_id is not null;
+
 do $$
 begin
   if not exists (

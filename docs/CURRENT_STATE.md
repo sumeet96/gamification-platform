@@ -2,17 +2,18 @@
 
 ## Where we are
 
-**Four P0 packages are shipped: G1 (MCQ generator), G2 (term/definition generator), D1 (dashboard),
-Q1 (quiz hardening).** The app generates questions from a PDF into `content_items`, serves them
-without leaking the answer key, scores server-side, and lands on a registry-driven dashboard.
-Migrations `db/005` and `db/006` are applied and verified live on Neon project
-`ancient-brook-62806105`.
+**Five packages are shipped: G1 (MCQ generator), G2 (term/definition generator), D1 (dashboard),
+Q1 (quiz hardening), A1 (match-the-following).** The app generates questions from a PDF into
+`content_items`, serves them without leaking the answer key, scores server-side, and lands on a
+registry-driven dashboard with three playable tiles. Migrations `db/005`, `db/006` and `db/007` are
+applied and verified live on Neon project `ancient-brook-62806105`.
 
-**Match-the-following (package A1) is now in progress, slice 1 shipped.** The points question that
-blocked it is resolved (see Decisions below). Board-grained scoring logic (`lib/games/match.ts`) and
-its points table (`lib/games/registry.ts`) are built and tested — **28 tests pass, `tsc --noEmit`
-clean.** The API routes and page are being built by a `builder` subagent as this checkpoint is
-written; **not yet reviewed or committed.**
+**Match-the-following (package A1) is SHIPPED, COMMITTED and PUSHED.** Commit `fe871e1` on `main`,
+level with `origin/main` — 24 files, 2942 insertions. **68 tests pass**, `tsc --noEmit` clean,
+`npx next build` succeeds, and it was verified end to end against the live Neon database, not just
+unit-tested. The points question that had blocked it is resolved (see Decisions below). Two review
+passes (adversarial + Codex) found 17 defects across two rounds before this landed — see "Review
+findings worth remembering" below.
 
 **The adaptive-difficulty lever is real for the first time** — all 17 `content_items` rows carry a
 calibrated `difficulty`, seeded by local `llama3.2` student simulation and stamped with
@@ -28,15 +29,15 @@ underpowered replication claim already flagged in `CLAUDE.md` (ρ ≈ 0.23 on on
 
 ## Working tree
 
-Branch **`main`**, last commit **`ad129bf`**. **Level with `origin/main`** — everything prior was
-already pushed; the earlier checkpoint's "14 commits ahead" was stale.
+Branch **`main`**, last commit **`fe871e1`** ("Ship match-the-following, the first board-grained
+game"). **Level with `origin/main` and pushed.** Working tree clean — nothing uncommitted.
 
-**Uncommitted right now:**
-- Modified: `app/dashboard/page.tsx`, `lib/games/registry.ts`, `tests/registry.test.ts`
-- New: `lib/games/match.ts`, `tests/match.test.ts`
-- Still in flight from the builder (not yet written to disk as of this checkpoint, or written but
-  unreviewed): `app/api/match/board/route.ts`, `app/api/match/submit/route.ts`,
-  `app/games/match/page.tsx`, and flipping `match.enabled` to `true` in the registry.
+Shipped in that commit: `app/api/match/board/route.ts`, `app/api/match/submit/route.ts`,
+`app/games/match/page.tsx`, `lib/games/match.ts`, `lib/games/match-board-select.ts`,
+`lib/games/potential.ts`, `lib/auth/board-token.ts`, `db/007_add_board_dedupe.sql`, plus changes to
+`app/api/events/route.ts`, `app/api/stats/route.ts`, `app/dashboard/page.tsx`, `lib/game/engine.ts`,
+`lib/games/registry.ts`, `lib/log/logEvent.ts`, `lib/auth/session.ts`. `match.enabled` is `true` in
+the registry — the third dashboard tile is live.
 
 `spike-data/` and root-level `*.pdf` are **gitignored**. `spike-data/` holds all simulation runs and
 generated item sets; losing it costs many hours of local inference. New this session:
@@ -49,22 +50,9 @@ Three source PDFs sit in the repo root, untracked: `_CB0257-PDF-ENG.pdf` (Though
 
 ## In progress right now
 
-**A1 (match-the-following) is mid-build.** Slice 1 (board scoring logic + points table + tests) is
-done. Slice 2 — the API routes, the page, and flipping `enabled: true` — is being built by a
-`builder` subagent in parallel with this checkpoint. **When resumed, check whether that subagent
-finished; if the four files listed above exist and look complete, the next step is `reviewer` +
-`codex-review`, NOT more building.**
-
-This is a scoring path (`app/api/match/submit/route.ts` computes points server-side from the answer
-key), so the mandatory-reviewer rule applies at full force: Q1's first attempt reported success while
-still leaking the answer key and returning `correctIndex` on every POST. Check specifically that:
-- the board-clues endpoint never leaks the term↔clue mapping (ids + shuffled bare term strings only)
-- scoring happens server-side off the DB, not trusted from the client
-- both `question_answered` (per pair) and `board_complete` (per board) rows get written, with
-  `adapt_granularity` and `boards_completed` populated — first insert anywhere to write either column
-
-Two background Ollama jobs are also running (see below) and must not be interrupted or joined by a
-second concurrent Ollama job.
+Nothing is mid-build. A1 closed out the item above. The two background Ollama simulation jobs (see
+below) are still running and must not be interrupted or joined by a second concurrent Ollama job.
+Next up is package A3 (choose-the-right-word) — see Next 3 actions.
 
 ## Decisions made this session
 
@@ -109,16 +97,29 @@ The reasoning is load-bearing, not just the number:
   starts. Thrill belongs in the reveal animation, not the payout table.
 - Scoring and logging are deliberately at different grains: **score per board, log per pair.**
 
-**A1 slice 1 shipped: tests 18 → 28, `tsc --noEmit` clean.**
+**A1 shipped in full: tests 18 → 68, `tsc --noEmit` clean, `npx next build` succeeds, verified end to
+end against live Neon. Commit `fe871e1`, pushed to `origin/main`.**
 - `lib/games/registry.ts`: new `BoardPoints` points shape (`kind: 'board'` with
-  perPair/perfectBonus/floorAtOrBelow/floorPenalty); the `match` entry repoints to it.
-  `enabled` is still `false` in this slice, pending the page.
+  perPair/perfectBonus/floorAtOrBelow/floorPenalty); the `match` entry repoints to it. `enabled` is
+  now `true` — Match is a live dashboard tile.
 - `lib/games/match.ts` (new, pure, DB-free): `BOARD_SIZE = 6`, `normaliseTerm`, `matchesTerm` (term +
   declared `variants`, case/punctuation-insensitive, **no fuzzy matching by design**), `scoreBoard`,
   `boardSucceeded` (strictly more than half correct — the board-grained analogue of one correct quiz
   answer).
-- `tests/match.test.ts` (new, 10 tests): pins the points table, the achievable-score set, the
-  negative-EV property, and that the lever never ramps up on a board that also charges the floor.
+- `lib/games/match-board-select.ts` (new): board selection is **least-recently-served ranking**, not
+  whole-history exclusion — see the review findings below for why exclusion was rejected.
+- `lib/auth/board-token.ts` (new): a signed, single-use board token; issuing a new board supersedes
+  the old one.
+- `app/api/match/board/route.ts` (new): serves a board's clues and shuffled bare term strings, never
+  the term↔clue mapping.
+- `app/api/match/submit/route.ts` (new): scores a board server-side off the DB, writes
+  `question_answered` per pair and `board_complete` per board.
+- `app/games/match/page.tsx` (new): the match UI.
+- `db/007_add_board_dedupe.sql` (new, applied and verified on Neon): see below.
+- `tests/match.test.ts`, `tests/match-board.test.ts`, `tests/board-token.test.ts`,
+  `tests/events-allowlist.test.ts`, `tests/stats-potential.test.ts` (new): pin the points table, the
+  achievable-score set, the negative-EV property, board-token single-use/supersession, the
+  `EventType`/allowlist derivation, and per-game potential.
 - `tests/registry.test.ts`: the "wrong/miss payout" guard was a two-branch if/else that let
   `BoardPoints` fall into the Wordle branch; rewritten as an exhaustive `switch` with a `never`
   default.
@@ -133,6 +134,60 @@ The reasoning is load-bearing, not just the number:
 `lib/log/logEvent.ts` — same rule already applied to `question_answered`: scored/completion events
 that touch points are server-written only. No migration needed; `events.event_type` is unconstrained
 text.
+
+**db/007 (applied and verified on Neon `ancient-brook-62806105`):**
+- Partial unique index `events_board_nonce_uidx on events (question_id) where event_type =
+  'board_complete'`. **Partial is mandatory** — `question_id` already holds `'seed-fallback'` markers
+  on ~80 `question_answered` rows across 20 distinct values, so a non-partial unique index would fail
+  to build and break the quiz's seed-fallback path.
+- `events.submitted_text text` (nullable) — the free-text answer when the answer is not an option
+  index. Match writes the placed term; A2/A3 will use it too. No CHECK (append-only log rule).
+- `db/004`'s prose describing `boards_completed` as "boards completed so far" is **superseded**: the
+  shipped code writes the 1-indexed ordinal of the board being completed.
+
+**Review findings worth remembering (17 defects across two review rounds, two model families):**
+- The board never ships its key, but a single clean response was insufficient to protect it —
+  **polling GET and intersecting term bags across responses recovered the mapping**. Fixed with a
+  signed, single-use board token that is superseded when a new board is issued.
+- **Dedupe by SELECT is not atomic on the Neon HTTP driver** — N parallel submits of one token all
+  scored. The insert is now the lock, via db/007's partial index.
+- `/api/stats` aggregated only `question_answered`, so match's bonus and floor never reached the
+  dashboard. Splitting economics across two row types caused this. `potential` is now derived per
+  game from `GAME_REGISTRY` (`lib/games/potential.ts`) instead of a hardcoded quiz constant.
+- `/api/events` was a **denylist**; it is now an allowlist, and `EventType` is derived from the same
+  const array the route uses (`lib/log/logEvent.ts`), so type guard and runtime guard cannot drift.
+- **Abandoned-round number reuse regressed** — fixed for the quiz on 1 Aug but in the quiz page, not
+  shared code, so match reintroduced it. A shared `abandonRound` helper is planned before A3.
+- **Found only by playing the game against the real database, not by static review or unit tests:**
+  whole-history exclusion for board selection locked a student out after exactly 8 boards,
+  permanently, in every future session — which would have manufactured the ceiling the persistence
+  loop exists to measure. Selection is now **least-recently-served ranking**
+  (`lib/games/match-board-select.ts`), which degrades instead of starving. General lesson: exercise
+  the artifact against real data before believing a package is done — 66 unit tests and two clean
+  builds did not catch this.
+
+**Content supply generated this session:** `content_items` now holds **50 `term_definition` rows** —
+32 International Management (CAGE deck), 18 Digital Transformation (Thoughtworks case + slides).
+A2-ready (has `example_sentence`): 35. A3-ready (≥3 distractors): **50/50**. All have `difficulty`
+NULL.
+- **Wordle (A4) is effectively settled and should be raised with the professor rather than silently
+  cut.** Only 5 of 50 terms are single words of 4–8 letters, and all five are proper nouns: Licca,
+  Barbie, Baidu, Bing, Yandex. No *concept* clears the bar; the shortest term on the Thoughtworks case
+  deck is 9 characters. A Wordle on this corpus would test brand recall, not understanding.
+
+**Known open gap — needs the professor.** Term items have no calibrated difficulty, and the existing
+simulator cannot produce one: `scripts/lib/simulate-students.mjs` ends every prompt with "Answer with
+a single letter (A, B, C or D)" — it simulates an MCQ attempt, and a term/definition pair has no
+options. Consequences: match asserts NO `difficulty_level` in the event log rather than fabricating
+one (correct), but **match's adaptive arm measures nothing** until a match-shaped simulator exists.
+Time-lever students are unaffected (difficulty is pinned for them anyway). Options are: build a
+match-shaped simulator (new package), ship as-is and document, or mark match `lever: 'none'`. Not
+decided.
+
+**Outstanding, not yet decided by the user.** End-to-end testing created **5 test students** and their
+event rows in the live research dataset (`e2e-%@test.local`, `session_id like 'e2e-sess-%'`, plus
+`starve-%@test.local`). Cleanup SQL was proposed and the user has **not yet approved it**. Record as
+pending so it is not forgotten.
 
 **Simulation runs widened from "case only" to case + two slide decks, for two stated reasons:**
 1. **Confounded contrast.** The Thoughtworks case differs from the Airbnb baseline in two ways at
@@ -188,20 +243,29 @@ calculation).
 - **Does simulated facility track real facility?** Needs the pilot.
 - **Cross-simulator replication (ρ ≈ 0.23) may be an underpowered artefact of 15 items**, not a real
   finding — pending the case+CAGE+TW pooled run described above.
+- **Term items have no calibrated difficulty and the existing simulator cannot produce one** (it
+  simulates an MCQ attempt, not a term/definition match). Match's adaptive arm measures nothing until
+  this is resolved. Not decided: build a match-shaped simulator, ship as-is and document, or mark
+  match `lever: 'none'`.
+- **5 test students' event rows are still in the live research dataset** from A1's end-to-end
+  verification (`e2e-%@test.local`, `starve-%@test.local`). Cleanup SQL proposed, not yet approved by
+  the user.
 - **Next meeting Tuesday 4 Aug.**
 
 ## Next 3 actions
 
-1. **Check on / finish A1 slice 2** (match API routes + page + `enabled: true`), then run `reviewer`
-   and `codex-review` on the full diff — mandatory, this is a scoring path.
-2. **Live end-to-end check against Neon** once reviewed, then commit and push. Confirm
-   `adapt_granularity` and `boards_completed` actually land in the DB on a real board completion.
+1. **Build the shared `abandonRound` helper** (in flight) — match reintroduced the abandoned-round
+   number-reuse bug that was already fixed for the quiz, because the quiz's fix lived in the quiz page
+   rather than shared code. Land this before A3 so a third game does not repeat it.
+2. **Package A3, choose-the-right-word.** 50/50 term supply is ready; it reuses `FlatPoints` and
+   item-level granularity, so it should be a smaller build than A1.
 3. **Run A0 against the CAGE deck** to settle Wordle:
    `node scripts/generate-terms.mjs "INM -Session 6_CAGE- Challenges of Entering Foreign Markets_claude.pdf" --subject "International Management" --per-window 5 --dry-run`
    and read the "Wordle-eligible" line it prints. (Independent of the Ollama jobs — safe to run now.)
 
-After that: pick up the next game or its blocking dependency, and when the two background simulation
-jobs finish, read the logs and write up the pooled ρ.
+After that: read the simulation logs when the background jobs finish and write up the pooled ρ. Raise
+with Prof. Singh on Tue 4 Aug: the points table numbers, Wordle's viability, the term-difficulty
+calibration gap, rapid/normal exact seconds, and whether there is a control arm.
 
 ## Do not redo
 
@@ -210,6 +274,13 @@ jobs finish, read the logs and write up the pooled ρ.
   board-grained lever.
 - **Do not pad the match board with `distractors`** — that column is for choose-the-right-word and
   fill-in-the-blanks; padding breaks the bijection the scoring rests on.
+- **Do not select boards by whole-history exclusion** — it locked a student out permanently after 8
+  boards in live testing. Selection is least-recently-served ranking
+  (`lib/games/match-board-select.ts`).
+- **Do not fabricate a `difficulty_level` for match events** — the current simulator cannot produce
+  one for term/definition pairs; match correctly logs no difficulty rather than guessing.
+- **Do not delete the 5 test-student rows from the live dataset without the user's explicit
+  approval** — proposed cleanup SQL is pending, not yet approved.
 - **Do not assume match scores come in even numbers only** — 3 and 1 are reachable (odd-length
   cycles); the only forbidden score is 5-of-6 (no singleton errors).
 - **Do not run two Ollama jobs concurrently** — the deck-arms job's lock/wait guards exist for

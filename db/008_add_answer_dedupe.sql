@@ -1,0 +1,113 @@
+-- Migration 008: atomic dedupe for scored answers (quiz + choose-word), the
+-- same fix db/007 applied to match's board-submit.
+--
+-- ***************************************************************************
+-- * APPLIED 1 Aug 2026 to Neon project ancient-brook-62806105, and verified *
+-- * in pg_indexes. Superseded the BLOCKED note this file was authored with. *
+-- *                                                                         *
+-- * The blocker was 11 duplicate `choose-word` question_answered rows, all  *
+-- * of them synthetic -- written by the concurrency probe that PROVED this  *
+-- * race (12 parallel POSTs for one question, all 12 scored). The user      *
+-- * approved removing all end-to-end test data; those rows went with it,    *
+-- * leaving 0 violating groups, and the index then built cleanly.           *
+-- * No real student data was deleted.                                       *
+-- *                                                                         *
+-- * Verified live after applying: the same 12-way concurrent salvo now      *
+-- * yields exactly 1 scored row and 11 idempotent 409s.                     *
+-- ***************************************************************************
+--
+-- Preflight run 1 Aug 2026 against Neon project ancient-brook-62806105,
+-- server_version 18.4 (server_version_num 180004) -- comfortably >= 15, so
+-- NULLS NOT DISTINCT (added in Postgres 15) is available. Without it, a NULL
+-- student_id (unauthenticated rows) or NULL boards_completed (quiz /
+-- choose-word, which never write it) would each be treated as distinct by a
+-- plain UNIQUE index, and the index below would silently fail to dedupe
+-- anything -- confirmed this is not the case on this server before writing
+-- the DDL.
+
+-- Why
+--
+-- app/api/answer/route.ts (quiz, hardened under Q1) and
+-- app/api/word/answer/route.ts (choose-word, package A3) both dedupe a scored
+-- answer with a SELECT-then-INSERT. That is not atomic on the Neon HTTP
+-- driver -- there is no transaction wrapping the pair. A live race test (1
+-- Aug 2026) sent 12 concurrent POSTs for the same question and all 12
+-- scored, awarding 12x the points and writing 11 excess question_answered
+-- rows. This is the same hole db/007 closed for match's board-submit path;
+-- the fix here is the same shape -- make the INSERT itself the lock via a
+-- unique index, rather than trust a check-then-insert across two round trips.
+
+-- The key
+--
+-- The dedupe key both routes use is
+-- (student_id, session_id, round, content_item_id). match legitimately
+-- writes the same content_item_id more than once within one
+-- (session_id, round), because the same term can appear on different boards
+-- of a single round -- so boards_completed must be part of the key or match
+-- would collide.
+--
+-- Preflight confirms this empirically. Grouping by
+-- (session_id, round, content_item_id, student_id, boards_completed) on
+-- event_type = 'question_answered' and content_item_id is not null:
+--   - match:       0 violating groups (boards_completed correctly
+--                  distinguishes its 18 apparent-duplicate groups; a check
+--                  with boards_completed OMITTED from the key reproduces
+--                  those same 18 groups as violations, confirming they are
+--                  real and that the column is doing the work it needs to).
+--   - quiz:        0 violating groups.
+--   - choose-word: 1 violating group, 12 rows -- session_id
+--                  'e2e-sess-word-1785536102762', round 3, content_item_id
+--                  '9d3250819c02bc4e3771dc6a08dafdef', student_id
+--                  's_84606RTJH1p2Ldcd', boards_completed NULL. This is the
+--                  live race-test artifact described above and is the sole
+--                  blocker on this migration.
+
+create unique index if not exists events_answer_commit_uidx
+  on events (session_id, round, content_item_id, student_id, boards_completed)
+  nulls not distinct
+  where event_type = 'question_answered' and content_item_id is not null;
+
+-- Collision check against db/007's events_board_nonce_uidx
+--
+-- events_board_nonce_uidx is `on events (question_id) where event_type =
+-- 'board_complete'`. The index above is partial on
+-- event_type = 'question_answered' and a disjoint column set. The two
+-- partial predicates (board_complete vs question_answered) are mutually
+-- exclusive on event_type, so no row can ever be evaluated against both
+-- indexes' uniqueness at once -- confirmed no collision.
+
+-- ---------------------------------------------------------------------------
+-- DEDUPE SQL -- NOT EXECUTED. A human must run this (or authorise it) before
+-- the index above can be applied. It keeps the earliest row (lowest id,
+-- events.id is bigserial so lowest id is earliest insert) per violating
+-- group and deletes the rest. Scoped tightly to the one known offending
+-- group (game_type + session_id prefix) rather than a blanket delete, even
+-- though today there is only one group in the whole table, so a mistaken
+-- future match to some other group is not possible by accident.
+-- ---------------------------------------------------------------------------
+
+-- delete from events
+-- where id in (
+--   select id from (
+--     select id,
+--            row_number() over (
+--              partition by session_id, round, content_item_id, student_id, boards_completed
+--              order by id
+--            ) as rn
+--     from events
+--     where event_type = 'question_answered'
+--       and game_type = 'choose-word'
+--       and session_id like 'e2e-sess-word-%'
+--   ) ranked
+--   where rn > 1
+-- );
+
+-- After that delete runs and is verified (0 remaining violating groups),
+-- re-run the preflight query below to confirm, then apply the
+-- create unique index statement above:
+--
+-- select session_id, round, content_item_id, student_id, boards_completed, game_type, count(*)
+-- from events
+-- where event_type = 'question_answered' and content_item_id is not null
+-- group by session_id, round, content_item_id, student_id, boards_completed, game_type
+-- having count(*) > 1;

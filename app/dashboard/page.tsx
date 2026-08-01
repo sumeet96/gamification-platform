@@ -49,6 +49,7 @@ const HREF_BY_ID: Record<string, string> = {
   'quiz-normal': '/game-setup?mode=normal',
   'quiz-rapid': '/game-setup?mode=rapid',
   match: '/games/match',
+  'choose-word': '/games/word',
 }
 
 // The tile blurb is the student's only advance notice of what a game pays, so it has to

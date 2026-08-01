@@ -8,6 +8,15 @@
 // choose-the-right-word) all read the same row and every one of them can be spoiled that way.
 
 import { SOURCE_LEAK_PATTERNS } from './questions-validate.mjs'
+// FIX 6: reused, not reinvented -- this is the exact same case/punctuation-
+// insensitive comparison app/api/word/answer/route.ts's scoring (matchesTerm,
+// lib/games/match.ts) uses to accept a `variants` entry as correct. A distractor
+// that normalises the same as a declared variant would therefore score as
+// correct too, making the "wrong" option a second right answer. Verified
+// importable from a .mjs script under this project's Node version (native TS
+// stripping) -- see the module boundary note on checkDistractors below if that
+// ever stops being true.
+import { normaliseTerm } from '../../lib/games/match.ts'
 
 // A "short phrase" limit, chosen so real terms ("digital transformation", "network effects",
 // "return on investment") pass and a runaway sentence does not. Stated here rather than left
@@ -99,13 +108,25 @@ function checkExampleContainsTerm(item) {
 // Distractors must be plausible-but-wrong. A distractor identical to the term makes the item
 // unanswerable; a repeated distractor is a wasted slot at best and a giveaway at worst (only one
 // choice left standing in choose-the-right-word or match-the-following).
+//
+// FIX 6: also reject a distractor that normalises to any declared VARIANT, not just the term
+// itself. "Minimum Viable Product" with variants=["MVP"] and a distractor "MVP" used to pass --
+// "mvp" !== "minimum viable product" -- but scoring (matchesTerm) accepts variants as correct, so
+// choose-the-right-word would offer "MVP" as a clickable wrong answer that actually scores right.
+// Harmless in match (free-text entry never offers the variant as a temptation); newly exposed by
+// A3's clickable options. Uses normaliseTerm (imported above) for the variant comparison
+// specifically, since that is the SAME normalisation scoring applies -- the term/duplicate checks
+// below keep their original simple lowercase-trim comparison, unchanged, to avoid widening what
+// this function already rejected before today.
 function checkDistractors(item) {
   const term = item.term.trim().toLowerCase()
+  const variantKeys = new Set(item.variants.map((v) => normaliseTerm(v)))
   const seen = new Set()
   for (const d of item.distractors) {
     const key = d.trim().toLowerCase()
     if (key === '') return { rule: 'empty-distractor', quote: JSON.stringify(item.distractors) }
     if (key === term) return { rule: 'distractor-duplicates-term', quote: d }
+    if (variantKeys.has(normaliseTerm(d))) return { rule: 'distractor-duplicates-variant', quote: d }
     if (seen.has(key)) return { rule: 'duplicate-distractors', quote: d }
     seen.add(key)
   }

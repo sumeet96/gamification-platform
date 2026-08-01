@@ -20,6 +20,17 @@ export const CLIENT_EMITTABLE_EVENT_TYPES = [
   // this event with neither of those two means the round was abandoned mid-decision.
   'round_continue',
   'round_stop',
+  // STANDING RULE (added when abandonRound was extracted, see lib/game/game-context.tsx):
+  // every path that ends a started round WITHOUT it completing -- a board/question
+  // fetch failure, a navigation away mid-round, an unrecoverable submit error, an
+  // explicit give-up -- MUST call abandonRound() so the round's number is consumed
+  // exactly once. Quiz's abandoned-round bug (1 Aug 2026) and match's identical
+  // reintroduction on its own error path (package A1) were each a caller forgetting
+  // to do this on one exit path; a new game (A3 and beyond) is the next chance to
+  // forget it again. A round_stop that follows a round_offer for the same round is a
+  // deliberate decline, not an abandonment -- that case stays a direct emit() at its
+  // own call site (see app/results/page.tsx, app/games/match/page.tsx's stopRound())
+  // and must never go through abandonRound.
 ] as const
 
 export type EventType = (typeof CLIENT_EMITTABLE_EVENT_TYPES)[number]

@@ -132,7 +132,7 @@ export const GAME_REGISTRY: readonly GameEntry[] = [
     lever: 'both',
     adaptGranularity: 'item',
     points: { kind: 'flat', correct: 15, wrong: -5 },
-    enabled: false, // not yet built (WP A3)
+    enabled: true, // WP A3 shipped: app/games/word/page.tsx + app/api/word/*
   },
   {
     id: 'wordle',

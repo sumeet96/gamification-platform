@@ -38,6 +38,11 @@ interface GameState {
   // context fields round_offer carries, mirroring the shape of the round_stop
   // emit already on this screen.
   announceRoundOffer: (round: number, ctx: { game_type?: string | null; mode?: string | null; lever?: string | null }) => void
+  // Call on every path that ends a started round WITHOUT it completing normally
+  // (a board/question fetch failure, a navigation away mid-round, an unrecoverable
+  // submit error, an explicit give-up). See the comment on the implementation
+  // below and on 'round_stop' in lib/log/logEvent.ts for why this exists.
+  abandonRound: (round: number, ctx: { game_type?: string | null; mode?: string | null; lever?: string | null }) => void
   resetSession: () => void
   emit: (e: Omit<GameEvent, 'session_id' | 'client_student_id'>) => void
 }
@@ -78,6 +83,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
   // unmounts/remounts; this does not). Same pattern as app/quiz/page.tsx's
   // commitGuardRef, applied where a ref can outlive the component that needs it.
   const offeredRoundRef = useRef<number | null>(null)
+  // Guards abandonRound the same way offeredRoundRef guards announceRoundOffer:
+  // two abandonment paths can race for the same round (a board fetch failure
+  // and the component's unmount cleanup both firing, say), and this must not
+  // turn into two round_stop rows. In-memory only, unlike offeredRoundRef --
+  // abandonRound is always called synchronously right before the caller
+  // navigates away, so there is no hard-reload window to survive.
+  const abandonedRoundRef = useRef<number | null>(null)
 
   // Hydrate (or start) the session once, after mount.
   useEffect(() => {
@@ -153,6 +165,28 @@ export function GameProvider({ children }: { children: ReactNode }) {
     emit({ event_type: 'round_offer', round, ...ctx })
   }
 
+  // Exists because the *mechanism* was already shared (emit()'s round_stop
+  // bump above) but the *discipline of calling it* was not: quiz's abandoned-
+  // round bug (1 Aug 2026) and match's identical reintroduction on its own
+  // board-fetch-failure path (package A1) were each a caller forgetting to
+  // emit round_stop on one exit path, not a flaw in what round_stop does once
+  // emitted. Centralising the call, not just the bookkeeping, is what this
+  // helper is for -- every future game should reach for this instead of a
+  // bare emit({ event_type: 'round_stop', ... }) on its abandonment paths.
+  //
+  // Do NOT use this for a decline-after-offer (a student who saw the Keep
+  // Going screen and clicked "Back to Dashboard"/"Stop Round"). That is a
+  // choice, not an abandonment, and stays a direct emit() call at its own
+  // site (see app/results/page.tsx's stop() and app/games/match/page.tsx's
+  // stopRound()) so the two cases remain distinguishable in the data purely
+  // by whether a round_offer for that round number preceded the round_stop --
+  // the entire point of the 1 Aug 2026 round_offer work.
+  const abandonRound = (round: number, ctx: { game_type?: string | null; mode?: string | null; lever?: string | null }) => {
+    if (abandonedRoundRef.current === round) return
+    abandonedRoundRef.current = round
+    emit({ event_type: 'round_stop', round, ...ctx })
+  }
+
   const setConfig = (c: GameConfig) => setConfigState(c)
 
   const recordRound = (r: RoundSummary) => {
@@ -186,8 +220,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setConfigState(null)
     // A new session means round numbering restarts at 1, so a stale "already
     // offered round 1" guard from the previous student's session must not
-    // suppress this one's first offer.
+    // suppress this one's first offer. abandonedRoundRef must be cleared in
+    // the SAME breath -- leaving it set lets the next student's round 1
+    // (the same number the previous student's abandoned round already used)
+    // hit abandonRound's `=== round` idempotency guard and return silently:
+    // no round_stop row at all, roundsPlayed stays 0, and the following Start
+    // Round emits a second round_start for round 1. That is exactly the
+    // round-number-reuse corruption the 1 Aug persistence work fixed,
+    // reintroduced through this helper if only one of the two guards resets.
     offeredRoundRef.current = null
+    abandonedRoundRef.current = null
     // The cookie identity just changed (login/signup/logout) — this tab's cached
     // studentId is now stale until re-fetched. Clear it immediately so nothing in
     // between is emitted under the old id, then re-fetch to learn the new one.
@@ -198,7 +240,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   return (
     <GameContext.Provider
-      value={{ sessionId, config, session, lastRound, studentId, setConfig, recordRound, registerContinue, announceRoundOffer, resetSession, emit }}
+      value={{ sessionId, config, session, lastRound, studentId, setConfig, recordRound, registerContinue, announceRoundOffer, abandonRound, resetSession, emit }}
     >
       {children}
     </GameContext.Provider>

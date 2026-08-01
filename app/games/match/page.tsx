@@ -75,7 +75,7 @@ export default function MatchGame() {
   const router = useRouter()
   const {
     config, session, sessionId, studentId, setConfig,
-    recordRound, registerContinue, announceRoundOffer, emit,
+    recordRound, registerContinue, announceRoundOffer, emit, abandonRound,
   } = useGame()
 
   const [phase, setPhase] = useState<Phase>('setup')
@@ -142,10 +142,11 @@ export default function MatchGame() {
         // FIX 2: this round (`round`) started with a round_start already logged
         // (beginRound) but can never reach a board now -- it must still consume
         // its round number, or Start Round reuses it (session.roundsPlayed never
-        // advanced). round_stop's shared handler (lib/game/game-context.tsx
-        // `emit`) bumps session.roundsPlayed to `round` when it's ahead of what
-        // was recorded, exactly like the quiz's abandoned-round fix (1 Aug 2026).
-        emit({ event_type: 'round_stop', game_type: MATCH_GAME_ID, mode: cfg.mode, lever: cfg.lever, round })
+        // advanced). abandonRound (lib/game/game-context.tsx) is the shared call
+        // for exactly this: a board fetch failure ends a started round without
+        // completing it, same category as the quiz's abandoned-round fix (1 Aug
+        // 2026) and match's own reintroduction of it (package A1).
+        abandonRound(round, { game_type: MATCH_GAME_ID, mode: cfg.mode, lever: cfg.lever })
         setPhase('setup')
         return
       }
@@ -166,7 +167,7 @@ export default function MatchGame() {
       console.error('match: board fetch failed', err)
       setBoardError('Could not load a board. Please try again.')
       // FIX 2: same round-number consumption as the non-ok branch above.
-      emit({ event_type: 'round_stop', game_type: MATCH_GAME_ID, mode: cfg.mode, lever: cfg.lever, round })
+      abandonRound(round, { game_type: MATCH_GAME_ID, mode: cfg.mode, lever: cfg.lever })
       setPhase('setup')
     }
   }
@@ -206,11 +207,11 @@ export default function MatchGame() {
     router.push('/')
   }
 
-  // Header "Exit" -- only emits round_stop if a round was actually under way
+  // Header "Exit" -- only abandons a round if one was actually under way
   // (roundNo > 0); leaving the setup screen before Start has nothing to stop.
   function exitMidRound() {
     if (config && roundNo > 0) {
-      emit({ event_type: 'round_stop', game_type: MATCH_GAME_ID, mode: config.mode, lever: config.lever, round: roundNo })
+      abandonRound(roundNo, { game_type: MATCH_GAME_ID, mode: config.mode, lever: config.lever })
     }
     router.push('/')
   }

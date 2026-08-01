@@ -19,7 +19,7 @@ interface RoundTally {
 
 export default function Quiz() {
   const router = useRouter()
-  const { config, session, sessionId, studentId, recordRound, emit } = useGame()
+  const { config, session, sessionId, studentId, recordRound, emit, abandonRound } = useGame()
 
   const [pool, setPool] = useState<Question[]>(QUESTIONS)
   const [q, setQ] = useState<Question | null>(null)
@@ -251,7 +251,9 @@ export default function Quiz() {
     // finish()), so roundNo — computed from session.roundsPlayed the same way
     // round_start above was — is the only correct number here. See app/results/page.tsx
     // for the already-committed counterpart, which reads it off lastRound instead.
-    emit({ event_type: 'round_stop', game_type: config ? quizGameId(config.mode) : null, mode: config?.mode ?? null, lever: config?.lever ?? null, round: roundNo })
+    // Mid-round exit -> abandonRound (lib/game/game-context.tsx), not a bare emit --
+    // this is the abandonment case, not a decline-after-offer.
+    abandonRound(roundNo, { game_type: config ? quizGameId(config.mode) : null, mode: config?.mode ?? null, lever: config?.lever ?? null })
     router.push('/')
   }
 
