@@ -70,6 +70,13 @@ function seededShuffle(arr, seed) {
   return a
 }
 
+// DELIBERATELY does not filter out retired rows (db/009_add_item_retirement.sql
+// added `retired_at`/`retired_reason`). This feeds research tooling, not student
+// play, and the quality screen being built next needs to see every item --
+// including the withdrawn ones -- so it can be validated against items already
+// known to be bad. Do not add a retired-row exclusion clause here; that
+// belongs on the student-facing selection queries (app/api/questions,
+// app/api/word/question, app/api/match/board), not this one.
 const rows = await sql`
   select id, subject, topic, term, clue, distractors, source_excerpt, page,
          cognitive_level, example_sentence, variants

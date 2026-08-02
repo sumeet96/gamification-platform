@@ -34,6 +34,7 @@ import { neon } from '@neondatabase/serverless'
 import { loadEnv } from './lib/llm-client.mjs'
 import { buildCohort, makeAsker, simulateQuestion } from './lib/simulate-students.mjs'
 import { quintileDifficulty } from './lib/quintile-difficulty.mjs'
+import { joinRunToItems } from './lib/join-run-to-items.mjs'
 
 loadEnv()
 
@@ -124,23 +125,17 @@ if (FROM) {
   if (!Array.isArray(saved.rows)) die(`${FROM} has no "rows" array — is this a spike-simulate-difficulty.mjs run file?`)
   const items = JSON.parse(readFileSync(ITEMS, 'utf8'))
   if (!Array.isArray(items)) die(`${ITEMS} is not a JSON array of items.`)
-  // A duplicate id makes the index-to-id join ambiguous -- two rows in `saved.rows` would both
-  // resolve to "the same DB item", and whichever one is applied last wins silently.
-  {
-    const seen = new Map()
-    for (const it of items) seen.set(it.id, (seen.get(it.id) ?? 0) + 1)
-    const dupes = [...seen].filter(([, c]) => c > 1).map(([id]) => id)
-    if (dupes.length) die(`${ITEMS} has duplicate id(s), so the index-to-id join is ambiguous: ${dupes.slice(0, 5).join(', ')}${dupes.length > 5 ? ', ...' : ''}.`)
+  // The index-to-id join and its four guards (duplicate id, length, row.i, prompt drift) live in
+  // scripts/lib/join-run-to-items.mjs, shared with scripts/analyse-item-gap.mjs -- see that file for
+  // the rationale behind each guard. terms-mcq-clean.json in particular is regenerated in place with
+  // rows ordered by id, so a repair pass can insert re-admitted rows at pseudorandom positions and
+  // shift the tail; the prompt-equality guard is what catches that.
+  let joined
+  try {
+    joined = joinRunToItems(saved.rows, items, { runLabel: FROM, itemsLabel: ITEMS }).map((r) => ({ id: r.id, p: r.p, label: r.label }))
+  } catch (err) {
+    die(err.message)
   }
-  if (saved.rows.length !== items.length) die(`${FROM} has ${saved.rows.length} row(s) but ${ITEMS} has ${items.length} item(s) — they must be the exact pair the run was produced from. Refusing to guess a join.`)
-  saved.rows.forEach((r, i) => { if (r.i !== i) die(`${FROM} row ${i} has i=${r.i}, not ${i} — the run file's row order does not match its own recorded index, so joining to ${ITEMS} by position would silently mislabel items.`) })
-  // Length and `i` matching only prove the two files have the same SHAPE, not that row i in one file
-  // is still row i in the other -- terms-mcq-clean.json is regenerated in place and its rows are
-  // ordered by id, so a planned repair pass will insert re-admitted rows at pseudorandom positions
-  // and shift the tail. Compare content, which is right there: `prompt` is carried in both files.
-  saved.rows.forEach((r, i) => { if (r.prompt !== items[i].prompt) die(`${FROM} row ${i}'s prompt does not match ${ITEMS} item ${i}'s prompt -- the two files have drifted out of alignment (e.g. ${ITEMS} was regenerated and rows shifted), so joining by index would silently apply this row's simulated_p/difficulty to a different item. Regenerate ${FROM} against the current ${ITEMS} before re-applying.`) })
-
-  const joined = saved.rows.map((r, i) => ({ id: items[i].id, p: r.p, label: items[i].term ?? items[i].topic ?? r.topic ?? '' }))
   const missing = joined.filter((r) => !eligibleIds.has(r.id))
   if (missing.length) die(`${missing.length} id(s) from ${ITEMS} are not eligible content_items in the DB right now (missing, wrong kind, or no source_excerpt) — refusing a silent partial write: ${missing.slice(0, 5).map((r) => r.id).join(', ')}${missing.length > 5 ? ', ...' : ''}.`)
 

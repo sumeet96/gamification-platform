@@ -210,7 +210,19 @@ create table if not exists content_items (
   clue             text,
   example_sentence text,
   variants         jsonb not null default '[]'::jsonb,
-  distractors      jsonb not null default '[]'::jsonb
+  distractors      jsonb not null default '[]'::jsonb,
+
+  -- db/009_add_item_retirement.sql: soft-withdraw a bad item without
+  -- deleting it -- events.content_item_id may already reference it, and the
+  -- event log is append-only research data. NULL retired_at means live/
+  -- servable. retired_at and retired_reason are a matched pair (a reason
+  -- with no timestamp or vice versa is rejected); retired_reason is a
+  -- growable allowlist, not free text, so the paper's methods section can
+  -- `group by` it. Only 'chart-title-term' exists as of db/009; widening
+  -- the allowlist (e.g. 'trivia', 'under-determined') is a later migration
+  -- that drops and re-adds the same named CHECK, not a destructive change.
+  retired_at       timestamptz,
+  retired_reason   text
 );
 
 do $$
@@ -274,3 +286,38 @@ end $$;
 create index if not exists content_items_subject_kind_idx on content_items (subject, kind);
 create index if not exists content_items_source_idx       on content_items (source_id);
 create index if not exists content_items_topic_idx        on content_items (topic);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'content_items_retired_consistency_check'
+      and conrelid = 'content_items'::regclass
+  ) then
+    alter table content_items
+      add constraint content_items_retired_consistency_check
+      check ((retired_at is null) = (retired_reason is null));
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'content_items_retired_reason_check'
+      and conrelid = 'content_items'::regclass
+  ) then
+    alter table content_items
+      add constraint content_items_retired_reason_check
+      check (retired_reason is null or retired_reason in ('chart-title-term'));
+  end if;
+end $$;
+
+-- db/009_add_item_retirement.sql: "live items only" is on every
+-- item-selection query (quiz, choose-the-right-word, match); kind leads
+-- because all three filter on it, subject follows because the quiz and
+-- match both filter on it too (a (kind, subject) partial index still serves
+-- a kind-only lookup via the leading-column prefix).
+create index if not exists content_items_live_idx
+  on content_items (kind, subject)
+  where retired_at is null;

@@ -102,6 +102,10 @@ export async function GET(req: Request) {
     return Response.json({ ok: false, error: 'not enough term items' }, { status: 409 })
   }
 
+  // `retired_at is null` (db/009_add_item_retirement.sql) excludes soft-
+  // withdrawn items -- e.g. chart-caption rows that are not real
+  // term/definition pairs. The row is never deleted (events may already
+  // reference it), it just stops being eligible for a new board.
   let allRows: EligibleRow[]
   try {
     allRows = (await sql`
@@ -110,6 +114,7 @@ export async function GET(req: Request) {
       where kind = 'term_definition'
         and term is not null and trim(term) <> ''
         and clue is not null and trim(clue) <> ''
+        and retired_at is null
     `) as EligibleRow[]
   } catch (err) {
     console.error('match/board: content_items query failed', err)

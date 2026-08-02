@@ -39,6 +39,11 @@ import { itemOptions } from '@/lib/games/word'
 // treat "the round is naturally over" as a graceful ending rather than a
 // failure.
 //
+// `retired_at is null` (db/009_add_item_retirement.sql) excludes soft-withdrawn
+// items -- e.g. chart-caption rows that are not real term/definition pairs.
+// The row is never deleted (events may already reference it), it just stops
+// being served.
+//
 // A single-row minimum-distractor filter (FIX 2) also applies below: this
 // game always shows 4 options (term + up to 3 distractors -- MAX_DISTRACTORS
 // in lib/games/word.ts), so a row with fewer than 3 distractors would be
@@ -102,6 +107,7 @@ export async function GET(req: Request) {
         and term is not null and trim(term) <> ''
         and clue is not null and trim(clue) <> ''
         and jsonb_array_length(distractors) >= 3
+        and retired_at is null
     `) as Array<{ id: string; clue: string; term: string; distractors: unknown; difficulty: number | null }>
     allRows = rows.map((r) => ({
       id: r.id,

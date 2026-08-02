@@ -15,6 +15,11 @@ import { QUESTIONS, type Question } from '@/lib/game/questions'
 // currently exactly one subject in content_items, so "no filter" and "filter to
 // that one subject" return the same rows; this avoids hardcoding today's one
 // subject name into the route.
+//
+// `retired_at is null` (db/009_add_item_retirement.sql) excludes soft-withdrawn
+// items -- chart-caption rows etc. that are not learnable concepts. The row is
+// never deleted (events already reference some of them), it just stops being
+// servable.
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const subject = searchParams.get('subject')
@@ -26,14 +31,14 @@ export async function GET(req: Request) {
         ? await sql`
             select id, stem, options, difficulty, topic
             from content_items
-            where kind = 'mcq' and subject = ${subject}
+            where kind = 'mcq' and subject = ${subject} and retired_at is null
             order by random()
             limit 200
           `
         : await sql`
             select id, stem, options, difficulty, topic
             from content_items
-            where kind = 'mcq'
+            where kind = 'mcq' and retired_at is null
             order by random()
             limit 200
           `) as Array<{
