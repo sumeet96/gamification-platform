@@ -21,6 +21,16 @@ export const TIERS = [
 
 export const LETTERS = ['A', 'B', 'C', 'D']
 
+/** FNV-1a over a string id, for seeding by IDENTITY rather than array position. Moved here (1 Aug
+ *  2026) from scripts/build-term-mcq-spike.mjs's local `hash()` so scripts/spike-simulate-difficulty.mjs
+ *  can reuse the exact same helper instead of a second implementation -- CLAUDE.md: "Do not seed the
+ *  simulator from array position. Item id only." Always a non-negative 32-bit int. */
+export function hashId(s) {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
+  return h >>> 0
+}
+
 const OLLAMA = 'http://localhost:11434/api/chat'
 
 /** Expand the weighted tier mix into exactly N concrete simulated students. */

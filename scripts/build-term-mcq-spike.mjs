@@ -26,6 +26,8 @@
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { neon } from '@neondatabase/serverless'
+import { validateTerms } from './lib/terms-validate.mjs'
+import { hashId } from './lib/simulate-students.mjs'
 
 try {
   const txt = readFileSync(new URL('../.env.local', import.meta.url), 'utf8')
@@ -39,8 +41,13 @@ const arg = (name, fallback) => {
   const i = process.argv.indexOf(name)
   return i === -1 ? fallback : process.argv[i + 1]
 }
-const OUT = arg('--out', 'spike-data/terms-mcq.json')
-const EXC = arg('--excerpts', 'spike-data/excerpts-terms-mcq.json')
+// --validated-only: emit only the rows terms-validate.mjs's live rules would still pass, since
+// the repairable ones are getting new distractors later and distractors drive an MCQ's difficulty.
+// Default paths shift so the reproducible bake-off inputs (terms-mcq.json / excerpts-terms-mcq.json)
+// are never clobbered; an explicit --out/--excerpts still wins over either default.
+const VALIDATED_ONLY = process.argv.includes('--validated-only')
+const OUT = arg('--out', VALIDATED_ONLY ? 'spike-data/terms-mcq-clean.json' : 'spike-data/terms-mcq.json')
+const EXC = arg('--excerpts', VALIDATED_ONLY ? 'spike-data/excerpts-terms-mcq-clean.json' : 'spike-data/excerpts-terms-mcq.json')
 
 const DB = process.env.DATABASE_URL
 if (!DB) { console.error('Missing DATABASE_URL.'); process.exit(1) }
@@ -49,12 +56,9 @@ const sql = neon(DB)
 // Deterministic per-item shuffle: the option order must not change between runs,
 // or the same item would present differently to the simulator each time and the
 // difficulty estimate would carry that noise. Seeded from the item id, never its
-// position in the result set -- same rule as options.seed in the simulator.
-function hash(s) {
-  let h = 2166136261
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
-  return h >>> 0
-}
+// position in the result set -- same rule as options.seed in the simulator. (`hash`
+// itself now lives in lib/simulate-students.mjs as `hashId`, shared with
+// spike-simulate-difficulty.mjs, so there is one id-hash implementation, not two.)
 function seededShuffle(arr, seed) {
   const a = arr.slice()
   let s = seed || 1
@@ -67,7 +71,8 @@ function seededShuffle(arr, seed) {
 }
 
 const rows = await sql`
-  select id, subject, topic, term, clue, distractors, source_excerpt, page
+  select id, subject, topic, term, clue, distractors, source_excerpt, page,
+         cognitive_level, example_sentence, variants
   from content_items
   where kind = 'term_definition'
     and term is not null and clue is not null
@@ -75,15 +80,38 @@ const rows = await sql`
   order by id
 `
 
+// Census against terms-validate.mjs's live rules -- printed on every run, not just
+// --validated-only, so a plain run also records how many of the 50 would ship unchanged.
+// Rows are mapped to the shape the checks actually read (see terms-validate.mjs:325); `id` is kept
+// out of that shape and re-attached by array index so the option shuffle (seeded on r.id) never sees it.
+const validationItems = rows.map((r) => ({
+  term: r.term,
+  clue: r.clue,
+  example_sentence: r.example_sentence,
+  variants: Array.isArray(r.variants) ? r.variants : [],
+  distractors: Array.isArray(r.distractors) ? r.distractors : [],
+  cognitive_level: r.cognitive_level,
+  page: r.page,
+}))
+const { passed, rejected, repairable } = validateTerms(validationItems)
+console.error(
+  `census: ${rows.length} rows -> ${passed.length} clean, ${repairable.length} repairable, ${rejected.length} rejected`
+)
+for (const { index, rule } of rejected) console.error(`  rejected   ${rows[index].id} [${rule}] ${rows[index].term}`)
+for (const { index, rule } of repairable) console.error(`  repairable ${rows[index].id} [${rule}] ${rows[index].term}`)
+
+const passedSet = new Set(passed)
+const usableRows = VALIDATED_ONLY ? rows.filter((r, i) => passedSet.has(validationItems[i])) : rows
+
 const questions = []
 const excerpts = []
 let skipped = 0
 
-for (const r of rows) {
+for (const r of usableRows) {
   const distractors = (Array.isArray(r.distractors) ? r.distractors : []).slice(0, 3)
   if (distractors.length < 3) { skipped++; continue }
   // Exactly the four options the game shows, in a stable order.
-  const options = seededShuffle([r.term, ...distractors], hash(r.id))
+  const options = seededShuffle([r.term, ...distractors], hashId(r.id))
   const answer = options.indexOf(r.term)
   if (answer < 0) { skipped++; continue }
 

@@ -30,7 +30,7 @@
 // came from — its flags, seeds and output format must stay exactly as they were.
 
 import { readFileSync, writeFileSync } from 'node:fs'
-import { TIERS, buildCohort, makeAsker, simulateQuestion } from './lib/simulate-students.mjs'
+import { TIERS, buildCohort, makeAsker, simulateQuestion, hashId } from './lib/simulate-students.mjs'
 
 // --- .env.local, for --provider gemini (no dependency) ---
 try {
@@ -88,9 +88,14 @@ let errors = 0
 
 for (let qi = 0; qi < questions.length; qi++) {
   const q = questions[qi]
+  // Seed from the item's own id when it has one (CLAUDE.md: "Do not seed the simulator from array
+  // position. Item id only.") -- subsetting the item set must not re-seed every surviving item after
+  // the first drop. `(qi + 1) * 7919` remains only as a fallback for decks with no `id` field (e.g.
+  // spike-data/deck-cage.json), so those published results reproduce exactly as before.
+  const seedBase = q.id ? hashId(q.id) : (qi + 1) * 7919
   const { p, byTier, errorCount, unparseableCount } = await simulateQuestion({
     ask, question: q, excerpt: excerpts?.[qi], cohort,
-    seedBase: (qi + 1) * 7919, retention: RETENTION, concurrency: CONCURRENCY,
+    seedBase, retention: RETENTION, concurrency: CONCURRENCY,
   })
   errors += errorCount
   // A transport error is NOT a wrong answer. Scoring one as wrong invents a hard question out of a
