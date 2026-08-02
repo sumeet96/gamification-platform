@@ -1,269 +1,192 @@
-# Current state — 1 August 2026, continued again (supersedes the A1/A3 checkpoint)
+# Current state — 2 August 2026
 
-## Where we are — the headline change first
+## Where we are
 
-**The professor has reportedly dropped the adaptive-difficulty lever.** Reported by the user after a
-conversation with Prof. Singh: difficulty tagging is proving difficult, and the instruction is to
-stick with the time lever. **This is REPORTED, NOT TRANSCRIBED** — the project rule (see
-`CLAUDE.md` Conventions) is that professor decisions cite `docs/meeting/…`, because five drifts were
-found on 30 Jul 2026 by re-reading the actual transcript. There is no transcript or notes for this
-one yet. If a recording or notes exist, they belong in `docs/meeting/`; none have been supplied.
+Six packages remain shipped and working (G1 generator, G2 term generator, D1 dashboard, Q1 quiz
+hardening, A1 match, A3 choose-the-right-word); 127 tests, `tsc --noEmit` clean, migrations `db/005`–
+`db/008` live on Neon project `ancient-brook-62806105`. This session ran the **term-item difficulty
+calibration** end to end and it succeeded on every discrimination criterion — but **nothing was
+written to the database**, deliberately, and that hold is the single most important thing to carry
+forward. Along the way the `--from` apply path in `scripts/calibrate-difficulty.mjs` turned out to be
+completely non-functional for term items and was repaired; a second review pass caught that the repair
+itself had broken the fresh-simulation path. The headline blocker from the last checkpoint is
+unchanged and still the top item: **the professor reportedly dropped the adaptive-difficulty lever,
+there is still no transcript, and the experiment currently has no between-arm contrast.**
 
-**OPEN AND URGENT: the experimental design currently has no between-arm contrast.** The
-difficulty-vs-time-lever split WAS the independent variable. If every student gets time pressure,
-nothing is known to vary between conditions — time-on vs time-off? rapid vs normal? something else?
-`CLAUDE.md` already recorded the research variable across games as the professor's to plan; this
-report makes settling it urgent rather than pending. Without a contrast there is no experiment, only
-an instrumented app. Raise at the 4 Aug meeting before any further build work that assumes a design.
+## Working tree
 
-**Difficulty is not discarded — its role changes from item-selection INPUT to analysis
-COVARIATE.** Even under random or least-recently-served item assignment, item difficulty is still
-needed to say anything credible about time pressure's effect — otherwise a student who happened to
-draw harder items merely looks slower, confounding item hardness with lever effect. It also opens the
-more interesting question of whether time pressure hurts disproportionately on hard items. So
-calibration work (the bake-off, term-MCQ rendering, below) keeps a home in the main paper even though
-it no longer drives adaptive item selection.
+Branch `main`, clean — nothing uncommitted, nothing untracked.
 
-**Do NOT delete the adaptive machinery.** The house rule ("when a design decision changes, delete the
-machinery it obsoleted") was written for code that never changed an outcome — the adaptive lever is a
-working, tested capability the professor may want reinstated once tagging is easier. `nextDifficulty`,
-the adaptive branch of `resolveLever()`/`advanceLeverState()`, and the difficulty ranking in
-`lib/games/item-select.ts` all stay in place, parked behind the registry flag, until the decision is
-confirmed in writing.
+- `447cdb4` Calibrate the 33 clean term items, and find out what a rerun is worth
+- `116a3eb` Make the calibration path able to write term difficulty, and only to the right rows
+- `8c6f343` Stop term items giving away their own answer, without eating the good ones (prior session)
 
-## Also this stretch: the simulator bake-off finished, with no single winner
+**`spike-data/` is entirely gitignored (`.gitignore:69`), so none of the run artifacts or run
+wrappers below are versioned.** This is a real durability gap, not an oversight to reproduce: it means
+`spike-data/run-term-llama3b.sh` — which CLAUDE.md explicitly tells future sessions to *copy, not
+re-derive* for its PID-mutex pattern — would be lost on a fresh clone. Present on this machine only:
 
-Two arms, both grounded + retention-gated, n=30 simulated students per item. Reproduce both tables
-with `node scripts/analyse-bakeoff.mjs` (new file, committed untracked — stage before next commit).
+| file | what it is |
+|---|---|
+| `spike-data/termcal-llama3-2-1b.json` | **the kept calibration run** (id-seeded, 33 items) |
+| `spike-data/termcal-llama3-2-1b-posseed.json` | the first run, positional seeding — keep, it is the replication pair |
+| `spike-data/terms-mcq-clean.json` | the 33-item fixture; **required** by `--from` to recover item ids |
+| `spike-data/excerpts-terms-mcq-clean.json` | aligned excerpts for the above |
+| `spike-data/term-census-2026-08-02.txt` | the 33/10/7 census with every rejected and repairable row named |
+| `spike-data/run-term-llama1b.sh` | the calibration run wrapper |
+| `spike-data/termcal-llama1b.log`, `termcal-llama1b-idseed.log` | run logs |
 
-**SLIDE-MCQ ARM — CAGE deck, 17 items:**
+## In progress right now
 
-| model | mean | IQR | ceiling | floor | gradient (BB/Bas/Prof/Adv) | monotonic | mins |
-|---|---|---|---|---|---|---|---|
-| llama3.2:1b | 0.38 | 0.23 | 0/17 | 0/17 | 0.30/0.40/0.44/0.35 | NO | 13 |
-| qwen2.5:1.5b | 0.74 | 0.27 | 5/17 | 1/17 | 0.67/0.72/0.81/0.84 | yes | 10 |
-| gemma2:2b | 0.74 | 0.33 | 7/17 | 1/17 | 0.63/0.74/0.80/0.82 | yes | 28 |
-| llama3.2:3b | 0.72 | 0.23 | 2/17 | 0/17 | 0.62/0.73/0.79/0.80 | yes | 20 |
-| gemma2:9b | 0.82 | 0.23 | 8/17 | 1/17 | 0.74/0.81/0.90/0.90 | yes | 101 |
+Nothing is mid-flight. The calibration is finished and committed; the interrupted thing is the
+**decision to write it to the DB, which was deliberately deferred to the 4 Aug meeting.**
 
-**TERM-MCQ ARM — 50 term items rendered as choose-word MCQs:**
+The write is one command away and fully rehearsed. To execute it (only after the design question is
+settled — see below):
 
-| model | mean | IQR | ceiling | floor | gradient | monotonic | mins |
-|---|---|---|---|---|---|---|---|
-| llama3.2:1b | 0.54 | 0.30 | 0/50 | 0/50 | 0.49/0.49/0.63/0.63 | yes | 35 |
-| qwen2.5:1.5b | 0.95 | 0.03 | 42/50 | 0/50 | 0.94/0.95/0.96/0.95 | NO | 30 |
-| gemma2:2b | 0.89 | 0.10 | 35/50 | 0/50 | 0.88/0.89/0.90/0.90 | yes | 90 |
-| llama3.2:3b | 0.89 | 0.10 | 31/50 | 1/50 | 0.87/0.88/0.90/0.93 | yes | 58 |
+```
+node scripts/calibrate-difficulty.mjs --from spike-data/termcal-llama3-2-1b.json \
+  --items spike-data/terms-mcq-clean.json --dry-run
+```
 
-**THE FINDING: simulator choice is ITEM-TYPE dependent.** The same model, same method, same n, goes
-from 2/17 at ceiling on slide MCQs (12%) to 31/50 on term MCQs (62%). `llama3.2:3b` is the best
-simulator for conceptual slide MCQs and unusable for term items; `llama3.2:1b` is exactly the
-reverse. **Recommendation: 3B for the quiz's MCQs, 1B for term items (match, choose-the-right-word).**
-There is no global winner.
+Drop `--dry-run` to write. Expect: 33 items, `simulator_model=llama3.2:1b`,
+`simulator_method=grounded-retention`, `simulated_n=30`, distribution `d1=6 d2=7 d3=5 d4=7 d5=8`.
 
-Mechanism worth recording: a choose-word item asks you to match a definition to a short label among
-near-miss options — recognition. A slide MCQ asks you to reason about a concept. Recognition
-saturates a competent model; reasoning does not.
+**Do not just run it.** The reason for the hold is a live behaviour change, described under Decisions.
 
-Two honest caveats:
-- Earlier in this stretch `llama3.2:1b` was said to have "failed" on slides because its gradient
-  inverted. The fairer statement: the inversion was on 17 items (~51 Advanced observations, ~1.3 SE)
-  and did **not** reproduce at 50 items. The load-bearing separator is CEILING and MEAN, not the
-  gradient shape.
-- `llama3.2:1b`'s term gradient is step-shaped (0.49/0.49 then 0.63/0.63) — it separates low- from
-  high-retention students but does not resolve four tiers. Coarser than the headline suggests; state
-  this in any write-up.
+## What the calibration actually produced
 
-**The selection criterion is DISCRIMINATION, not weakness.** This corrects `CLAUDE.md`'s "weaker
-models simulate students better" line: directionally right, but ceiling is what actually breaks runs.
-Criterion: mean facility ~0.50–0.65, ceiling <20%, floor <10%, monotonic gradient across the four
-retention tiers, IQR >0.30. The gradient check is the only guard against going too small — a model at
-chance (0.25 on four options) has a flattering low mean and no ability signal at all.
+`llama3.2:1b`, grounded + retention-gated, n=30, 33 items, 24.5 min, 100% CPU. Passes all five
+discrimination criteria: mean facility **0.531**, IQR **0.333**, ceiling **0/33**, floor **0/33**,
+retention gradient **0.45 / 0.48 / 0.63 / 0.65 (monotonic)**, 0 unparseable, spread 0.70 (gate is
+<0.20 = fail). Simulated cohort per item: Below Basic 8, Basic 11, Proficient 8, Advanced 3.
 
-All inference is 100% CPU, so model size dominates runtime (`gemma2:9b` 101 min vs `llama3.2:1b`
-13 min on the same 17-item deck).
+**Same-simulator replication — the most transferable result of the session.** The run was executed
+twice with identical config, differing only in seeding scheme (see Decisions). That is a clean
+same-model, same-items, same-n replication, which had never been measured:
 
-## Term items are calibratable — new tooling this stretch
+- Spearman **ρ = 0.826**; mean |Δp| = **0.088**, max 0.233
+- Band stability: **45% identical (15/33), 91% within one band (30/33)**, 3 moved two bands, none more
+- First run for comparison: mean 0.516, IQR 0.300, gradient 0.41/0.48/0.64/0.61 — **not** monotonic
+  (Advanced 0.61 < Proficient 0.64). The Advanced tier is 3 of 30 students; the inversion is within
+  noise and did not reproduce.
 
-`scripts/build-term-mcq-spike.mjs` (new, committed `bf925fd`) renders every `term_definition` row as
-the MCQ A3 actually shows: clue as stem, term + 3 distractors as options, option order shuffled
-deterministically from the item id (never its position in the result set). Produces
-`spike-data/terms-mcq.json` (50 items) and `spike-data/excerpts-terms-mcq.json`. All 50 rows render;
-every one has a source excerpt. This is the shim that closed the "term items cannot be calibrated"
-gap recorded in the prior checkpoint. No new method — it reuses the existing grounded, retention-gated
-simulator, just against a rendering of term rows as MCQs instead of quiz rows.
+Two implications, both written up in `docs/experiments/2026-08-02_term-item-calibration.md`:
+1. mean |Δp| = 0.088 is what pure sampling noise looks like at n=30 (CLAUDE.md's own SE ≈ 0.09 predicts
+   ≈0.10). The five-band decision is now corroborated by measurement, not only by argument.
+2. **ρ = 0.826 is a reproducibility CEILING.** The cross-simulator ρ = 0.62 should be read against
+   ~0.83, not against 1.0. Caveat and state it: that 0.62 is a different item type (slide MCQs) and a
+   different model pair, so this frames the number, it is not a like-for-like comparison.
 
-## Literature review — `docs/literature/publishing-llm-item-difficulty.md` (new, untracked)
+Counterweight to state in any write-up: 45% exact band agreement means a per-item band is a **±1 band**
+statement, not a point estimate.
 
-- **The r = 0.75–0.82 figure is confirmed as NAEP mathematics MCQs only.** New comparator: SMART
-  (Chen et al., preprint) reports Spearman 0.57 on reading comprehension and 0.42 on coding for the
-  same simulation approach. **Management prose should be expected nearer r ≈ 0.5, not 0.75.** Tell
-  Prof. Singh before the pilot, not after.
-- **The memorisation confound (this project's finding 2, ρ = 0.62 unmemorised vs 0.14 memorised) is
-  an EXTENSION of known work, not a discovery.** Contamination inflating LLM benchmark scores unevenly
-  by item is well established in the literature; applying it as a cross-simulator agreement contrast
-  inside a student-simulation difficulty method appears unreported elsewhere. The contribution is the
-  framing and quantification, not the underlying mechanism.
-- **A 2026 preprint (Hoard et al.) shows pairwise comparison plus calibration examples rescues DIRECT
-  LLM difficulty rating** on maths items. This contradicts the standing project lean against direct
-  rating (`CLAUDE.md` records that question as unresolved-but-discouraged). Untested on prose; cheap
-  to try if time allows, but not prioritised over settling the design contrast.
-- **The facility/discrimination tradeoff looks genuinely unreported**: this project's finding that the
-  one model weak enough to match human-like mean facility (`llama3.2:1b`, 0.38 on slides) is also the
-  one whose gradient inverted on the smaller sample — a possible U-shape rather than "weaker is always
-  better" — has no clear match in the surveyed literature. Flagged suggestive, not confirmed, and
-  n≈3 per Advanced tier at the time it was first observed made it preliminary; see the bake-off
-  correction above (did not reproduce at 50 items).
-- **Nothing produced so far is publishable standalone without human validation.** Every comparison to
-  date is simulator-vs-simulator; `empirical_p` is null on every row in the database.
-- **Two-paper plan, and the timing is favourable.** Workshop deadlines (BEA 2027, AIED late-breaking)
-  sit around Feb–Mar 2027, while the pilot runs Sept–Dec 2026. Pilot data would be in hand before the
-  workshop deadline, so there is no need to rush a validation-free paper now. Recommendation: stop
-  investing build time in the simulator method, let the pilot produce `empirical_p`, write once with
-  validation included.
-- Caveat: most cited sources are arXiv preprints with peer-review status unverified; the LAK/DESRIST
-  2027 deadlines and one paper's exact year are marked UNVERIFIED in the note itself.
+## Decisions made this session
 
-## A tooling bug worth not repeating
-
-The simulation runner scripts guarded against concurrent Ollama jobs by waiting for `ollama ps` to
-report EMPTY. **That check was wrong: `ollama ps` lists LOADED models, not BUSY ones.** Ollama keeps a
-model resident for roughly 5 minutes after use, so the condition could never clear while anything was
-merely warm — two runs sat in the wait loop until they aborted, instead of running. A warm idle model
-is not a conflict; the actual protection is the mutex. The `ollama ps`-empty check was **removed, not
-repaired.**
-
-Second half of the same bug: a hard kill does not fire an EXIT trap, so a killed run left its lock
-directory behind and silently blocked the next run even though nothing was executing. **A mutex whose
-release depends on graceful exit is only half a mutex.** The lock now records the owning PID so a
-stale lock is distinguishable from a live one — `spike-data/run-term-llama3b.sh` has the working
-pattern; copy it for future runs rather than re-deriving the fix.
-
-## Housekeeping
-
-- New files this stretch: `scripts/build-term-mcq-spike.mjs` (committed, `bf925fd`),
-  `scripts/analyse-bakeoff.mjs` (untracked, staged for next commit),
-  `docs/literature/publishing-llm-item-difficulty.md` (untracked, staged for next commit).
-- Local models now installed: `llama3.2:1b`, `qwen2.5:1.5b`, `gemma2:2b`, in addition to the
-  previously installed `llama3.2` (3B) and `gemma2:9b`. `gemma4:31b-cloud` remains present in
-  `ollama list` and must **never** be used for simulation — it is a CLOUD model; course material would
-  leave the machine.
-- All bake-off outputs live in gitignored `spike-data/` (`bakeoff-*.json`, `termbake-*.json`).
-
-## Everything below carries forward unchanged from the A1/A3 checkpoint
-
-Six packages shipped: G1 (MCQ generator), G2 (term/definition generator), D1 (dashboard), Q1 (quiz
-hardening), A1 (match-the-following), A3 (choose-the-right-word). Migrations `db/005`–`db/008`
-applied and verified live on Neon project `ancient-brook-62806105`. Branch `main`, last committed
-work `bf925fd` ("Render term items as the MCQs they already are, so they can be calibrated"); two
-files sit untracked in the working tree (see Housekeeping above). 100 tests pass, `tsc --noEmit`
-clean, `npx next build` succeeds.
-
-The full package history, the concurrency-race fix (db/008), the shared `answer-commit.ts` and
-`abandonRound()` extraction, match's scoring table, the cross-simulator memorisation-confound result
-(ρ = 0.62 unmemorised vs 0.14 memorised, pooled genre-matched slide decks), and the reviewer-found
-defect list from A3 are all unchanged from the prior checkpoint and are not restated here — see git
-history (`ad129bf`, `99adc96`, `1805d62`, `fe871e1`) for the original detail if needed.
-
-## Next actions (replaces the prior list)
-
-1. **Settle the experimental contrast with Prof. Singh** — top open question, ahead of any further
-   build work that assumes a design.
-2. Calibrate the 50 term rows using `llama3.2:1b` and the 17 MCQ rows using `llama3.2:3b` (per the
-   bake-off's item-type-dependent recommendation above); write `simulated_p` and the binned 1–5
-   `difficulty`. **Never `empirical_p`.**
-3. Package A2 (fill-in-the-blanks, 35 rows have `example_sentence`) or L1 (leaderboard) — build
-   priority is now lower than settling the design question.
-4. Tue 4 Aug meeting agenda: the between-arm contrast (now urgent, see above), points table numbers,
-   rapid/normal exact seconds, Wordle's viability (5 of 50 terms qualify, all proper nouns), the
-   r ≈ 0.5 expectation for prose (tell him before the pilot), and confirmation — ideally written or
-   recorded — of the lever-drop decision itself.
+- **Calibrate 33 of 50 term rows, not all 50** — the live rows predate `8c6f343`'s validator. Census
+  reproduced that commit exactly: 33 clean, 10 repairable, 7 rejected (all 7 genuine chart captions:
+  Netflix Subscribers Statistics 2025, Mattel Japan Market Share, Leading Toy Brands Japan/China/USA,
+  Leading Toy Markets 2024, Google's Market Share). The 10 repairable are excluded because their
+  distractors are due to be regenerated and **distractors are what make an MCQ hard** — calibrating
+  them now would measure an item that is about to stop existing.
+- **Hold the DB write until the 4 Aug contrast decision** — user's call when given the options.
+  Writing is not inert: difficulty-based pool narrowing is still live in the shipped app.
+  `app/games/word/page.tsx:115` and `app/games/match/page.tsx:133` both still send a `difficulty`
+  param, and `lib/games/match-board-select.ts:92` omits `minCalibrated` so **match narrows its pool as
+  soon as one row in a subject is calibrated** (word waits for 20, `MIN_CALIBRATED_FOR_DIFFICULTY` at
+  `app/api/word/question/route.ts:60`). Writing 33 of 50 would orphan the other 17 and leave Digital
+  Transformation building 6-tile boards from 11 items — the pool-starvation failure A1 already hit.
+- **Fresh simulation is `kind='mcq'` only; term items reach the DB solely via `--from`** — widening the
+  candidate query for `--from` had broken the fresh path it shares, because term rows have null
+  `stem`/`options`/`answer`, so `shuffled()` threw, the throw was swallowed as a transport error, and
+  the item scored `p=0.0 → difficulty=5`. It aborted on the 2nd term item today, but under a
+  mostly-MCQ pool the error budget absorbs it and writes a wrong difficulty silently.
+- **Item identity comes from an explicit `--items` fixture, joined by index, guarded on prompt text** —
+  run files carry no id, only an index. Length and `r.i === i` are **not** sufficient: `terms-mcq-clean.json`
+  is regenerated in place and ordered by 32-hex id, so the coming repair pass inserts re-admitted rows
+  at pseudorandom positions. If one row also drops, length still matches and every `r.i` still equals
+  `i` while 20+ items silently take another item's difficulty. Prompt text is now compared per row.
+- **A subset apply is refused by default, per kind** — binning is a rank over whatever set you hand it,
+  so calibrating 33 now and 17 after repair would put two incompatible d1–d5 scales in one pool where
+  hardest-of-17 and hardest-of-33 both read d5. `--allow-partial-apply` overrides deliberately. The
+  check is per-kind, so the 17 already-calibrated `kind='mcq'` rows do not block a term apply.
+- **Seeds now derive from `hashId(item.id)`, not array position** (`scripts/spike-simulate-difficulty.mjs`,
+  shared helper moved to `scripts/lib/simulate-students.mjs`). CLAUDE.md already required this; the
+  simulator was not doing it. This is what makes a subsetting flag safe — dropping 17 rows had been
+  re-seeding every survivor after the first drop. It is also why the run was executed twice.
+- **Stale-lock clearing is now atomic** (`mv` then `rm -rf`, applied to both `run-term-llama1b.sh` and
+  `run-term-llama3b.sh`) — the old `rm`+`rmdir` let two racers both clear the same stale lock and both
+  `mkdir` successfully, with the second destroying the first's freshly-live lock.
+- **Skipped `codex-review`** — the project rule requires a `reviewer` pass before commit on risky
+  changes; that happened twice and found real defects both times, and nothing touched the DB.
 
 ## Open questions / blocked on
 
-- **Is there still a between-arm experimental contrast, and if so what is it?** New and urgent as of
-  this checkpoint — see the headline section above. Everything else is secondary to this.
-- **The lever-drop decision has no transcript.** Confirm in writing or recording before treating it as
-  final; until then `CLAUDE.md`'s superseded rule stays visible, not deleted.
-- **Wordle (A4) may be structurally unviable.** Only 5 of 50 terms across both decks are single words
-  of 4–8 letters, and all five are proper nouns. No *concept* clears the bar. Raise with the professor
-  rather than silently cutting it.
-- **Rapid/normal exact seconds** — working assumption 10s rapid / 15s normal, unconfirmed.
-- **Points table numbers**, including whether rapid pays more than normal, and whether match's
-  15/30/−20 table needs his sign-off like the other games' placeholder values.
-- **Whether the asserted 1–5 difficulty labels discriminate** stays unresolved even after the
-  bake-off — it answers which simulator to use, not whether the resulting bands track real student
-  performance. Only the pilot's `empirical_p` can answer that.
-- **Does simulated facility track real facility?** Needs the pilot; the literature review above puts
-  the realistic expectation at r ≈ 0.5 for prose, not the 0.75–0.82 figure that is math-only.
-- **Direct LLM difficulty rating** — reopened as an untested middle ground by Hoard et al. (pairwise
-  comparison + calibration examples), on math only; not tried on prose, not prioritised over the
-  design-contrast question.
-- **Next meeting Tuesday 4 Aug 2026.**
+- **Is there still a between-arm experimental contrast, and what is it?** Unchanged from the last
+  checkpoint and still the top item. Unblocked only by Prof. Singh, Tue 4 Aug. Everything else is
+  secondary.
+- **The lever-drop decision still has no transcript.** `docs/meeting/` has no record. Confirm in
+  writing or recording.
+- **Should the DB write proceed, and in what form?** Three viable shapes, all deferred to 4 Aug:
+  (a) hold indefinitely; (b) write and turn the lever off in code (stop clients sending `difficulty`,
+  pass `minCalibrated` to match); (c) delete the 7 caption rows, repair the 10 leakers, calibrate all
+  43, write once with a single consistent scale. (c) is the cleanest research artifact and costs paid
+  generation calls plus ~25 min of Ollama.
+- **`spike-data/` being gitignored** — the run wrappers are code, not data. Moving them to `scripts/`
+  would version them but changes a path CLAUDE.md cites by name. Needs a call.
+- **Windows/libuv crash**, found while building the subset guard: a second `sql` SELECT issued right
+  before `process.exit(0)` reliably aborts with `UV_HANDLE_CLOSING` (3/3 repro, neon-serverless on
+  Node/Windows). Designed around by reusing the already-fetched `candidates` array; could recur in any
+  script doing sequential `sql` calls before exit.
+- Carried forward, unchanged: Wordle (A4) viability (5 of 50 terms qualify, all proper nouns); exact
+  rapid/normal seconds (10s/15s assumed); points-table numbers including match's 15/30/−20; whether
+  asserted 1–5 bands track real student performance (only pilot `empirical_p` answers it); does
+  simulated facility track real facility (expect r ≈ 0.5 for prose, not 0.75–0.82).
+
+## Next 3 actions
+
+1. **Settle the experimental contrast with Prof. Singh at the Tue 4 Aug meeting**, and get the
+   lever-drop decision in writing or recording so it can land in `docs/meeting/`. Agenda also carries:
+   points-table numbers, rapid/normal exact seconds, Wordle's viability, and the r ≈ 0.5 expectation
+   for management prose (tell him *before* the pilot, not after).
+2. **Then decide the DB write.** Rehearse first with
+   `node scripts/calibrate-difficulty.mjs --from spike-data/termcal-llama3-2-1b.json --items spike-data/terms-mcq-clean.json --dry-run`
+   and expect `d1=6 d2=7 d3=5 d4=7 d5=8`. If option (c) above is chosen instead, first delete the 7
+   caption rows and run the repair pass on the 10 leakers, then
+   `node scripts/build-term-mcq-spike.mjs --validated-only` and `bash spike-data/run-term-llama1b.sh`
+   again over all 43 so there is one consistent scale.
+3. **Fix the match/word narrowing asymmetry** — `lib/games/match-board-select.ts:92` passes no
+   `minCalibrated` and so defaults to 0. Independent of the calibration and wrong either way, but it
+   only becomes urgent once any term row is calibrated.
 
 ## Do not redo
 
-- **Do not treat the lever drop as final without a transcript or recording.** It is reported, not
-  documented; `docs/meeting/` has no record of it as of this checkpoint.
-- **Do not delete the adaptive-difficulty machinery** (`nextDifficulty`, the adaptive branch of
-  `resolveLever()`/`advanceLeverState()`, difficulty ranking in `lib/games/item-select.ts`) — park it
-  behind the registry flag, it may be reinstated.
-- **Do not feed `simulated_p`/`difficulty` into item selection once the lever is off** — its role is
-  now analysis covariate only; wire changes here need the design contrast settled first, not before.
-- **Do not use `gemma2:9b` for term items** — 90 minutes for a mean of 0.89 with 35/50 at ceiling; it
-  is both slow and uninformative on this item type.
-- **Do not use `qwen2.5:1.5b` for term items** — 42/50 at ceiling and a non-monotonic gradient.
-- **Do not assume one simulator serves both item types.** The bake-off's headline finding is that
-  slide MCQs and term MCQs need different simulators (`llama3.2:3b` and `llama3.2:1b` respectively);
-  do not default to one for both without re-checking against the discrimination criterion above.
-- **Do not guard concurrent Ollama runs by waiting for `ollama ps` to be empty** — it lists loaded
-  models, not busy ones, and a model stays loaded ~5 minutes after use regardless of activity. Use the
-  PID-recording mutex pattern in `spike-data/run-term-llama3b.sh` instead.
-- **Do not rely on an EXIT trap alone to release a run lock** — a hard kill skips it. Record the owning
-  PID in the lock so a stale lock is distinguishable from a live one.
-- **Do not run two Ollama jobs concurrently** — the mutex guards exist for exactly this.
-- **Do not run the simulation ungrounded and call it difficulty.** Settled on three model families
-  before this stretch.
-- **Do not give every tier the full excerpt** — arm B inverts the ability gradient on all three
-  models tested.
-- **Do not add more than five difficulty levels**, and **do not bin by rank position** — ties must
-  share a band (`scripts/lib/quintile-difficulty.mjs`).
-- **Do not seed the simulator from array position.** Item id only.
-- **Do not carry difficulty across rounds**, and do not "fix" the per-round reset.
-- **Do not let XP or a leaderboard feed into item selection.**
-- **Do not merge `simulated_p` into `empirical_p`**, or `cognitive_level` into either.
-- **Do not add a per-pair penalty to match** — it double-bills a single error on a bijection board.
-- **Do not make the match board all-or-nothing** — it blinds the facility signal and flatlines the
-  board-grained lever.
-- **Do not pad the match board with `distractors`** — that column is for choose-the-right-word and
-  fill-in-the-blanks; padding breaks the bijection the scoring rests on.
-- **Do not select boards (or word items) by whole-history exclusion** — locked a student out
-  permanently after 8 boards in live testing. Selection is least-recently-served ranking, shared via
-  `lib/games/item-select.ts`.
-- **Do not copy the quiz's answer-commit logic into a new game — extract and share it via
-  `lib/game/answer-commit.ts`.**
-- **Do not add a new "declined a round" state that blurs with abandonment** — `round_stop` (a direct
-  decline) and an unresolved `round_offer` (abandonment) must stay distinct in the log.
-- **Do not claim `difficultyHonored: true` without sending it in the API response** — the badge bug
-  that shipped silently under two reviews and 100 tests.
-- **Do not assume match scores come in even numbers only** — 3 and 1 are reachable (odd-length
-  cycles); the only forbidden score is 5-of-6 (no singleton errors).
-- **Do not switch simulator to `gemma2:9b` or `gpt-3.5-turbo` for slide MCQs without re-checking the
-  bake-off.** Both ceiling badly on the Airbnb baseline and both recognise course decks from training
-  data; `gemma2:9b` is also ~6× slower.
-- **Do not `git add -A` with course-material PDFs in the tree** — a 9.8 MB deck was committed by
-  accident and had to be amended out. Root `*.pdf` is now gitignored.
-- **Gemini prepayment credits are depleted** — every Gemini call 429s. Generation runs on OpenAI
-  (`--provider openai`, default `gpt-4.1-mini`).
-- **Do not use `thinkingConfig` with `gemini-3.5-flash-lite`** — rejected with a 400.
-- **Do not add vitest or jest**, and **do not use `node --test tests/`** — the working form is
-  `node --test tests/*.test.ts`.
-- **Do not remove `allowImportingTsExtensions`** from `tsconfig.json`.
-- **Do not put a CHECK on `events.cognitive_level`** — append-only log on the answer path.
-- **Do not reinstate LibreOffice**, add a `passage` content type, or recreate
-  `docs/PROJECT_BACKLOG.md`.
-- **Do not learn the professor's spec from summaries.** Read
-  `docs/meeting/Jul 27 at 3-39 PM.txt`; the lever-drop item above is exactly the kind of claim that
-  needs the same discipline once a transcript exists.
-- All prior "do not redo" items from the 29–31 Jul checkpoints still stand (no Poppler/ImageMagick,
-  no npm ZIP library, no `psql`, no bcrypt/argon2, no steering prompt on `codex exec review`).
+Everything under "Do not redo" in the 1 Aug checkpoint still stands (adaptive machinery stays parked,
+`llama3.2:3b` for slide MCQs and `llama3.2:1b` for term items, no `gemma2:9b`/`qwen2.5:1.5b` for
+terms, five bands only, no rank-position binning, no whole-history exclusion in item selection, no
+per-pair match penalty, no `git add -A` with PDFs present, Gemini credits depleted so generation runs
+on OpenAI, no vitest/jest, and the rest). Added this session:
+
+- **Do not write this calibration to the DB without deciding the pool-narrowing question first.** It
+  is not a passive data load; it activates a live branch that orphans the 17 uncalibrated term rows.
+- **Do not run `calibrate-difficulty.mjs --from` without `--items`.** Run files carry no item id — only
+  an index — so identity is unrecoverable from the run file alone.
+- **Do not trust length + `r.i === i` as an alignment guard.** Both hold under a reorder-plus-drop, and
+  the failure silently writes correct-looking difficulty to the wrong items. Prompt text is compared
+  now; keep it.
+- **Do not apply two separately-binned subsets into the same kind's pool.** d1–d5 over 17 items and
+  d1–d5 over 33 items are different scales and `lib/games/item-select.ts:106` compares them as equals.
+- **Do not let the fresh-simulation path see `kind='term_definition'` rows.** Null `stem`/`options`
+  throws inside `shuffled()`, gets swallowed as a transport error, and scores `p=0.0 → difficulty=5`.
+- **Do not clear a stale lock with `rm`+`rmdir`.** Two racers both clear and both acquire; use the
+  atomic `mv` then `rm -rf` now in both run wrappers.
+- **Do not re-derive the bake-off values from the clean 33-item run.** The bake-off arms ran over all
+  50 rows including the 7 captions and 10 leakers; the sets are not comparable, and removing the
+  leakers is why mean facility moved 0.54 → 0.53.
+- **Do not treat the two run files as interchangeable.** `termcal-llama3-2-1b.json` (id-seeded) is the
+  one to apply; `-posseed.json` is the replication pair and exists to support the ρ = 0.826 figure.
+  Deleting either destroys the stability result.
+- **Do not quote ρ = 0.826 as cross-simulator agreement.** It is same-model, same-items, differing only
+  in seed — a reproducibility ceiling, not an agreement figure.
+- **Do not issue a second `sql` SELECT immediately before `process.exit(0)`** on Windows — reliable
+  `UV_HANDLE_CLOSING` abort.
