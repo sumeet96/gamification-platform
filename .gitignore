@@ -72,3 +72,9 @@ spike-data/
 # committed -- same reason spike-data/ is ignored. Research papers under docs/literature/
 # stay tracked, which is why this rule is anchored to the root only.
 /*.pdf
+
+# Playwright CLI working files. Snapshots accumulate one YAML per page visit, and the
+# browser profile is machine-local -- neither belongs in the repo. The CLI itself is a
+# global npm install (@playwright/cli), not a project dependency.
+.playwright-cli/
+.playwright/
