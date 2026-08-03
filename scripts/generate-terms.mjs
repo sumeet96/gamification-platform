@@ -55,6 +55,21 @@
 // --per-window is GONE: stage 1 has no quota to size, so "terms requested per window" no longer
 // means anything. If a future stage needs a per-call cap again, it should be a MAXIMUM with
 // "fewer is correct" stated explicitly, per the brief — not resurrected as a target.
+//
+// A defect added to the item prompt, 3 Aug 2026, from a gap screen against a regenerated 29-item
+// run: a clue can be a fair description of its own distractors too even when it never leaks the
+// term — the worst case scored 0.10 grounded facility, worse than chance, because the model
+// confidently picked the best-matching DISTRACTOR. itemFieldsPromptFor now makes the model check
+// its own clue against each distractor before finishing the item, in the SAME call — a separate
+// per-item sanity call was already tried for the earlier distractor problem, cost 2.5x input
+// tokens, and did not catch this.
+//
+// A second, structural detector (flagging chart-caption-style option sets that swap a detail
+// across an otherwise-fixed frame) was tried and removed the same day: validated against the 38
+// generated items in spike-data/, it flagged 8 items and 4 of them were good — shared-head-noun
+// distractor sets the generation prompt explicitly encourages, structurally indistinguishable from
+// a genuine giveaway without a semantic judgment no lexical rule can make. Deleted per the
+// project's "delete obsoleted machinery" convention rather than parked behind a flag.
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
@@ -201,6 +216,8 @@ Each item you write feeds FOUR different games at once: a crossword clue, a matc
 - "source_layout": if the page is a diagram, chart, matrix or quadrant, describe where things sit — what each axis means, which end is which, and which items fall in which quadrant or region. If the page has no meaningful spatial arrangement, use an empty string.
 - "cognitive_level": what engaging with this term demands. "recall" = remember a stated fact. "apply" = use a definition on a new instance. "discriminate" = tell two similar concepts apart. "deduce" = infer from incomplete information. "transfer" = apply to a case not in the material.
 - "topic": a short topic label for this concept within the subject.
+
+Before you finish each item, check the clue against EACH of its own distractors in turn: if the clue you wrote would be a fair description of that distractor too, the clue is not finished. A clue that only names the general category the term belongs to (e.g. "a software development framework that integrates business demands with development rules") is a failed clue the moment the distractors are drawn from that same category — go back and add the detail that is SPECIFIC to this term and true of none of its distractors (for "Extreme Programming" sitting next to other software-development frameworks, that means naming pair programming, test-driven development, continuous integration, or very short release cycles — not just "a framework"). Fix this by revising the clue, not by weakening the distractors.
 
 Hard rules:
 - The clue must stand alone. NEVER refer to "the slide", "the deck", "the diagram above" or the presentation itself.

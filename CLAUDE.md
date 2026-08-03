@@ -114,6 +114,13 @@ event logging is the research dataset.
     simultaneous choose-word items with elimination. This shrinks "match's adaptive arm measures
     nothing" from a research package to a rendering change. Not yet done: no term row has a
     `difficulty` value yet, so `difficultyHonored` is still correctly false for word and match.
+  - _Open design question, not a bug, flagged 3 Aug 2026:_ if a course teaches public professional
+    vocabulary — the item gap screen below turned up `Agile Manifesto`, `User Story`, and `Standup
+    Meeting` scoring 1.00 ungrounded because a competent model has read every Agile blog written — no
+    recall-style item can require the deck, since the vocabulary predates and outlives the course
+    material. That is a property of the subject matter, not a generation defect. It argues term games
+    should test *application* rather than recall, the way the quiz's reasoning MCQs already do. Raise
+    at the 4 Aug meeting; not resolved.
   - _Bake-off complete, 1 Aug 2026 — simulator choice is ITEM-TYPE dependent, no global winner:_ five
     local models (`llama3.2:1b`, `qwen2.5:1.5b`, `gemma2:2b`, `llama3.2:3b`, `gemma2:9b`) run on two
     arms, both grounded + retention-gated, n=30 per item. Slide MCQs (CAGE deck, 17 items):
@@ -196,6 +203,57 @@ event logging is the research dataset.
     reintroduced. Score per board, log per pair: board economics on `board_complete`, per-pair facility
     on `question_answered`. 68 tests, `tsc --noEmit` clean, `npx next build` succeeds, verified end to
     end against live Neon.
+  - _G2 rebuilt, 3 Aug 2026 — the generator is now two-stage:_ playing choose-the-right-word surfaced
+    a term item answerable by matching a country name, not the deck's content. Root cause was a single
+    model call per page window, under a quota, asked in one pass to find a concept, define it, and
+    invent wrong answers — a page of charts still had to yield N items, so it yielded chart captions.
+    `scripts/generate-terms.mjs` now runs a glossary pass first (asks only what the deck teaches, no
+    quota, empty is a valid answer), then writes items from that glossary. Verified on the same 9
+    pages that previously gave 6 drafts and 3 captions: the new flow gave zero captions. **Standing
+    rule: caption detection cannot be done with lexical rules on the output** — three separate
+    string-rule attempts failed (the validator rejected `Google's Market Share` and passed `Market
+    Share of Google`; naming `Netflix Subscribers Statistics 2025` and `Mattel Japan Market Share` as
+    forbidden examples still produced `Mattel Market Share Variation`) — only the structural fix
+    (ask what the deck teaches before asking for questions) worked. **Distractors are generated,
+    never selected from the glossary** — tried and verified worse: glossary-sourced distractors
+    paired near-synonym concepts (`Globalization Journey` / `Global Footprint`) as each other's
+    distractor and both items became unanswerable; invention cannot accidentally produce a correct
+    answer, selection from a glossary of near-synonyms routinely does.
+    `scripts/lib/distractor-select.mjs` was deleted, per the delete-obsoleted-machinery convention.
+    **New finding: confusable distractors raise the bar on clue precision** — "never a synonym" is
+    not enough, the clue must state what distinguishes the answer from its nearest distractor.
+    `Extreme Programming` (distractors Scrum / Kanban / Lean Startup) with a clue describing a
+    framework that "integrates business demands with software development rules to achieve shared and
+    realizable goals" scored 0.10 grounded, worse than chance, because that clue fits Scrum equally
+    well; the old, looser version of the same item scored 0.93. Making distractors more confusable
+    without tightening the clue made the item worse. `example_sentence` no longer rejects an item —
+    only fill-in-the-blanks reads it and that game is unbuilt — it is nulled instead
+    (`scripts/lib/terms-example-sanitize.mjs`), another instance of the over-rejecting-validator
+    lesson below. **Content items are retired, never deleted:** `db/009_add_item_retirement.sql`,
+    applied to Neon `ancient-brook-62806105` on 3 Aug, adds `retired_at`/`retired_reason` as a matched
+    pair on a CHECK allowlist plus a partial index on live rows, and all three item-selection routes
+    exclude retired rows — 6 of the first 7 retired items (the chart captions) already had `events`
+    rows, and events are the append-only research dataset, so a hard delete would hit or cascade
+    through the foreign key. Widening the reason allowlist later needs a DROP and re-ADD of the named
+    CHECK; Postgres has no `alter constraint`. **Screen before writing, never after:**
+    `build-term-mcq-spike.mjs --from-json` reads the generator's `--dry-run` output directly and
+    computes ids with the same `sha256(subject::term)` the generator uses on write, so screen results
+    join back to the row that will actually exist; `--subject` must be passed explicitly since it is
+    part of that id — one pass defaulted every item to a single subject and mis-keyed 15 of them.
+    **The item gap screen** (`scripts/analyse-item-gap.mjs`) runs an item ungrounded and grounded on
+    `llama3.2:3b`, grounded arm on the full excerpt and deliberately without `--retention` (that flag
+    exists to spread ability tiers for difficulty, not to gate quality — this arm only asks whether
+    the source answers the question at all, so ceiling here is a good sign). The grounded arm is the
+    gate and works — on 29 regenerated items it caught the one broken item above, which reading the
+    text would never have surfaced. The ungrounded arm does not work as a rejection gate — it measures
+    how famous a concept is, not whether the item is defective (`Agile Manifesto`, `User Story`,
+    `Standup Meeting` all score 1.00 ungrounded, the same memorisation confound already found on the
+    Airbnb deck, in a new instrument); when the grounded arm ceilings, the gap collapses to
+    `1 − ungrounded` and carries no separate information. Measured: old bank of 50 — 5 broken,
+    grounded mean 0.90, ungrounded 0.72; regenerated 29 — 1 broken, grounded mean 0.96, ungrounded
+    0.687. **Nothing has shipped to the database this session** — the 29 regenerated items exist as
+    screened JSON only (`spike-data/`, gitignored); the app still serves the old cohort, 43 live term
+    rows plus 7 retired. 159 tests, `tsc --noEmit` clean. Full detail: `docs/CURRENT_STATE.md`.
   - _A3, choose-the-right-word, shipped 1 Aug 2026 (commit `1805d62`):_ clue is the prompt, term is
     the answer, `distractors` supply the wrong options. Item-grained, `FlatPoints` 15/−5, the
     dashboard's fourth tile. Went before A2 (fill-in-the-blanks) because all 50 term rows have ≥3
@@ -229,6 +287,12 @@ event logging is the research dataset.
 - **Dev tools:** Claude Code = primary builder. v0 free = frontend scaffolds. Antigravity = free overflow agent. DeepSeek/Qwen via OpenRouter = code review 2nd opinion. Codex = diffs-only review, never the builder. Cursor and Emergent are deliberately excluded.
   - _Revised 28 Jul 2026:_ the original "mini model, $10/mo cap" rule is superseded. `gpt-5.1-codex-mini` was retired by OpenAI (API 404s), and Codex now runs on pay-per-token API-key auth: **`gpt-5.6-terra` for routine diff review, `gpt-5.6-sol` only when explicitly requested.** Cost control moved from model choice to usage discipline: one run per invocation, scoped diffs, no retry fan-out. Watch the credit balance.
   - _Added 28 Jul 2026:_ **GPT-5.6's role in this project is adversary, not author.** Gemini Flash-class models generate bulk content such as question drafts; GPT-5.6 is used to attack and validate that output, and for anything requiring schema-guaranteed JSON via Structured Outputs. It is not the bulk generator — that would spend premium tokens on exactly the high-volume, low-stakes work cheap models are for.
+  - _Tooling change, 3 Aug 2026:_ Playwright MCP removed, Playwright CLI installed globally instead —
+    an MCP server loads its tool schemas every session, a CLI costs nothing until called.
+    `.playwright-cli/` and `.playwright/` are gitignored. The `UV_HANDLE_CLOSING` assertion (seen on a
+    second Neon `sql` SELECT immediately before `process.exit(0)`) is confirmed to be a **Node
+    24.11.1-on-Windows process-exit bug, not a neon-serverless defect** — `playwright-cli --version`
+    triggers the identical assertion with no Neon involved; a prior checkpoint had mis-attributed it.
 - **Ollama, local-only, added 30 Jul 2026 — difficulty simulation only, never content generation
   (that stays on Gemini).** Already installed, v0.32.1. Three reasons it must be local, in order:
   (1) reproducibility — a hosted model can change mid-pilot and silently shift calibration, which
@@ -283,7 +347,7 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
   found on 30 Jul 2026 by re-reading the transcript, because summaries are lossy
   (`docs/PROJECT_MAP.md` §2.7 and §0).
 - **Tests exist now.** `npm test` runs `node --test tests/*.test.ts`. No external test framework — do
-  not add vitest or jest. 100 tests as of 1 Aug 2026 (`tests/lever.test.ts`,
+  not add vitest or jest. 159 tests as of 3 Aug 2026, up from 100 on 1 Aug (`tests/lever.test.ts`,
   `tests/quintile-difficulty.test.ts`, `tests/registry.test.ts`, `tests/match.test.ts`,
   `tests/match-board.test.ts`, `tests/board-token.test.ts`, `tests/events-allowlist.test.ts`,
   `tests/stats-potential.test.ts`, `tests/answer-commit.test.ts`, `tests/item-select.test.ts`,
@@ -345,6 +409,13 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
     strong. Target: mean facility ~0.50–0.65, <~20% at ceiling, <~10% at floor, a monotonic gradient
     across the four retention tiers (guards against a model at chance, which shows no gradient and
     measures noise), IQR > ~0.3.
+  - _Correction, 3 Aug 2026 — discrimination is necessary, not sufficient:_ a weak simulator's low
+    facility score can mean the simulator is ignorant, not that the item is hard. `llama3.2:1b` does
+    not know Microsoft's search engine is Bing (`3b` does); the 1b term calibration ranked `Bing`
+    (0.23) and `Yandex` (0.17) as its two hardest items, where the item gap screen (above) shows one
+    is trivia and the other is a broken item. None of the discrimination criteria above — mean,
+    ceiling, gradient, IQR — detect this. Stated plainly: **difficulty calibration cannot distinguish
+    a broken item from a hard one; both read as low facility.**
   - _Bake-off COMPLETE, 1 Aug 2026 — the result is item-type dependent, not one winner:_ on slide
     MCQs (CAGE deck) `llama3.2:3b` wins (mean 0.72, 2/17 ceiling, monotonic); `llama3.2:1b` fails
     there (0/17 ceiling but the gradient does not resolve, 0.30/0.40/0.44/0.35). On term MCQs

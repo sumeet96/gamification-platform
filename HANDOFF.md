@@ -1,6 +1,14 @@
 # HANDOFF: Gamified Adaptive Learning Platform (FBT Research Project)
 
-**Prepared:** 22 Jul 2026. **Updated:** 1 Aug 2026 (package G2, the term/definition generator, shipped
+**Prepared:** 22 Jul 2026. **Updated:** 3 Aug 2026 (the term generator was rebuilt after playing
+choose-the-right-word surfaced chart-caption items; a two-stage glossary-then-items generation
+replaces the single quota-driven call; distractors are now generated, never selected from the
+glossary; a new clue-precision finding from a confusable-distractor item that scored worse than its
+looser predecessor; the item gap screen distinguishing broken items from merely famous ones; content
+items are now retired, never deleted, `db/009` applied live; a screen-before-write build step; a
+correction to the simulator-selection criterion; nothing new written to the database — 29 regenerated
+items are screened JSON only; the between-arm experimental contrast is unchanged and still the top
+open blocker; see §17). Previous update: 1 Aug 2026 (package G2, the term/definition generator, shipped
 and unblocked four games; a validator over-rejection bug found and fixed; Wordle's viability now in
 doubt on one deck; voluntary persistence made measurable via `round_offer`; deck screening adopted as
 a standing cheap gate before full simulation; an unverified anomaly on the Thoughtworks case flagged,
@@ -781,3 +789,96 @@ scoring design.
 PDFs sit untracked in the repo root. Full commit list, next-3-actions, and the complete do-not-redo
 list are in `docs/CURRENT_STATE.md`, rewritten at the end of this session and now the single
 authoritative snapshot (supersedes the 31 Jul checkpoint entirely).
+
+## 17. The term generator rebuilt after playing the game caught a bad item bank (3 Aug 2026)
+
+**What started it.** Playing choose-the-right-word surfaced a term item answerable by matching a
+country name — the clue and answer were about a chart, not the deck's content. Root cause was
+`scripts/generate-terms.mjs`: one model call per page window, under a quota, asked in a single pass to
+find a concept, define it, and invent wrong answers. A page of charts still had to yield N items, so
+it yielded chart captions.
+
+**Fix: the generator is now two-stage.** A glossary pass asks only what the deck teaches — no quota,
+empty is a valid answer — and items are written from that glossary afterward. Verified on the same 9
+pages that previously gave 6 drafts and 3 captions: the new flow gave zero captions.
+
+**A method lesson, now standing: caption detection cannot be done with lexical rules on the model's
+output.** Three separate rule-based attempts failed. The validator rejected `Google's Market Share`
+and passed `Market Share of Google`; the prompt named `Netflix Subscribers Statistics 2025` and
+`Mattel Japan Market Share` as forbidden examples and the model produced `Mattel Market Share
+Variation` anyway. Rephrasing defeats every string rule tried; only the structural fix — ask what the
+deck teaches before asking for questions — worked.
+
+**Distractors are generated, never selected from the glossary.** Tried and verified worse:
+glossary-sourced distractors paired near-synonym concepts (`Globalization Journey` / `Global
+Footprint`) as each other's distractor, and both items became unanswerable — the clue for each
+described both. Invention cannot accidentally produce a correct answer; selection from a glossary of
+near-synonyms routinely does. `scripts/lib/distractor-select.mjs` was deleted, per the
+delete-obsoleted-machinery convention.
+
+**New finding: confusable distractors raise the bar on clue precision.** "Never a synonym" is not
+enough — the clue must state what distinguishes the answer from its nearest distractor.
+`Extreme Programming`, with distractors Scrum / Kanban / Lean Startup and a clue describing a
+framework that "integrates business demands with software development rules to achieve shared and
+realizable goals," scored 0.10 grounded — worse than chance — because that clue fits Scrum equally
+well. The old, looser version of the same item scored 0.93. Making the distractors more confusable
+without tightening the clue made the item worse.
+
+**The item gap screen** (`scripts/analyse-item-gap.mjs`) runs an item both ungrounded and grounded on
+`llama3.2:3b`; the grounded arm uses the full excerpt and deliberately skips `--retention` (which
+exists to spread ability tiers for difficulty calibration, not to gate quality — this arm only asks
+whether the source answers the question at all, so ceiling is a good sign here, not a problem). The
+grounded arm is the gate and it works: on 29 regenerated items it caught the one broken item above,
+which reading the text would never have surfaced. The ungrounded arm does not work as a rejection
+gate — it measures how famous a concept is, not whether an item is defective. `Agile Manifesto`,
+`User Story`, and `Standup Meeting` all score 1.00 ungrounded because `llama3.2:3b` has read every
+Agile blog ever written, not because the items are broken — the same memorisation confound already
+found on the Airbnb deck, in a new instrument. When the grounded arm ceilings, the gap collapses to
+`1 − ungrounded` and carries no separate information. Measured: old bank of 50 items — 5 broken,
+grounded mean 0.90, ungrounded 0.72; regenerated 29 — 1 broken, grounded mean 0.96, ungrounded 0.687.
+
+**Content items are retired, never deleted.** `db/009_add_item_retirement.sql`, applied to Neon
+`ancient-brook-62806105` on 3 Aug, adds `retired_at` and `retired_reason` as a matched pair on a CHECK
+allowlist plus a partial index on live rows; all three item-selection routes now exclude retired rows.
+Reason: 6 of the first 7 retired items (the chart captions) already had `events` rows, and events are
+the append-only research dataset — a hard delete would either hit the foreign key or cascade through
+it. Widening the reason allowlist later needs a DROP and re-ADD of the named CHECK; Postgres has no
+`alter constraint`.
+
+**Screen before writing, never after.** `build-term-mcq-spike.mjs --from-json` now reads the
+generator's `--dry-run` output directly, so items are judged before any decision to write them. It
+computes ids with the same `sha256(subject::term)` the generator uses on write, so screen results join
+back to the row that will actually exist. `--subject` must be passed explicitly — it is part of that
+id, and one pass defaulted every item to a single subject and mis-keyed 15 of them.
+
+**A correction to the simulator-selection criterion.** Discrimination (mean facility, ceiling rate,
+gradient, IQR) is necessary but not sufficient. A weak simulator's low facility score can mean the
+simulator is ignorant, not that the item is hard: `llama3.2:1b` does not know Microsoft's search
+engine is Bing (`3b` does), and the 1b calibration ranked `Bing` (0.23) and `Yandex` (0.17) as its two
+hardest items, where the item gap screen shows one is trivia and the other is broken. None of the
+discrimination criteria detect this. Stated plainly: **difficulty calibration cannot distinguish a
+broken item from a hard one — both read as low facility.**
+
+**An open design question for the professor, not a bug.** If a course teaches public professional
+vocabulary — the gap screen's examples are the Agile Manifesto, User Story, Standup Meeting — no
+recall-style item can require the deck, because that vocabulary predates and outlives the course
+material. That argues for term games testing *application* rather than recall, the way the quiz's
+reasoning MCQs already do. Not resolved; raise at the 4 Aug meeting alongside the still-open
+experimental-contrast question.
+
+**Tooling.** Playwright MCP was removed and the Playwright CLI installed globally instead — an MCP
+server loads its tool schemas every session, a CLI costs nothing until called. `.playwright-cli/` and
+`.playwright/` are gitignored. The `UV_HANDLE_CLOSING` assertion is confirmed to be a Node
+24.11.1-on-Windows process-exit bug, not a neon-serverless defect — `playwright-cli --version`
+triggers the identical assertion with no Neon involved; a prior checkpoint had mis-attributed it.
+
+**Nothing has shipped to the database.** The 29 regenerated items exist as screened JSON only
+(`spike-data/`, gitignored). The app still serves the old cohort: 43 live term rows plus 7 retired.
+159 tests, `tsc --noEmit` clean.
+
+**Working tree.** Branch `main`, clean, four commits: `ef61550`, `4a0a557`, `70a4c37`, `3a8dcf5`. Full
+next-actions and do-not-redo list: `docs/CURRENT_STATE.md`.
+
+**Unchanged and still the top blocker: the between-arm experimental contrast.** The professor
+reportedly dropped the adaptive-difficulty lever; there is still no transcript. This session's work
+does not touch that question. Top item for the 4 Aug meeting.
