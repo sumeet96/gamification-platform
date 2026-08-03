@@ -218,9 +218,11 @@ create table if not exists content_items (
   -- servable. retired_at and retired_reason are a matched pair (a reason
   -- with no timestamp or vice versa is rejected); retired_reason is a
   -- growable allowlist, not free text, so the paper's methods section can
-  -- `group by` it. Only 'chart-title-term' exists as of db/009; widening
-  -- the allowlist (e.g. 'trivia', 'under-determined') is a later migration
-  -- that drops and re-adds the same named CHECK, not a destructive change.
+  -- `group by` it. As of db/010: 'chart-title-term', 'superseded',
+  -- 'under-determined', 'trivia' ('trivia' is human-judgement-only, never
+  -- an automated threshold -- see db/010 for why). Widening the allowlist
+  -- further is a later migration that drops and re-adds the same named
+  -- CHECK, not a destructive change.
   retired_at       timestamptz,
   retired_reason   text
 );
@@ -300,17 +302,31 @@ begin
   end if;
 end $$;
 
+-- db/010_widen_retirement_reasons.sql widened this from ('chart-title-term')
+-- to the four values below via drop-and-re-add (Postgres has no `alter
+-- constraint`); see that file for why each reason was added.
 do $$
 begin
-  if not exists (
+  if exists (
     select 1 from pg_constraint
     where conname = 'content_items_retired_reason_check'
       and conrelid = 'content_items'::regclass
   ) then
     alter table content_items
-      add constraint content_items_retired_reason_check
-      check (retired_reason is null or retired_reason in ('chart-title-term'));
+      drop constraint content_items_retired_reason_check;
   end if;
+
+  alter table content_items
+    add constraint content_items_retired_reason_check
+    check (
+      retired_reason is null
+      or retired_reason in (
+        'chart-title-term',
+        'superseded',
+        'under-determined',
+        'trivia'
+      )
+    );
 end $$;
 
 -- db/009_add_item_retirement.sql: "live items only" is on every
