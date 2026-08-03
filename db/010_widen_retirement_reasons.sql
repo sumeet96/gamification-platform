@@ -1,7 +1,10 @@
 -- Migration 010: widen content_items_retired_reason_check.
 --
--- NOT YET APPLIED. Report this SQL; a human runs it against Neon project
--- ancient-brook-62806105.
+-- APPLIED to Neon project ancient-brook-62806105 on 4 Aug 2026. Verified after:
+-- the constraint carries the four-value IN-list, and nothing else moved -- 67
+-- content_items, 7 retired, all still 'chart-title-term', simulated_p and
+-- empirical_p still null on every term row. A constraint redefinition should
+-- change exactly the allowlist and no data, and that is what it did.
 --
 -- Additive/redefinition only: no column dropped or narrowed, no row
 -- touched, no UPDATE in this file. This DROPs and re-ADDs the single named
