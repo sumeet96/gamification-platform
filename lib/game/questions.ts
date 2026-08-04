@@ -55,6 +55,30 @@ export const QUESTIONS: Question[] = [
   { id: 'q20', difficulty: 5, stem: "'Zero-trust security' assumes:", options: ['Everyone inside is trusted', 'No user or device is trusted by default', 'Passwords are enough', 'Firewalls are unnecessary'] },
 ]
 
+// Same floor as app/api/word/question/route.ts's MIN_CALIBRATED_FOR_DIFFICULTY.
+// The quiz has no per-question server route -- selection happens client-side,
+// right here, against the full pool GET /api/questions already returns (only
+// the answer key is secret, never difficulty) -- but the reasoning for the
+// floor is identical: with `ranked.length >= 1` alone, the moment a single
+// content_items row anywhere gets calibrated it would become "the whole
+// difficulty-ranked pool" and PickedQuestion.difficultyHonored would go true
+// for every student, forever. 20 is the same number word uses: roughly 4 rows
+// per difficulty band across the 5 bins difficulty is fixed at (CLAUDE.md,
+// "Difficulty stays at five levels").
+const MIN_CALIBRATED_FOR_DIFFICULTY = 20
+
+export interface PickedQuestion {
+  question: Question
+  // Mirrors item-select.ts's RankedSelection.difficultyHonored (word/match):
+  // true only when the pick was actually influenced by `difficulty`, i.e. the
+  // unused pool had at least MIN_CALIBRATED_FOR_DIFFICULTY calibrated items to
+  // rank over. This does NOT change which question gets picked below -- a
+  // handful of calibrated rows can still rank and be served -- it only gates
+  // whether that pick is honestly reportable to the student as "your level
+  // changed what you got" (the quiz page's Level N badge).
+  difficultyHonored: boolean
+}
+
 /** Pick a random unused question from `pool` at the target difficulty; fall back to
  *  nearest among calibrated items, then any unused item (including uncalibrated ones)
  *  at random.
@@ -66,20 +90,21 @@ export const QUESTIONS: Question[] = [
  *  difficulty; uncalibrated items are reachable only through the final unranked
  *  fallback below -- the honest behaviour for content the adaptive lever cannot rank
  *  (package Q1). */
-export function pickQuestion(pool: Question[], difficulty: number, usedIds: Set<string>): Question | null {
+export function pickQuestion(pool: Question[], difficulty: number, usedIds: Set<string>): PickedQuestion | null {
   const target = Math.max(1, Math.min(5, Math.round(difficulty)))
   const unused = pool.filter((q) => !usedIds.has(q.id))
   if (unused.length === 0) return null
   const ranked = unused.filter(
     (q): q is Question & { difficulty: 1 | 2 | 3 | 4 | 5 } => q.difficulty !== null
   )
+  const difficultyHonored = ranked.length >= MIN_CALIBRATED_FOR_DIFFICULTY
   // exact difficulty first, then widen outward, among calibrated items only
   for (let radius = 0; radius <= 4; radius++) {
     const atRadius = ranked.filter((q) => Math.abs(q.difficulty - target) === radius)
-    if (atRadius.length) return atRadius[Math.floor(Math.random() * atRadius.length)]
+    if (atRadius.length) return { question: atRadius[Math.floor(Math.random() * atRadius.length)], difficultyHonored }
   }
   // Nothing calibrated left (or nothing calibrated at all, e.g. every content_items
   // row today) -- pick any unused item at random. Not a difficulty match; the honest
-  // fallback for uncalibrated content.
-  return unused[Math.floor(Math.random() * unused.length)]
+  // fallback for uncalibrated content. Never honoured.
+  return { question: unused[Math.floor(Math.random() * unused.length)], difficultyHonored: false }
 }

@@ -113,3 +113,16 @@ export function selectItems<T extends RankableRow>(
   // itself has >= count rows) -- so this slice can never come up short.
   return { rows: shuffle(ranked.slice(0, count), randomFn), difficultyHonored }
 }
+
+/** Defensive parse of a `difficultyHonored` field pulled out of a JSON
+ *  response: only an actual boolean `true` counts as honoured -- a missing
+ *  field, a non-boolean value, or an explicit `false` must all read as "the
+ *  Level N badge stays hidden," never a client-side guess. Word's page wrote
+ *  this inline before this export existed; match's page (and any future
+ *  caller) uses this shared version instead so the same default can't drift
+ *  between games -- the exact seam (a value computed on the server, mis- or
+ *  un-handled on the client) that shipped the A3 badge bug this fixes.
+ */
+export function parseDifficultyHonored(value: unknown): boolean {
+  return value === true
+}

@@ -47,6 +47,15 @@ export default function Quiz() {
   const [round, setRound] = useState<RoundTally>({
     net: 0, potential: 0, correct: 0, wrong: 0, answered: 0, peakDifficulty: START_DIFFICULTY, bestTimeMs: null,
   })
+  // Whether pickQuestion (lib/game/questions.ts) actually honoured a
+  // difficulty preference for the current question -- mirrors
+  // app/games/word/page.tsx's difficultyHonored. The quiz has no per-question
+  // server route (selection is client-side pickQuestion against the whole
+  // pool from /api/questions), so this comes straight off PickedQuestion
+  // rather than a parsed JSON field, but the gating it drives is identical:
+  // the "Level N" badge is hidden unless the pick was genuinely
+  // difficulty-ranked, never shown on a guess.
+  const [difficultyHonored, setDifficultyHonored] = useState(false)
 
   const usedRef = useRef<Set<string>>(new Set())
   const qStartRef = useRef(0)
@@ -89,7 +98,7 @@ export default function Quiz() {
       const { difficulty: startDiff, timeLimit: startLimit } = resolveLever(config, startState)
       usedRef.current = new Set()
       const first = pickQuestion(p, startDiff, usedRef.current)
-      if (first) usedRef.current.add(first.id)
+      if (first) usedRef.current.add(first.question.id)
       // time_limit is only meaningful (and only logged) for the time lever --
       // resolveLever always returns a number, so the null-out here is a logging
       // convention (db/schema.sql), not a re-decision of which lever is active.
@@ -98,7 +107,8 @@ export default function Quiz() {
       setLeverState(startState)
       setIndex(0)
       setRound({ net: 0, potential: 0, correct: 0, wrong: 0, answered: 0, peakDifficulty: startDiff, bestTimeMs: null })
-      setQ(first)
+      setQ(first?.question ?? null)
+      setDifficultyHonored(first?.difficultyHonored ?? false)
       setPicked(null)
       setFeedback('none')
       setCorrectIndex(null)
@@ -223,10 +233,11 @@ export default function Quiz() {
     const { difficulty: targetDiff, timeLimit } = resolveLever(config, leverState)
     const nq = pickQuestion(pool, targetDiff, usedRef.current)
     if (!nq) return finish()
-    usedRef.current.add(nq.id)
+    usedRef.current.add(nq.question.id)
     // time_limit null-out is the same logging convention as the round-start site above.
     limitRef.current = isTime ? timeLimit : null
-    setQ(nq)
+    setQ(nq.question)
+    setDifficultyHonored(nq.difficultyHonored)
     setIndex(nextIndex)
     setPicked(null)
     setFeedback('none')
@@ -280,18 +291,24 @@ export default function Quiz() {
             {/* This branch is presentation, not a difficulty/time DECISION -- it only
                 chooses which stat to display (clock vs. level); the values shown
                 (timeLeft, leverState.difficulty) already came from the resolver
-                above. Exempt from the Change 1 routing requirement for that reason. */}
+                above. Exempt from the Change 1 routing requirement for that reason.
+                The Level badge is further gated on difficultyHonored -- leverState.
+                difficulty ramps regardless, but pickQuestion (lib/game/questions.ts)
+                only actually rank-picks by it once enough calibrated MCQs exist, so
+                showing "Level N" otherwise would tell the student an adaptivity
+                signal changed what they were served when it did not. Hidden rather
+                than shown-but-wrong when not honoured, mirroring app/games/word/page.tsx. */}
             {isTime ? (
               <div className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${timeLeft <= 3 ? 'bg-red-500/20 border border-red-500/40' : 'bg-slate-800/50 border border-slate-700/50'}`}>
                 <Clock className={`w-4 h-4 ${timeLeft <= 3 ? 'text-red-400 animate-pulse' : 'text-slate-400'}`} />
                 <p className={`font-black text-sm ${timeLeft <= 3 ? 'text-red-300' : 'text-slate-200'}`}>{timeLeft}s</p>
               </div>
-            ) : (
+            ) : difficultyHonored ? (
               <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
                 <Brain className="w-4 h-4 text-emerald-400" />
                 <p className="font-black text-sm text-emerald-300">Level {leverState.difficulty}</p>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
 

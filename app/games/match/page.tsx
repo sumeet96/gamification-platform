@@ -12,6 +12,7 @@ import {
 } from '@/lib/game/engine'
 import { boardSucceeded } from '@/lib/games/match'
 import { getGame, type BoardPoints } from '@/lib/games/registry'
+import { parseDifficultyHonored } from '@/lib/games/item-select'
 
 const MATCH_GAME_ID = 'match'
 const MATCH_POINTS = getGame(MATCH_GAME_ID).points as BoardPoints
@@ -86,6 +87,14 @@ export default function MatchGame() {
   const [modeChoice, setModeChoice] = useState<Mode>('normal')
   const [leverState, setLeverState] = useState<LeverState>({ difficulty: FIXED_DIFFICULTY, streak: 0 })
   const [board, setBoard] = useState<BoardData | null>(null)
+  // Whether the SERVER actually honoured a difficulty preference for the
+  // current board (lib/games/match-board-select.ts's RankedSelection.
+  // difficultyHonored, surfaced by GET /api/match/board). All term rows are
+  // NULL difficulty today, so this is false in practice -- the "Level N"
+  // badge below is gated on it, mirroring app/games/word/page.tsx, so the
+  // student is never shown an adaptivity signal that didn't actually change
+  // what they were served.
+  const [difficultyHonored, setDifficultyHonored] = useState(false)
   const [placements, setPlacements] = useState<Record<string, string | null>>({})
   const [bank, setBank] = useState<BankTile[]>([])
   const [selected, setSelected] = useState<Selected>(null)
@@ -154,6 +163,10 @@ export default function MatchGame() {
       const terms: string[] = data.terms
       const boardToken: string = data.boardToken
       setBoard({ clues, terms, boardToken })
+      // Only ever true once the route actually exposes selectBoard's
+      // difficultyHonored decision -- absent or non-boolean defaults to
+      // false and the Level badge stays hidden, never a client-side guess.
+      setDifficultyHonored(parseDifficultyHonored(data.difficultyHonored))
       // FIX 10: assign each tile a stable id at fetch time, independent of
       // its term text, so duplicate term strings never collide on removal or
       // on the React `key` below.
@@ -718,12 +731,12 @@ export default function MatchGame() {
                 <Clock className={`w-4 h-4 ${timeLeft <= 10 && phase === 'playing' ? 'text-red-400 animate-pulse' : 'text-slate-400'}`} />
                 <p className={`font-black text-sm ${timeLeft <= 10 && phase === 'playing' ? 'text-red-300' : 'text-slate-200'}`}>{timeLeft}s</p>
               </div>
-            ) : (
+            ) : difficultyHonored ? (
               <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
                 <Brain className="w-4 h-4 text-emerald-400" />
                 <p className="font-black text-sm text-emerald-300">Level {leverState.difficulty}</p>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
 

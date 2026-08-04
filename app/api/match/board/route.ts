@@ -195,5 +195,12 @@ export async function GET(req: Request) {
     return Response.json({ ok: false, error: 'failed to issue board' }, { status: 500 })
   }
 
-  return Response.json({ ok: true, clues, terms, boardToken })
+  // `difficultyHonored` mirrors word/question's field (app/api/word/question/route.ts):
+  // it was already computed above and threaded into the board token, but never
+  // sent back to the client -- so the page had no way to gate its "Level N"
+  // badge on it and rendered it unconditionally. Send it explicitly, same
+  // reasoning as word: the page must default a missing field to false, and
+  // that default must be indistinguishable from "the route forgot to send it"
+  // only until the route actually starts sending it.
+  return Response.json({ ok: true, clues, terms, boardToken, difficultyHonored: selection.difficultyHonored })
 }
