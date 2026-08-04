@@ -19,14 +19,22 @@ of item-bank work substitutes for it.
 
 ## Working tree
 
-Branch `main`, clean. **164 tests, `tsc --noEmit` clean.**
+Branch `main`, clean. **188 tests, `tsc --noEmit` clean, `npx next build` succeeds.**
 
+- `e325e98` Test whether 3 difficulty bands beat 5, and find the real constraint
+- `0f2ea75` Stop the badge claiming a level nothing is honoring
+- `16c8c3d` Bring HANDOFF and CLAUDE.md up to the cohort swap
+- `e5e3e65` Checkpoint: the cohort is swapped and live, and 9 rows may be too few
 - `ea3dcb4` Swap the term cohort: 34 screened items in, 34 superseded
 - `596fa1c` Apply db/010; the retirement allowlist now has room for the swap
 - `f66a851` Widen the retirement reasons, ready for the cohort swap
 - `e243022` Make the clue earn its answer, and drop a detector that could not work
 - `b457d5e` Checkpoint: the generator is rebuilt, the items are screened, nothing is written
 - `ef61550` Screen generated items before they reach the database, not after
+
+`16c8c3d` also fixed HANDOFF.md §16, which had gone stale saying match-the-following was "not
+started" though A1 and A3 shipped 1 Aug — the note about that drift in this file is now resolved,
+not still open.
 
 `db/009` and `db/010` are both **applied** to Neon `ancient-brook-62806105`; their in-file banners say
 so. `spike-data/` is gitignored — the generator output (`gen3-*.json`), the screen inputs
@@ -50,15 +58,36 @@ wrapper live only on this machine.
 Note for analysis: `events` went 162 → 184 mid-session, so ~22 responses were logged against the OLD
 cohort. `retired_at` is what separates pre- from post-swap items in the log.
 
+**MCQ difficulty distribution, verified live (4 Aug 2026):** bands 2/3/4/5 hold 6/5/2/4 rows, **band
+1 is empty**, and the six band-2 rows all sit at facility **1.00** — no ranking information; they land
+in band 2 rather than 1 only because ties share a band. Usable range is 2–5, one band (2) two items
+wide in practice.
+
 ## In progress right now
 
-Nothing mid-flight. The cohort swap is complete and committed.
+Nothing mid-flight. The cohort swap is complete and committed, the badge bug is fixed and committed,
+and the band-count analysis is complete and committed (nothing in the pipeline changed as a result).
 
-**The next step is to play the game.** This project has found two defects — match locking a student
-out after exactly 8 boards, and `difficultyHonored` computed but never sent — *only* by playing,
-after each had passed every static check the project has. The database has been verified; the
-experience has not. Run the app, play choose-the-right-word and match, and confirm the new items
-actually appear and read well.
+**Playing the game (the previous checkpoint's next action 1) is done and found a real defect.**
+Every game opened showing "Level 2" (`START_DIFFICULTY`, `lib/game/engine.ts:23`) regardless of
+whether item selection actually honoured difficulty. Word already gated correctly on
+`difficultyHonored`; match and quiz did not gate at all, and match's route computed the flag,
+passed it to `issueBoardToken`, and never returned it in the response — the same client/server seam
+that shipped the A3 badge bug in the opposite direction on 1 Aug. Fixed 4 Aug (`0f2ea75`): gated
+everywhere. **The badge now correctly disappears from all three games**, because no term row has a
+difficulty and the 17 calibrated `mcq` rows sit under the 20-row floor. Record as a "do not redo":
+this is a false signal removed, not a regression — nobody should "fix" the badge back on.
+
+This exposed a live risk worth carrying forward: **the quiz's badge is hidden by a row-count floor,
+not by a decision.** Calibrate three more MCQs and it switches itself on and difficulty resumes
+driving quiz selection — a behaviour change triggered by data volume rather than by anyone choosing
+it. Left untouched deliberately, because wiring changes wait on the experimental-contrast decision.
+
+Playing also surfaced the repetition the user had reported separately. **That is not a defect.**
+Selection is least-recently-served soft ranking with hard dedup only within a round; against 25
+Digital Transformation and 9 International Management rows and 10-question rounds, repeats are
+arithmetic, not a bug. The fix is more decks, not code — hard whole-history exclusion is exactly what
+once locked a student out of match after 8 boards (see Do not redo, below).
 
 ## Decisions made this session
 
@@ -83,6 +112,11 @@ actually appear and read well.
   chart captions or slide headings. This is the honest boundary of the instrument.
 - **Playwright MCP removed, Playwright CLI installed** — an MCP server loads tool schemas every
   session; a CLI costs nothing until called.
+- **Gate the Level badge on `difficultyHonored` in every game, not just word** (4 Aug 2026,
+  `0f2ea75`) — match and quiz were showing a level nothing was honouring.
+- **Keep difficulty at 5 bands; raise `n` toward ~120 rather than cut to 3 bands** (4 Aug 2026,
+  `e325e98`) — see the band-count analysis below. This is a recommendation on record, not yet
+  actioned; no item set has been re-run at higher `n`.
 
 ## What the gap screen is and is not worth
 
@@ -100,6 +134,39 @@ asks whether the source answers the question at all, so ceiling here is a good s
 - Measured: old 50 — 5 broken, grounded mean 0.90, ungrounded 0.72. gen2 29 — 1 broken, 0.96, 0.687.
   **gen3 37 — 0 broken, 0.98, 0.79.** Grounded IQR on gen3 is 0.00, so the gate now only catches
   catastrophic items; it certifies "not broken", never "good".
+
+## Band-count analysis (4 Aug 2026, `e325e98`)
+
+Question: would 3 difficulty bands beat the current 5? New: `scripts/analyse-band-count.mjs`,
+`scripts/lib/tertile-difficulty.mjs`, `scripts/lib/kappa.mjs`, plus tests. **Nothing in the pipeline
+changed as a result** — difficulty stays at 5 bands and `quintile-difficulty.mjs` is untouched.
+
+Result is mixed, not a win for either band count:
+
+| dataset | κ 3-band | κ 5-band | QWK 3 | QWK 5 |
+|---|---|---|---|---|
+| reproducibility, 33 items | 0.46 | 0.32 | 0.73 | 0.79 |
+| term MCQs, 50 items, 6 pairs | 0.17 | 0.23 | 0.26 | 0.35 |
+| slide MCQs, 17 items, 10 pairs | 0.36 | 0.29 | 0.56 | 0.57 |
+
+Two caveats that travel with that table:
+- Raw agreement always rises when categories are cut (chance goes ⅕ → ⅓), so raw agreement figures
+  prove nothing on their own — that is why kappa was used instead.
+- **Quadratic-weighted kappa is not comparable across different category counts** — it penalises an
+  off-by-one error as 1/16 at five bands but 1/4 at three, so it structurally favours more categories.
+  This undercuts the "5 bands wins on QWK" reading. **Flagged as reasoning, not a cited result — it
+  needs a source before it goes in the paper.**
+
+**The load-bearing finding, which neither metric above shows directly:** at n=30, two facilities are
+only distinguishable if they differ by about **0.26**. The observed facility range gives band widths
+of **0.13 at five bands and 0.22 at three — both under that noise floor.** So the band count was never
+the binding constraint; **n is.** Roughly **n=42** makes three bands resolvable, **n=118** makes five.
+Recommendation on record: keep 5 bands and raise n to ~120, a one-time ~1.5 hours of local CPU per
+item set (the 33-item run took 24.5 min at n=30). Cutting to 3 bands at n≈45 is the cheap option but
+buys coarser information, not better information.
+
+Supporting evidence: `qwen2.5:1.5b` ties 34 of 50 items and leaves a band empty **even at three
+bands** — a ceilinged simulator, not a slicing problem.
 
 ## Open questions / blocked on
 
@@ -121,24 +188,22 @@ asks whether the source answers the question at all, so ceiling here is a good s
   detect this.
 - **`spike-data/` is gitignored**, so run wrappers — including the PID mutex CLAUDE.md says to copy
   verbatim — are unversioned. They are code, not data.
-- **HANDOFF.md §16 still says match-the-following is "not started"** though A1 and A3 shipped 1 Aug.
-  Spotted by scribe, which correctly refused to invent a fix.
 - Carried forward: Wordle viability, rapid/normal exact seconds, points-table numbers, r ≈ 0.5
   expectation for prose.
 
+_Resolved since the last checkpoint: HANDOFF.md §16's stale "match-the-following not started" note
+was fixed in `16c8c3d`._
+
 ## Next 3 actions
 
-1. **Play the game.** Start the app and play choose-the-right-word and match against the new cohort.
-   The database is verified; the experience is not, and this project's two worst defects were found
-   only this way. Check that the new items appear, that clues read well, and that match can still
-   build boards from 25 Digital Transformation and only 9 International Management rows — **9 is thin
-   for a 6-tile bijection board plus least-recently-served rotation, and is the most likely new
-   defect.**
+1. **Settle the experimental contrast with Prof. Singh**, and get the lever-drop decision recorded in
+   `docs/meeting/`. Unchanged top blocker — everything else here is secondary to this.
 2. **Decide the three marginal CAGE items** (listed under Open questions). Retiring them takes
    International Management to 6 live rows, which would almost certainly break match for that
-   subject — so action 1 informs this one.
-3. **Settle the experimental contrast with Prof. Singh**, and get the lever-drop decision recorded in
-   `docs/meeting/`. Everything else is secondary to this.
+   subject, given the 9-row pool is already thin for a 6-tile bijection board.
+3. **If calibration work resumes, re-run at `n≈120` rather than `n=30`**, per the band-count analysis
+   above — the band count (5 vs 3) was never the binding constraint on resolvability, `n` was. Not
+   scheduled; recorded as the correct next step whenever calibration is picked back up.
 
 ## Do not redo
 
@@ -174,3 +239,13 @@ All prior "do not redo" items stand. Added or reconfirmed this session:
   recorded. Check file mtimes and re-run.
 - **Do not issue a second `sql` SELECT immediately before `process.exit(0)`** on Windows — it is a
   Node 24.11.1 exit bug, not neon-serverless; `playwright-cli --version` triggers the same assertion.
+- **Do not re-enable the Level badge without calibrating more items.** It is correctly hidden right
+  now (`0f2ea75`) because no term row has a difficulty and the 17 calibrated `mcq` rows sit under the
+  20-row floor — this is a false signal removed, not a regression.
+- **Do not treat repeated items within a round as a defect.** Selection is least-recently-served with
+  hard dedup only within a round; with 25 Digital Transformation and 9 International Management rows
+  against 10-question rounds, repeats are arithmetic. The fix is more decks, not code — hard
+  whole-history exclusion is what once locked a student out of match after exactly 8 boards.
+- **Do not cite the QWK columns in the band-count table as evidence 5 bands beat 3.** Quadratic-
+  weighted kappa is not comparable across different category counts and structurally favours more
+  bands; it is reasoning recorded for later checking, not a result ready for the paper.
