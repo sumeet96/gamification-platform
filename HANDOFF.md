@@ -1,6 +1,14 @@
 # HANDOFF: Gamified Adaptive Learning Platform (FBT Research Project)
 
-**Prepared:** 22 Jul 2026. **Updated:** 3 Aug 2026 (the term generator was rebuilt after playing
+**Prepared:** 22 Jul 2026. **Updated:** 4 Aug 2026 (the screened term cohort went live — 34 items
+replace the 43 unscreened rows, verified independently against the database; a clue-precision rule
+requiring a clue to name what distinguishes its answer from its nearest distractor, checked per
+distractor at write time; a templated-distractor detector built, tested against real items, and
+deleted because the signal it chased is semantic, not structural; `db/010` widened the retirement
+reason allowlist and is applied; the gen3 item bank screens at 0 broken but the gate is now at
+ceiling and only catches catastrophic items; a pre-existing "match-the-following not started" error
+in §16 corrected; the between-arm experimental contrast is unchanged and still the top blocker; see
+§18). Previous update: 3 Aug 2026 (the term generator was rebuilt after playing
 choose-the-right-word surfaced chart-caption items; a two-stage glossary-then-items generation
 replaces the single quota-driven call; distractors are now generated, never selected from the
 glossary; a new clue-precision finding from a confusable-distractor item that scored worse than its
@@ -779,10 +787,13 @@ accident this session via a broad `git add`, and had to be amended out. **New ru
 a broad add (e.g. `git add -A`) when course-material PDFs are sitting in the working tree** — stage
 files by name instead. Root-level `*.pdf` is now gitignored so this cannot recur silently.
 
-**Half-built, not started: match-the-following (package A1).** Unblocked by G2 (item supply exists —
-13 terms with ~3 distractors each from the Thoughtworks deck) but not yet begun. It is the first
-`board`-grained game and has an unresolved points question (per pair vs per board) that blocks its
-scoring design.
+**Correction, entered 4 Aug 2026: match-the-following did not stay not-started.** This paragraph was
+accurate when written earlier on 1 Aug 2026 but was never updated — package A1 (match-the-following)
+shipped later the same day, commit `fe871e1`, with the per-pair-vs-per-board scoring question resolved
+as per-board grading (15 points per correct pair, +30 clean-board bonus, −20 floor penalty at ≤2
+pairs). Package A3 (choose-the-right-word) also shipped 1 Aug 2026, commit `1805d62`. Both are listed
+in CLAUDE.md's shipped-package line. A prior scribe run spotted this stale paragraph on 4 Aug and
+correctly declined to invent the fix without reading the commit history; this correction supplies it.
 
 **Working tree.** Branch `main`, last commit `9728d19`, working tree clean, 14 commits ahead of
 `origin/main` — not yet pushed. `spike-data/` and root-level `*.pdf` are gitignored; three source
@@ -882,3 +893,88 @@ next-actions and do-not-redo list: `docs/CURRENT_STATE.md`.
 **Unchanged and still the top blocker: the between-arm experimental contrast.** The professor
 reportedly dropped the adaptive-difficulty lever; there is still no transcript. This session's work
 does not touch that question. Top item for the 4 Aug meeting.
+
+## 18. The screened cohort goes live, a detector is built and deleted, and the gap screen hits ceiling (4 Aug 2026)
+
+Continues §17 (the generator rebuild, screening infrastructure, 29 regenerated items sitting as
+screened JSON only). This section covers what happened after that JSON existed: one more validator
+finding, one detector tried and rejected, a migration, and the cohort swap itself.
+
+**A clue must name what distinguishes its answer from its nearest distractor — "not a synonym" is not
+enough.** Commit `e243022`. `Extreme Programming`, with distractors Scrum / Kanban / Lean Startup and
+a clue describing "a framework that integrates business demands with software development rules to
+achieve shared and realizable goals," scored 0.10 grounded — worse than chance — because that clue
+also fits Scrum. The older, looser version of the same item scored 0.93. Making distractors more
+confusable without tightening the clue is what broke it; checking the clue against each distractor in
+turn, inside the same call that writes them, fixed it — after the rule, the same item scores 0.97. This
+is now a standing rule, recorded in CLAUDE.md's Conventions.
+
+**A templated-distractor detector was built, tested, and deleted in the same commit.** Hypothesis: a
+caption's distractors are template variants with one slot swapped (`Android Sessions by Game Category`
+→ `iOS Sessions by Game Category`); a real item's distractors are different concepts. Run against the
+38 real generated items it flagged 8, and 4 of those 8 were good items: `Agile Software Development`
+vs Waterfall/Spiral, `Thin Slice Team` vs Scrum Team, `Intraregional Trade` vs International Trade,
+`User Story` vs User Scenario — all share a head noun with their distractors, which the clue-precision
+rule above requires rather than forbids. The signal does not exist: `Agile Software Development →
+Waterfall Software Development` is structurally identical to the chart-caption swap above. The
+difference — rival concepts vs two slices of one chart — is semantic, not structural, and no token rule
+reaches it. Recorded in CLAUDE.md as a do-not-redo. This was the third over-rejecting guard of the
+session, after the clue-leak and example-sentence rules; it cost nothing only because it was caught
+before shipping, not after.
+
+**`db/010_widen_retirement_reasons.sql`, written and applied 4 Aug.** Widens the
+`content_items_retired_reason_check` constraint to permit `superseded`, `under-determined`, and
+`trivia` alongside the existing `chart-title-term`. Postgres has no `alter constraint`, so widening an
+allowlist is DROP + re-ADD of the same named CHECK regardless of size — a redefinition, not a
+data-destructive operation — and the whole statement is one `do $$ ... end $$` block, atomic. Verified
+after: the constraint carries all four values, nothing else moved. The file itself carries the caveat
+that `trivia` is for human judgement only, never an automated threshold — the gap screen's ungrounded
+arm measures how famous a concept is, not whether an item is defective, so it must never assign this
+reason on its own.
+
+**The cohort swap — the headline of this session.** `scripts/import-terms.mjs` (new) imports
+already-screened items from generator JSON rather than re-running the generator, because generation is
+not deterministic: a second run would write items nobody looked at, making screen-before-write
+meaningless. Commit `ea3dcb4`. Verified independently against the live database, not taken from an
+agent report:
+
+- **34 live term rows: 25 Digital Transformation, 9 International Management** (replacing 43
+  unscreened rows).
+- 34 rows retired as `superseded` (10 DT, 24 IM); 7 remain retired as `chart-title-term` from the prior
+  session.
+- 92 `content_items` total, 17 `mcq` unchanged, **184 events unchanged**, no orphaned `source_id`.
+- **`simulated_p`, `difficulty`, and `empirical_p` are still null on every term row** — the calibration
+  write is deliberately unmade, exactly as before the swap.
+
+**Three items were excluded by hand after passing the screen**, not by any automated rule:
+`Android Sessions by Game Category`, `Globalization Case Study`, `Other Dimensions of Distance`. All
+score above 0.9 grounded and all are chart captions or slide headings. This is the honest boundary of
+the instrument: the grounded arm certifies that an item is answerable from its source, never that the
+item is worth asking. It does not replace human judgement, it bounds where human judgement is still
+required.
+
+**The gen3 screen result: 0 broken, but the gate is now at ceiling.** 37 items screened — grounded mean
+0.98, ungrounded mean 0.79. The three-generation trend on broken items is 5 (old 50) → 1 (gen2 29) → 0
+(gen3 37), which reads as a clean pass but is not one: grounded IQR on gen3 is 0.00, with 36 of the 37
+items at ceiling. The gate now only catches catastrophic items; it no longer discriminates among the
+items that pass. State that plainly rather than presenting 0-broken as evidence of item quality beyond
+"not obviously defective."
+
+**Two gaps left open, not fixed.**
+- `scripts/generate-terms.mjs --out` writes no provenance. `generator_model`
+  (`openai/gpt-4.1-mini`) and `recipe` (windows of 3) were inferred at import time from the run logs,
+  and both values are correct, but the next person cannot verify that from the file itself — `--out`
+  should record what produced it and currently does not.
+- **The pending term calibration (`spike-data/termcal-llama3-2-1b.json`) is now stale, not merely
+  unapplied.** It was computed against the cohort that the swap above just superseded. Do not write it
+  to `difficulty`/`simulated_p` — recompute against the live 34 rows first.
+
+**Open risk carried into the next session: International Management is down to 9 live term rows.**
+Match builds 6-tile bijection boards with least-recently-served rotation; 9 rows is thin for that,
+and a thin pool is exactly how this project previously manufactured a ceiling — a student was locked
+out of match after exactly 8 boards, found only by playing, not by any static check. Playing match
+against the live International Management pool has not yet been done this session.
+
+**Unchanged and still the top blocker: the between-arm experimental contrast.** Nothing in this
+section touches it. No item-bank work substitutes for it. The lever-drop decision still has no
+transcript.

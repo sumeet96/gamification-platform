@@ -339,6 +339,24 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
   (1 Aug 2026) rejected 5 of 8 valid items by testing each word of a multi-word term independently; a
   guard that is too strict can silently destroy yield the same way a guard that is too loose lets bad
   data through. Check yield, not just precision, before trusting a new validation rule.
+- **A clue must name what distinguishes its answer from its nearest distractor — "not a synonym" is
+  not sufficient.** Checked against each distractor in turn, inside the same call that writes them
+  (commit `e243022`, 4 Aug 2026). `Extreme Programming` with distractors Scrum / Kanban / Lean Startup
+  and a clue describing "a framework that integrates business demands with software development rules
+  to achieve shared and realizable goals" scored 0.10 grounded — worse than chance — because that clue
+  also fits Scrum; the older, looser clue scored 0.93. Making distractors more confusable without
+  tightening the clue is what broke it. After the rule, the same item scores 0.97.
+- **Do not build a templated-distractor detector on lexical/structural grounds.** Tried and deleted,
+  same commit as above (4 Aug 2026). Hypothesis: a chart caption's distractors are template variants
+  with one slot swapped, a real item's are different concepts. Run against 38 real generated items it
+  flagged 8, and 4 were good (`Agile Software Development` vs Waterfall/Spiral, `Thin Slice Team` vs
+  Scrum Team, `Intraregional Trade` vs International Trade, `User Story` vs User Scenario) — items that
+  share a head noun with their distractors, which the clue-precision rule above requires rather than
+  forbids. `Agile Software Development → Waterfall Software Development` is structurally identical to
+  the real chart-caption swap `Android Sessions by Game Category → iOS Sessions by Game Category`; the
+  difference (rival concepts vs two slices of one chart) is semantic, not structural, and no token rule
+  reaches it. Third over-rejecting guard of the session; cost nothing because it was caught before
+  shipping.
 - **Never stage with a broad `git add` (e.g. `git add -A`) when course-material PDFs are in the
   working tree.** A 9.8 MB deck was committed by accident on 1 Aug 2026 and had to be amended out.
   Root-level `*.pdf` is now gitignored; stage files by name regardless.
