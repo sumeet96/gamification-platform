@@ -1,3 +1,74 @@
+# Current state — 5 August 2026
+
+## Session of 5 Aug 2026 — game 4 scoped, no app code touched
+
+**Nothing in `app/` or `lib/` changed today.** The work was a design investigation into which game
+ships fourth, plus one generation spike. Tests, build and DB are exactly as the 4 Aug section below
+describes them.
+
+**The 4 Aug meeting happened**; its outcome was not relayed into this session, so **§5.2 of the RFC
+prompt (the between-arm experimental contrast) is still blank** and remains the top blocker.
+
+### What was decided
+
+- **Game 4 is crossword vs Connections, and it is not yet decided.** A multi-model RFC prompt is
+  written: `docs/architecture/game4-rfc-prompt.md`. Send to five model families, synthesise, then
+  pick. It asks each model to name what would flip its own verdict (§9), which is the most useful
+  part of the synthesis.
+- **Entry length is no longer the crossword blocker.** Fragment entries (any content word can be the
+  grid entry, clue carries the rest) plus constituent expansion (CAGE → CULTURAL / ADMINISTRATIVE /
+  GEOGRAPHIC / ECONOMIC) reach ≤8 cells on roughly a third of the bank. This was the user's insight
+  and it overturned an earlier "crossword is not viable" reading. The residual problem is **fragment
+  collisions**, which is a board-selection constraint, not a content defect. See `CLAUDE.md` and the
+  RFC's §4.2–4.3.
+- **Letter-constrained vs semantics-constrained game families** is now the frame for game choice.
+  Wordle / Strands / the Mini stay dead; Spelling Bee and Letter Boxed are disqualified for having no
+  clue channel at all. Connections is unaffected by any length constraint.
+
+### Measured this session
+
+- **The bank's canonical 9-cell floor**: across all 136 domain strings (34 terms + 102 distractors),
+  none is ≤8 cells; range 9–35, median ~21, one single word. Verified by SQL against live Neon.
+- **`scripts/spike-short-terms.mjs` (new, committed).** Tests whether that floor is a property of the
+  material or of the prompt, by running the glossary pass twice over identical pages with one clause
+  changed. **Result: 2 decks × 2 arms, 59 concepts, zero at ≤8 cells.** Short canonical terms cannot
+  be prompted into existence. Outputs in `spike-data/short-terms-tw.json` and
+  `short-terms-cage.json` (gitignored).
+- **Unexpected second finding from the same run:** the permissive clause made terms *longer* (CAGE
+  median 23→28) and **re-broke the chart-caption guard** — it emitted `Netflix Subscribers
+  Statistics` and `Google's Market Share`, strings the prompt explicitly names as forbidden. Recorded
+  in `CLAUDE.md` as a standing convention: a permissive instruction is not neutral, and the
+  structural caption fix is fragile to unrelated prompt perturbation.
+  - Caveats on that finding: it is stage-1 glossary output, so downstream validation would catch some
+    captions — the regression is measured at generation, not at ship. Temperature is 0.7 with one run
+    per arm, so run-to-run variance is unmeasured. Neither touches the 0-of-59 result.
+
+### Reference material analysed
+
+Four published business crosswords (two Crossword Labs). Findings are written into the RFC's §6 as
+givens: consumer crossword generators are greedy freeform placers (~38×38 at <25% fill); density
+needs short entries as connective tissue (best example: 6 of 22 at ≤8 cells); when the corpus lacks
+them the generator pads with dictionary filler and content validity collapses (one 50-entry
+"BUSINESS" puzzle contained PROSODY, PULL, ELEVATE — solvable with zero course exposure, the
+quota-manufactures-garbage failure in a new instrument); bounding box is driven by length *variance*,
+not mean; a 38-column grid is ~10px/cell at 390px, so mobile needs pan-zoom plus a focused-clue
+banner; definitional prose is the right clue register, not the riddle register.
+
+### Also written
+
+`docs/meeting/2026-08-04_pre-meeting-brief.md` — a pre-meeting brief for the 4 Aug supervisor
+meeting. **It is a brief, not a transcript, and records no decisions**; it carries a banner saying
+so. The lever-drop decision still has no transcript in `docs/meeting/`.
+
+### Next actions from here
+
+1. **Settle the between-arm contrast** and record the lever-drop in `docs/meeting/`. Unchanged top
+   blocker; §5.2 of the RFC is blank until it lands.
+2. **Send the RFC to five model families and synthesise.** Do not start building either game first.
+3. Everything in the 4 Aug "Next 3 actions" below still stands.
+
+---
+
 # Current state — 4 August 2026
 
 ## Where we are

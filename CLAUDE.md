@@ -188,6 +188,54 @@ event logging is the research dataset.
     Agile Delivery Model"); the one single word, "Inception", is nine letters. Run A0 against a second
     deck before dropping Wordle, but the reason likely generalises: a case study yields a taxonomy of
     terms, not a lexicon of words.
+    - _Settled and generalised 5 Aug 2026 — the corpus has a 9-cell floor in CANONICAL form._
+      Measured across all 136 domain strings in the live bank (34 terms + 102 distractors, spaces and
+      punctuation stripped): **none is ≤8 cells**, range 9–35, median ~21, exactly one single word.
+      Replicated on a second deck, so A0's "run it against another deck" is discharged.
+      `scripts/spike-short-terms.mjs` then tested whether that floor was a PROMPT artefact by
+      re-running the glossary pass with a clause explicitly asking for short and single-word
+      canonical names: **2 decks × 2 arms, 59 concepts, zero at ≤8 cells.** Short canonical terms
+      cannot be prompted into existence — the material does not contain them. Wordle, Strands and
+      the NYT Mini are dead on canonical forms and stay dead; they cannot use the fragment escape
+      below, because their whole answer must be one short word.
+  - **Game families: letter-constrained vs semantics-constrained (5 Aug 2026).** A game is
+    letter-constrained when the answer is a letter string and geometry decides validity (Wordle,
+    Spelling Bee, Letter Boxed, Strands, the Mini, crossword); semantics-constrained when the answer
+    is a selection or a relation and letters never matter (Connections, and every game shipped so
+    far — quiz, match, choose-word). The corpus's 9-cell floor is fatal to the first family and
+    irrelevant to the second. **Spelling Bee and Letter Boxed are additionally disqualified for
+    having no clue channel at all** — there is nowhere to put a definition, so the valid answer set
+    is decided by letter combinatorics and the game cannot carry curriculum. That is not a
+    pool-size problem and more decks do not fix it.
+  - **Entry length is NOT the crossword blocker — fragments and constituent expansion solve it
+    (5 Aug 2026, user's insight, adopted).** A grid entry need not be the canonical term. (a) Any
+    content word can be the entry with the clue carrying the rest: EMPATHY(7), STANDUP(7), SLICE(5),
+    PRIORITY(8), LEAN(4), CAGE(4), DEMAND(6), TRADE(5) — roughly a third of the bank reaches ≤8
+    cells, the same ratio as a working published puzzle (6 of 22). (b) A framework with named parts
+    becomes several short entries clued by position: CAGE → CULTURAL(8) / ADMINISTRATIVE(14) /
+    GEOGRAPHIC(10) / ECONOMIC(8); Build-Measure-Learn → BUILD(5) / MEASURE(7) / LEARN(5). This is
+    better pedagogy than asking for the framework's name, and management education is dense with
+    such constructs (SWOT, PESTEL, Five Forces, 4Ps, 7S). **Consequence: a crossword clue is a
+    contextualizing device, not a standalone definition** — it gets enumeration and framing
+    scaffolds ("the C in CAGE") that an MCQ clue cannot use. The residual problem is **fragment
+    collisions** (CAGE claimed by 3 terms, ANALYSIS by 5, STORY/MAP/AGILE by 3 each), which is a
+    board-selection constraint of the same shape as match's "a board never spans two subjects" rule,
+    not a content defect. Full detail and the collision table: `docs/architecture/game4-rfc-prompt.md`.
+  - **Game 4 is undecided: crossword vs Connections (5 Aug 2026).** RFC prompt for multi-model
+    deliberation is written (`docs/architecture/game4-rfc-prompt.md`); send to five model families
+    and synthesise. Connections is length-irrelevant by construction, reuses the whole board-game
+    machinery (tokens, board dedupe, board selection, board scoring, board timing), tests taxonomy
+    rather than recall — which attacks the standing memorisation confound, since public vocabulary
+    like `Agile Manifesto` scores ~1.00 ungrounded — and turns the 102 `distractors` into trap
+    material instead of discarding them. Its hard part is trap-category generation: a board with
+    more than one valid partition is broken. **Do not start building either until §5.2 of the RFC
+    (the between-arm contrast) is settled** — a crossword is slow and non-linear and probably cannot
+    carry the 90s board clock, so under a time-pressure-only design it would produce engagement but
+    no experimental data.
+  - **Difficulty is plausibly item × game, not a property of the item (5 Aug 2026, unverified).**
+    The same term is easier as a crossword entry (enumeration given) than as bare recall, and harder
+    than as a 4-option MCQ. The calibrator renders items as MCQs, so it does not apply to a crossword
+    entry at all. Flagged as reasoning, not a measured result.
   - _A1, match-the-following, shipped 1 Aug 2026 (commit `fe871e1`):_ the dashboard's third playable
     tile, and the first game that is not the quiz. `app/games/match/page.tsx` +
     `app/api/match/{board,submit}/route.ts` + `lib/games/match.ts`. **Scoring is per board, graded, not
@@ -339,6 +387,15 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
   (1 Aug 2026) rejected 5 of 8 valid items by testing each word of a multi-word term independently; a
   guard that is too strict can silently destroy yield the same way a guard that is too loose lets bad
   data through. Check yield, not just precision, before trusting a new validation rule.
+- **A permissive instruction is not neutral either — loosening one constraint loosens the ones next
+  to it.** The mirror of the rule above, found 5 Aug 2026 by `scripts/spike-short-terms.mjs`. Adding
+  "a concept's name may be of ANY length" to the glossary prompt was meant to surface short terms. It
+  surfaced none, made terms *longer* (median 23→28, max 37→42 on the CAGE deck), and **re-broke the
+  chart-caption guard** — arm B emitted `Netflix Subscribers Statistics` and `Google's Market Share`,
+  strings the same prompt names as forbidden examples. So the structural caption fix (ask what the
+  deck teaches before asking for questions) is **fragile to unrelated prompt perturbation**: any new
+  clause added to `glossaryPromptFor` must be re-screened for caption leakage, not just for the thing
+  it was added to do. **Do not add a name-length clause to the glossary prompt.**
 - **A clue must name what distinguishes its answer from its nearest distractor — "not a synonym" is
   not sufficient.** Checked against each distractor in turn, inside the same call that writes them
   (commit `e243022`, 4 Aug 2026). `Extreme Programming` with distractors Scrum / Kanban / Lean Startup
