@@ -38,7 +38,7 @@ import { joinRunToItems } from './lib/join-run-to-items.mjs'
 
 loadEnv()
 
-const USAGE = 'Usage: node scripts/calibrate-difficulty.mjs --model <name> [--subject "Name"] [--n 30] [--dry-run] [--out run.json]\n   or: node scripts/calibrate-difficulty.mjs --from run.json --items questions.json [--dry-run]'
+const USAGE = 'Usage: node scripts/calibrate-difficulty.mjs --model <name> [--subject "Name"] [--n 30] [--seed-offset 0] [--dry-run] [--out run.json]\n   or: node scripts/calibrate-difficulty.mjs --from run.json --items questions.json [--dry-run]'
 const die = (msg) => { console.error(`${msg}\n${USAGE}`); process.exit(1) }
 const flag = (name, fallback = null) => {
   const i = process.argv.indexOf(name)
@@ -67,11 +67,20 @@ const METHOD_ALLOWLIST = ['ungrounded', 'grounded-full', 'grounded-retention']
 
 /** Seed from the item's own id, not its position in the result set. Index-based seeds would change
  *  every existing item's simulated_p as soon as one item is added to the bank, making a
- *  bank-composition change indistinguishable from a real difficulty change. */
+ *  bank-composition change indistinguishable from a real difficulty change.
+ *
+ *  `--seed-offset` shifts every per-item seed by a constant, which is the ONLY way to draw a second,
+ *  genuinely independent sample of simulated students from the same bank. Without it two runs at the
+ *  same --n over the same items are byte-identical (the seed is a pure function of the item id and
+ *  Ollama honours seeds), so a "run it twice and compare bands" reproducibility check would return
+ *  100% agreement by construction and measure nothing. Found 6 Aug 2026 before an overnight run.
+ *  Default 0 keeps every existing invocation, and every already-published number, unchanged. */
+const SEED_OFFSET = Number(flag('--seed-offset', 0))
+if (!Number.isInteger(SEED_OFFSET) || SEED_OFFSET < 0) die('--seed-offset must be a non-negative integer.')
 const seedFor = (id) => {
   let h = 0
   for (let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0
-  return (h >>> 0) % 2147483647 || 1
+  return ((h >>> 0) + SEED_OFFSET) % 2147483647 || 1
 }
 const CONCURRENCY = 4 // CPU-bound local inference, not a network limit; matches the spike's default
 
