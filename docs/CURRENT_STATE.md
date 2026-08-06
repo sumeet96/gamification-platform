@@ -4,8 +4,10 @@
 
 **The next session builds the game. Read `docs/NEXT_SESSION_BUILD_BRIEF.md`, not the analysis
 history.** The game-selection work is DONE; repeating it costs a week that is not available — there
-is a Friday deadline. The user described it as "the chaining/crossword game"; the brief assumes
-**Connections** and says to confirm that in one line before writing code.
+is a Friday deadline. **Confirmed by the user: the game is Connections, and it ships with NO time
+pressure and NO difficulty** — both deferred to a later package, so register it `lever: 'none'` and
+leave difficulty null. That is a decision, not an oversight; it also means the game produces no
+experimental data until a lever is added.
 
 **Two shell jobs are still running as of session close** and their results are NOT in this file:
 - `bfw1c6b0s` — ungrounded arm, 170 Competitive Strategy items, ~2h from 22:42
