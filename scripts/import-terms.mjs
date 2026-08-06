@@ -42,7 +42,7 @@ import { computeTermId, applyHumanExclusions, retirementDiff, HUMAN_EXCLUSIONS_B
 
 loadEnv()
 
-const USAGE = 'Usage: node scripts/import-terms.mjs --subject "Name" --from-json f1 [f2 ...] --source-id id1 [id2 ...] [--expect N] [--dry-run|--commit]'
+const USAGE = 'Usage: node scripts/import-terms.mjs --subject "Name" --from-json f1 [f2 ...] --source-id id1 [id2 ...] [--expect N] [--additive] [--dry-run|--commit]'
 const die = (msg) => { console.error(`${msg}\n${USAGE}`); process.exit(1) }
 
 const flag = (name, fallback = null) => {
@@ -186,8 +186,21 @@ const liveRows = await sql`
   select id, term from content_items
   where kind = 'term_definition' and subject = ${subject} and retired_at is null
 `
-const retireIds = retirementDiff(liveRows.map((r) => r.id), finalIds)
+// --additive (6 Aug 2026): skip the retirement diff entirely and ADD to the live bank.
+//
+// This script was written for a COHORT SWAP -- the 4 Aug replacement of 34 unscreened rows -- where
+// retiring everything not in the imported set was the whole point. Adding a deck to an existing bank
+// is the opposite operation and, until this flag, was only expressible by reconstructing the entire
+// cohort as the import set. On 6 Aug an attempt to add five session decks planned 25 retirements of
+// good, screened rows (Empathy Map, User story, Extreme Programming...) and would have left 88 rows
+// where 113 were wanted. The course runs ~20 sessions, so "add a deck" is the normal operation from
+// here and a swap is the exception; the destructive behaviour should be asked for, not defaulted to.
+const additive = process.argv.includes('--additive')
+const retireIds = additive ? [] : retirementDiff(liveRows.map((r) => r.id), finalIds)
 const retireRows = liveRows.filter((r) => retireIds.includes(r.id))
+if (additive) {
+  console.log(`\n--additive: retirement pass SKIPPED. ${liveRows.length} live row(s) in this subject are left untouched.`)
+}
 
 // --- 6. print the plan ---
 console.log(`\n=== PLAN for subject "${subject}" ===`)
@@ -201,7 +214,8 @@ if (updatesRetired.length) {
 }
 console.log(`  ${retireRows.length} retirement(s) (live -> superseded, not in the imported set):`)
 for (const r of retireRows) console.log(`    - ${r.term}  (id ${r.id})`)
-console.log(`  Live "${subject}" term_definition rows before: ${liveRows.length}. After (projected): ${liveRows.length - retireRows.length + inserts.length}.`)
+console.log(`  Live "${subject}" term_definition rows before: ${liveRows.length}. After (projected): ${liveRows.length - retireRows.length + inserts.length}.` +
+  `  [mode: ${additive ? 'ADDITIVE — nothing retired' : 'COHORT SWAP — live rows not in the import set are retired'}]`)
 
 // Everything past this point only runs for --commit, and nothing before this point has opened a
 // DB connection-affecting failure path -- process.exit() after an await'd fetch trips a
