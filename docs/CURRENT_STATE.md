@@ -9,16 +9,35 @@ pressure and NO difficulty** — both deferred to a later package, so register i
 leave difficulty null. That is a decision, not an oversight; it also means the game produces no
 experimental data until a lever is added.
 
-**Two shell jobs are still running as of session close** and their results are NOT in this file:
-- `bfw1c6b0s` — ungrounded arm, 170 Competitive Strategy items, ~2h from 22:42
-- `btxjp0tkp` — grounded arm, chained to start when the first writes `spike-data/cs-ungrounded.json`
+**The ungrounded arm COMPLETED. The grounded arm did NOT — it must be re-run.**
 
-They screen a 170-item bank from 7 management strategy decks (TCE, PESTEL, Porter's Five Forces,
-Industry Analysis, Dynamic Capabilities, RBV, Culture) generated under `--subject "Competitive
-Strategy"`. **Nothing is imported from them.** The number to look for is the **ungrounded mean**
-against 0.57 (management prose) and 0.837 (technical decks) — it decides whether exposure-gated
-difficulty calibration can work on standard MBA curriculum at all. Then the grounded arm is the
-quality gate before import (`--additive`, and the `sources` rows for those 7 decks do not exist yet).
+170 items from 7 management strategy decks (TCE, PESTEL, Porter's Five Forces, Industry Analysis,
+Dynamic Capabilities, RBV, Culture), generated under `--subject "Competitive Strategy"`, rendered to
+`spike-data/cs-mcq.json` + `spike-data/excerpts-cs.json`. **Nothing is imported from them.**
+
+**RESULT (ungrounded, `spike-data/cs-ungrounded.json`): mean 0.773, IQR 0.37, 28% at ceiling, 23
+items below 0.40, full range 0.00–1.00.** Bimodal, as the term list predicted. Compare 0.57
+(management prose) and 0.837 (technical decks).
+
+**The conclusion, which does not depend on the missing grounded arm: filter by UNGROUNDED SCORE, not
+by subject.** Pooled across both banks (260 items), 51 fall below 0.60 ungrounded and 83 below 0.80.
+Only those can carry an exposure-gated difficulty gradient — everything above the cut is answerable
+without the deck by construction. Running the n=120 stability study on all 260 would flatten the tier
+gradient and make the method look broken when the item selection was at fault.
+
+**TO RE-RUN (the grounded arm, the quality gate before import):**
+```bash
+node scripts/spike-simulate-difficulty.mjs spike-data/cs-mcq.json --model llama3.2 --n 30   --concurrency 4 --source spike-data/excerpts-cs.json --out spike-data/cs-grounded.json   --label cs-grounded
+```
+**Restart Ollama first, or run it on the Mac.** It was killed three times in a row, reaching items
+155, then 53, then 14 — progressively sooner, which is memory pressure, not a timeout: 87.4% RAM
+used with `llama-server` resident at 8.4 GB after hours of running. The Mac does this arm in ~36 min
+against ~2 h here, and needs only `cs-mcq.json` and `excerpts-cs.json` copied over (both gitignored).
+
+After it lands: `analyse-item-gap.mjs` for the verdict, then import with `--additive` and
+`--subject "Competitive Strategy"` — the `sources` rows for those 7 decks **do not exist yet** and
+must be created first (`import-terms.mjs` looks them up, never creates them; see the 6 Aug INSERT
+for the id formula `sha256(subject::filename::byteLength).slice(0,24)`).
 
 **Mixed subjects in the bank are intentional.** The user's requirement is a subject-agnostic
 pipeline, not a Digital Transformation-only one; the whole DB will be wiped before real
@@ -146,6 +165,15 @@ calibration run is unblocked.**
    Only after replacement MCQs exist can the 17 pitch-deck rows be retired as `superseded`.
 
 ## Do not redo
+
+- **Do not re-run a multi-hour Ollama job without restarting Ollama first.** Three consecutive kills
+  on 6-7 Aug reached items 155, 53 and 14 of 170 — progressively sooner. That is memory pressure
+  (87.4% RAM, `llama-server` resident at 8.4 GB after hours of use), not a timeout; two of the three
+  were relaunched on a timeout theory that was wrong.
+- **`spike-simulate-difficulty.mjs` writes its output ONLY at the end.** The first kill discarded
+  ~4,650 completed simulations at item 155/170. Any interruption costs the whole run. It needs
+  incremental append or a `--resume` flag before it is trusted with another multi-hour job.
+
 
 All prior "do not redo" items stand. Added this session:
 
