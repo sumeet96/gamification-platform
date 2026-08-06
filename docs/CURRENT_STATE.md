@@ -26,16 +26,24 @@ The whole learning-value case for Connections was that partitioning requires the
 structure where recall does not. `scripts/spike-connections-solve.mjs` tests that directly — 16
 shuffled tiles, no deck, no excerpt, no labels — on three hand-curated boards, 10 trials each:
 
-| board | `gemma2:9b` | `gpt-4.1-mini` |
-|---|---|---|
-| b2 change/process | 40% solved cold | 100% |
-| b1 data/AI | 20% | 70% |
-| b3 AI systems | **0%** | **40%** |
-| control (Colours/Animals/Countries/Fruits) | 90% | 100% |
+| board | `gemma2:9b` | `gpt-4.1-nano` | `gpt-4.1-mini` | `gpt-5-nano` |
+|---|---|---|---|---|
+| b2 change/process | 40% solved cold | 20% | 100% | 100% |
+| b1 data/AI | 20% | 10% | 70% | 100% |
+| b3 AI systems | 0% | 20% | 40% | 90% |
+| **boards rejected** | 1/3 | **0/3** | 3/3 | **3/3** |
 
-**Rank order replicates exactly across families. Levels do not, and they cross the keep/reject line.**
-On `gemma2:9b` b3 looked clean; on `gpt-4.1-mini` it is solved cold 40% of the time. All three boards
-fail the gate on the stronger model.
+**The verdict is entirely instrument-determined — reject-nothing to reject-everything across four
+models that all pass the capability control.** An earlier version of this section claimed the rank
+order replicated; **that is retracted** (see `CLAUDE.md`). It was two instruments agreeing, a third
+disagreed, and at n=10 the gaps were never resolvable anyway — SE ≈ 13 points at these rates.
+
+Two things learned the hard way: **"nano" is a price tier, not a capability tier** (`gpt-5-nano` is a
+reasoning model and is the *strongest* instrument tested, at the *lowest* input price), and
+temperature was ruled out as the confound by a matched `gpt-4.1-nano` run at temp 1.
+
+What survives: **the weakest eligible model as a rejection-only filter.** Do not add a sixth
+instrument — the instrument-dependence is the finding.
 
 So the defensible claim is only the weaker one: **grouping is harder to do cold than recall is, not
 that it requires the deck.** Do not write "Connections requires the material's structure" into the

@@ -256,23 +256,51 @@ event logging is the research dataset.
     nothing else — no deck, no excerpt, no labels — and see whether it recovers the partition. On
     three hand-curated boards, 10 trials each:
 
-    | board | `gemma2:9b` solved cold | `gpt-4.1-mini` solved cold |
-    |---|---|---|
-    | b2 change/process | 40% | 100% |
-    | b1 data/AI | 20% | 70% |
-    | b3 AI systems | **0%** | **40%** |
+    | board | `gemma2:9b` | `gpt-4.1-nano` | `gpt-4.1-mini` | `gpt-5-nano` |
+    |---|---|---|---|---|
+    | b2 change/process | 40% | 20% | 100% | **100%** |
+    | b1 data/AI | 20% | 10% | 70% | **100%** |
+    | b3 AI systems | 0% | 20% | 40% | **90%** |
+    | **boards rejected** | 1/3 | **0/3** | 3/3 | **3/3** |
 
-    **The rank order replicates exactly across families; the levels do not, and they cross the
-    keep/reject line.** Same shape as the difficulty finding (method replicates, values don't), but
-    worse — the two simulators disagree on the *verdict*, not just the number. What is defensible is
-    only the weaker claim: **grouping is harder to do cold than recall is, not that it requires the
-    deck.** Do not put "Connections requires the material's structure" in the paper without human
-    data. Mechanism: you do not need the deck to see that `Strategic Prompt Engineering` /
-    `Data Savvy` / `AI Oversight` are *skills* while `Knowledge Base` / `Inference Engine` /
-    `Forward Chaining` are *system components* — that is semantic type recognition, i.e. general
-    competence, and the 4×4 partition constraint helps the solver rather than hindering.
-    - **Use the screen as a relative ranker, not an absolute gate.** It reliably says which of two
-      boards is more memorisable. It cannot say whether a board is acceptable.
+    **THE VERDICT IS ENTIRELY INSTRUMENT-DETERMINED — it spans reject-nothing to reject-everything
+    across four models that all pass the capability control.** What is defensible is only the weaker
+    claim: **grouping is harder to do cold than recall is, not that it requires the deck.** Do not put
+    "Connections requires the material's structure" in the paper without human data. Mechanism: you do
+    not need the deck to see that `Strategic Prompt Engineering` / `Data Savvy` / `AI Oversight` are
+    *skills* while `Knowledge Base` / `Inference Engine` / `Forward Chaining` are *system components*
+    — that is semantic type recognition, i.e. general competence, and the 4×4 partition constraint
+    helps the solver rather than hindering.
+    - **RETRACTED 6 Aug 2026, same day it was written:** an earlier version of this entry, and commit
+      `17c5ece`'s message, claimed "the rank order replicates exactly across families". It does not.
+      That was two instruments agreeing, and `gpt-4.1-nano` then ordered them differently
+      (b2=b3>b1 against b2>b1>b3). Worse, **at n=10 none of these gaps were ever resolvable** — a
+      binomial rate near 0.2 over 10 trials has SE ≈ 13 points, so the agreement I read as replication
+      was inside the noise. The band-count lesson again: **n is the binding constraint, not the
+      instrument.** Two points agreeing is not replication.
+    - **"Nano" is a PRICE tier, not a capability tier.** `gpt-5-nano` is a reasoning model and
+      `gpt-4.1-nano` is not; partitioning is a reasoning task, so the generation gap dominates the
+      size label completely. The cheapest model on the list ($0.05/1M in) is the *strongest* instrument
+      here, beating `gpt-4.1-mini` ($0.40/1M). Never infer capability from a price tier or a size
+      suffix — run the capability control. Caveat on its cost: `gpt-5-nano` emits reasoning tokens
+      billed as output, so its headline output rate understates real spend, and it is slow.
+    - **Temperature was ruled out as the confound.** `gpt-5-nano` rejects any temperature but the
+      default 1, so it cannot be run at the 0.7 every other arm used. A matched `gpt-4.1-nano` run at
+      temp 1 gave 10/20/20 against 10/20/20 at 0.7 — identical. The gap is the model. `--temp` exists
+      on the script for exactly this kind of matched arm.
+    - **What survives is one asymmetric use: the WEAKEST eligible model as a REJECTION-ONLY filter.**
+      If even `gpt-4.1-nano` solves a board cold, that board is definitely bad. If it does not, nothing
+      positive has been learned. Under that rule all three boards pass — none catastrophic, none
+      certified. **Do not add a sixth instrument**; the instrument-dependence is the finding, not a
+      sampling problem to be averaged away.
+    - **Eligibility (capability control on Colours/Animals/Countries/Fruits + Planets/Days/Chess/
+      Instruments):** `llama3.2` 3B **0.00/4 — ineligible, cannot do the task**; `gemma2:2b` 1.90/4
+      **ineligible, too unreliable**; `gemma2:9b` 3.70/4, `gpt-5-nano` 3.60/4, `gpt-4.1-nano` 4.00/4,
+      `gpt-4.1-mini` 4.00/4 all eligible. Note a 2B *gemma* beats a 3B *llama* here — family beats size.
+    - **This is a publishable methods finding, not just a build obstacle.** "LLM-based content-validity
+      screening for taxonomy-grouping items yields instrument-dependent verdicts spanning reject-none
+      to reject-all" belongs beside `docs/literature/item-difficulty-without-students.md`. What
+      actually settles memorisation-resistance is human data, i.e. the pilot.
     - **Keep the deck-specific-anchor board rule anyway:** one group whose membership is deck-specific
       phrasing moved a board from 100% to 40% solved cold. A real effect, just not a sufficient one.
     - **Methodological inversion worth stating before someone misapplies the old rule:** for term

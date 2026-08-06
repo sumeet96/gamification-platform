@@ -67,12 +67,20 @@ async function ask(model, system, user, seed) {
   if (PROVIDER === 'openai') {
     const key = process.env.OPENAI_API_KEY
     if (!key) throw new Error('OPENAI_API_KEY is not set')
+    // gpt-5* rejects any temperature but the default 1 ("Unsupported value: 'temperature'"). Omitting
+    // it is the only way to call them — which means a gpt-5 arm samples at 1 while every other arm
+    // here samples at 0.7, and the two are NOT directly comparable. Compare a gpt-5 result only
+    // against another arm run at the same temperature (see --temp).
+    const fixedTempModel = /^gpt-5/.test(model)
+    const temp = Number(arg('--temp', 0.7))
+    const body = { model, seed, messages: [
+      { role: 'system', content: system }, { role: 'user', content: user },
+    ] }
+    if (!fixedTempModel) body.temperature = temp
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model, temperature: 0.7, seed, messages: [
-        { role: 'system', content: system }, { role: 'user', content: user },
-      ] }),
+      body: JSON.stringify(body),
     })
     if (!res.ok) throw new Error(`openai ${res.status}: ${await res.text()}`)
     return (await res.json()).choices[0].message.content
