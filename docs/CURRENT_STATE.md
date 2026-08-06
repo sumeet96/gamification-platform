@@ -1,5 +1,34 @@
 # Current state — 6 August 2026
 
+## READ THIS FIRST (added at session close)
+
+**The next session builds the game. Read `docs/NEXT_SESSION_BUILD_BRIEF.md`, not the analysis
+history.** The game-selection work is DONE; repeating it costs a week that is not available — there
+is a Friday deadline. The user described it as "the chaining/crossword game"; the brief assumes
+**Connections** and says to confirm that in one line before writing code.
+
+**Two shell jobs are still running as of session close** and their results are NOT in this file:
+- `bfw1c6b0s` — ungrounded arm, 170 Competitive Strategy items, ~2h from 22:42
+- `btxjp0tkp` — grounded arm, chained to start when the first writes `spike-data/cs-ungrounded.json`
+
+They screen a 170-item bank from 7 management strategy decks (TCE, PESTEL, Porter's Five Forces,
+Industry Analysis, Dynamic Capabilities, RBV, Culture) generated under `--subject "Competitive
+Strategy"`. **Nothing is imported from them.** The number to look for is the **ungrounded mean**
+against 0.57 (management prose) and 0.837 (technical decks) — it decides whether exposure-gated
+difficulty calibration can work on standard MBA curriculum at all. Then the grounded arm is the
+quality gate before import (`--additive`, and the `sources` rows for those 7 decks do not exist yet).
+
+**Mixed subjects in the bank are intentional.** The user's requirement is a subject-agnostic
+pipeline, not a Digital Transformation-only one; the whole DB will be wiped before real
+implementation, so current content is scaffolding for testing the algorithm.
+
+**Adaptive difficulty is BACK** (user decision, 6 Aug, relayed verbally — **no transcript**, same gap
+as the lever-drop). Condition: the simulator must behave like MBA students across exposure conditions
+at **70–90% accuracy**. Note that 70–90% is achievable as *reliability* (band stability on resample,
+which `--seed-offset` + `analyse-band-stability.mjs` measure) but **not** as *validity* against real
+students — published expectation for management prose is r ≈ 0.5, and only the pilot settles it.
+
+
 ## Where we are
 
 **No `app/` or `lib/` code has changed for three sessions.** 188 tests, `tsc --noEmit` clean, the
