@@ -232,6 +232,69 @@ event logging is the research dataset.
     (the between-arm contrast) is settled** — a crossword is slow and non-linear and probably cannot
     carry the 90s board clock, so under a time-pressure-only design it would produce engagement but
     no experimental data.
+    - _RFC answered 6 Aug 2026 — five model families (ChatGPT via API and Playground, Claude, Gemini,
+      DeepSeek, Grok) ALL chose Connections._ Weigh that against a real caveat: the brief was written
+      with §7.1 (crossword) as a list of open problems and §7.2 (Connections) as a list of settled
+      advantages, and the system message fixed the justification order as learning/research/build —
+      the order in which Connections wins. The verdict is theirs, the framing was ours. Effort
+      estimates spread 7× (Gemini 30–40h, Claude 215–285h); the spread is entirely whether the
+      content-generation pipeline and human review were counted. **Three of five independently
+      recommended hand-authoring boards for the pilot and building the pipeline afterwards** — that
+      is the convergent recommendation and it removes both the biggest work block and the biggest
+      correctness risk.
+    - **CORRECTION, 6 Aug 2026 — do NOT use `distractors` as board tiles.** The bullet above says
+      they become "trap material"; that is wrong and was caught in review. Distractors are
+      *generated* (never selected — see G2 above), i.e. fabricated strings. Every tile on a board
+      carries an implicit assertion that it is a real concept, so a student who successfully sorts a
+      fabricated term learns it as real. Use them OFFLINE as a confusability signal for choosing
+      which *real* terms to co-locate, and never render them. A distractor may only become a tile if
+      the source independently supports it, and then it must be minted as its own `content_items` row
+      with provenance.
+  - **Connections' learning-value claim is OVERSTATED — measured 6 Aug 2026.** The reason to prefer
+    Connections was that partitioning requires the material's own structure where recall does not.
+    `scripts/spike-connections-solve.mjs` tests exactly that: give a model the 16 shuffled tiles and
+    nothing else — no deck, no excerpt, no labels — and see whether it recovers the partition. On
+    three hand-curated boards, 10 trials each:
+
+    | board | `gemma2:9b` solved cold | `gpt-4.1-mini` solved cold |
+    |---|---|---|
+    | b2 change/process | 40% | 100% |
+    | b1 data/AI | 20% | 70% |
+    | b3 AI systems | **0%** | **40%** |
+
+    **The rank order replicates exactly across families; the levels do not, and they cross the
+    keep/reject line.** Same shape as the difficulty finding (method replicates, values don't), but
+    worse — the two simulators disagree on the *verdict*, not just the number. What is defensible is
+    only the weaker claim: **grouping is harder to do cold than recall is, not that it requires the
+    deck.** Do not put "Connections requires the material's structure" in the paper without human
+    data. Mechanism: you do not need the deck to see that `Strategic Prompt Engineering` /
+    `Data Savvy` / `AI Oversight` are *skills* while `Knowledge Base` / `Inference Engine` /
+    `Forward Chaining` are *system components* — that is semantic type recognition, i.e. general
+    competence, and the 4×4 partition constraint helps the solver rather than hindering.
+    - **Use the screen as a relative ranker, not an absolute gate.** It reliably says which of two
+      boards is more memorisable. It cannot say whether a board is acceptable.
+    - **Keep the deck-specific-anchor board rule anyway:** one group whose membership is deck-specific
+      phrasing moved a board from 100% to 40% solved cold. A real effect, just not a sufficient one.
+    - **Methodological inversion worth stating before someone misapplies the old rule:** for term
+      items the ungrounded arm is NOT a valid rejection gate (`Agile Manifesto` scores 1.00 ungrounded
+      and is a *good* item — fame is not a defect). For Connections boards the no-source arm IS the
+      construct under test, because the claim being made is "requires the material". Same instrument,
+      opposite validity, because the claim differs.
+    - Limits: 3 boards hand-curated by us, 10 trials each, scores bimodal (0 or 4, rarely between —
+      expected for exact-set recovery on a partition). Neither model is a student, and this ambiguity
+      is not resolvable with simulators.
+  - **Relation harvest works but has its own caption-class failure (6 Aug 2026).**
+    `scripts/spike-connections-harvest.mjs` asks a deck only for taxonomic relations under a closed
+    enum (`constituents_of` / `stages_of` / `members_of_type` / `instances_of`), no quota, empty
+    valid, <4 members discarded never repaired. Over 8 DT decks it found real taxonomies (the big-data
+    Vs, Descriptive/Diagnostic/Predictive/Prescriptive, Six Thinking Hats, Design Thinking stages,
+    Rogers' adopter categories, Human-in/on/out-of-the-Loop). It also produced three failure classes
+    needing a structural guard, roughly half the yield: **rhetorical bullet lists** (`Advantages of
+    Cloud Computing`, members as full sentences — and an advantages-vs-disadvantages board is solvable
+    by sentiment alone), **mutual-exclusivity violations** (unsupervised learning returned `Clustering`
+    alongside its own children `K-Means` and `Hierarchical`), and **company-specific lists** (POOK's 17
+    partner brands, 19 org units — the data-point-not-concept failure one level up). Hand curation
+    caught all three, which is the practical case for the hand-author recommendation above.
   - **Difficulty is plausibly item × game, not a property of the item (5 Aug 2026, unverified).**
     The same term is easier as a crossword entry (enumeration given) than as bare recall, and harder
     than as a 4-option MCQ. The calibrator renders items as MCQs, so it does not apply to a crossword
@@ -387,6 +450,22 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
   (1 Aug 2026) rejected 5 of 8 valid items by testing each word of a multi-word term independently; a
   guard that is too strict can silently destroy yield the same way a guard that is too loose lets bad
   data through. Check yield, not just precision, before trusting a new validation rule.
+- **A rejection gate is meaningless until a CAPABILITY CONTROL has passed on the same instrument.**
+  Found 6 Aug 2026. The Connections no-source screen returned 0.10/4 on `llama3.2:3b` — an apparently
+  decisive "these boards need the deck". It was disbelieved only because board 1 contained
+  Volume/Velocity/Variety/Veracity, which any model that knows anything should group. A control board
+  of Colours / Animals / Countries / Fruits then scored **0.00/4 on the same model**: it cannot
+  partition at all, and the real result was measuring the instrument, not the material. `gemma2:9b`
+  scores 3.65/4 on that control and is a valid instrument. This is the third instrument in which the
+  standing lesson "a weak simulator's low score can mean the simulator is ignorant" has bitten (after
+  `llama3.2:1b` not knowing Bing). **Ship a trivially-solvable control alongside any new gate, and
+  run it first** — `spike-data/connections-control-v1.json` is the pattern.
+- **Never pool a verdict across heterogeneous units when the unit is what gets rejected.** Same run.
+  The solve script's first version printed one aggregate: 1.10/4, "PASSES". That average concealed one
+  board solved cold 40% of the time and another 0% — memorability is a property of a board, and a
+  board is the thing shipped. The gate now fires per board. Related, same script, same day: it also
+  printed "PASSES the gate" after all 30 trials had failed on a wrong model tag. **A gate that can
+  pass on zero observations is a false signal**; it now refuses a verdict and exits non-zero.
 - **A permissive instruction is not neutral either — loosening one constraint loosens the ones next
   to it.** The mirror of the rule above, found 5 Aug 2026 by `scripts/spike-short-terms.mjs`. Adding
   "a concept's name may be of ANY length" to the glossary prompt was meant to surface short terms. It

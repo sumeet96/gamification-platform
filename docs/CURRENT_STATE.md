@@ -1,3 +1,87 @@
+# Current state — 6 August 2026
+
+## Session of 6 Aug 2026 — Connections chosen, and its headline claim measured down
+
+**Still nothing in `app/` or `lib/` has changed.** 188 tests, `tsc --noEmit` clean, DB untouched.
+This session ran the RFC and two spikes against it.
+
+### The RFC came back unanimous, with a caveat we should carry
+
+All five model families (ChatGPT via API and via Playground, Claude, Gemini, DeepSeek, Grok) chose
+**Connections** over crossword, on the same three grounds in the same order. **The framing was ours:**
+§7.1 listed crossword's open problems and §7.2 listed Connections' settled advantages, and the system
+message fixed the justification order as learning/research/build — the order in which Connections
+wins. Treat the verdict as real and the unanimity as partly manufactured.
+
+Effort estimates spread 7× (Gemini 30–40h → Claude 215–285h), entirely on whether the content
+pipeline and human review were counted. **Three of five independently recommended hand-authoring
+boards for the pilot and building the pipeline after.** That is the plan of record.
+
+The Playground chat run broke the output contract (delivered sections 1–3, promised a "Part 2"); the
+API run followed it exactly. Use the API panel for any re-run.
+
+### The measured result, which is the important part
+
+The whole learning-value case for Connections was that partitioning requires the material's own
+structure where recall does not. `scripts/spike-connections-solve.mjs` tests that directly — 16
+shuffled tiles, no deck, no excerpt, no labels — on three hand-curated boards, 10 trials each:
+
+| board | `gemma2:9b` | `gpt-4.1-mini` |
+|---|---|---|
+| b2 change/process | 40% solved cold | 100% |
+| b1 data/AI | 20% | 70% |
+| b3 AI systems | **0%** | **40%** |
+| control (Colours/Animals/Countries/Fruits) | 90% | 100% |
+
+**Rank order replicates exactly across families. Levels do not, and they cross the keep/reject line.**
+On `gemma2:9b` b3 looked clean; on `gpt-4.1-mini` it is solved cold 40% of the time. All three boards
+fail the gate on the stronger model.
+
+So the defensible claim is only the weaker one: **grouping is harder to do cold than recall is, not
+that it requires the deck.** Do not write "Connections requires the material's structure" into the
+paper without human data. Connections is still the right pick over crossword — crossword's construct
+is recall, and recall items score ~1.00 ungrounded — but its advantage is smaller than the RFC
+asserted. Full detail and the mechanism in `CLAUDE.md`.
+
+### Two near-miss false signals, now standing conventions
+
+1. **`llama3.2:3b` returned 0.10/4 on the real boards — an apparently decisive pass.** A capability
+   control (Colours / Animals / Countries / Fruits) then scored **0.00/4 on the same model**: it
+   cannot partition at all. The result was measuring the instrument. Third instrument in which "a
+   weak simulator's low score can mean the simulator is ignorant" has bitten.
+2. **The solve script pooled one verdict across boards** (1.10/4, "PASSES"), hiding a 40% board next
+   to a 0% board — and separately printed "PASSES the gate" after all 30 trials had failed on a wrong
+   model tag. Both fixed: per-board gate, and no verdict on zero observations (non-zero exit).
+
+### Also corrected
+
+**Do not use `distractors` as Connections tiles**, which §7.2 of the RFC asserted. They are generated
+inventions; a tile asserts the string is a real concept, so sorting a fabricated term teaches it as
+real. Use them offline as a confusability signal only.
+
+### New files
+
+- `scripts/spike-connections-harvest.mjs` — relation harvest, closed enum, no quota. Run over 8 DT
+  decks. Real taxonomies found; also three failure classes needing a structural guard (rhetorical
+  bullet lists, mutual-exclusivity violations, company-specific lists) — see `CLAUDE.md`.
+- `scripts/spike-connections-solve.mjs` — the no-source screen, `--provider ollama|openai`.
+- `spike-data/connections-boards-v1.json`, `connections-control-v1.json` (both gitignored), plus five
+  result JSONs.
+- 8 new course decks are in the repo root: Cloud, BigData, Blockchain, Sessions 5/6/6-7, Agentic AI,
+  DGT-Pook. Root-level `*.pdf` is gitignored — **never stage with a broad `git add`.**
+
+### Next actions from here
+
+1. **Settle the between-arm contrast.** Unchanged top blocker, now 2 days older. §5.2 of the RFC is
+   still blank and the lever-drop still has no transcript.
+2. **Hand-author more boards and re-screen**, using the deck-specific-anchor rule (it moved a board
+   from 100% to 40% solved cold — real, but not sufficient).
+3. **Do not build until 1 is answered.** Several models flagged that a difficulty-only resolution
+   would flip the verdict — Claude's flip is to fill-in-the-blanks, which is item-grained and already
+   renders as an MCQ for the existing calibrator.
+
+---
+
 # Current state — 5 August 2026
 
 ## Session of 5 Aug 2026 — game 4 scoped, no app code touched
