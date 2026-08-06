@@ -978,3 +978,54 @@ against the live International Management pool has not yet been done this sessio
 **Unchanged and still the top blocker: the between-arm experimental contrast.** Nothing in this
 section touches it. No item-bank work substitutes for it. The lever-drop decision still has no
 transcript.
+
+## 19. Game 4 chosen, a bank screened, and the MCQ generator rebuilt (5-6 Aug 2026)
+
+**No `app/` or `lib/` code changed.** 188 tests, `tsc --noEmit` clean, database untouched since the
+4 Aug cohort swap. This was content-pipeline and research-design work.
+
+**Game 4 is Connections, not crossword.** An RFC (`docs/architecture/game4-rfc-prompt.md`) went to
+five model families — ChatGPT via API and Playground, Claude, Gemini, DeepSeek, Grok — and all five
+chose Connections, on learning value, research value and build cost. **Carry the caveat with the
+verdict:** §7.1 listed crossword's open problems against §7.2's settled advantages, and the system
+message fixed the justification order as the one Connections wins in. Effort estimates spread 7×
+(30–40h to 215–285h) entirely on whether the content pipeline was counted; three of five
+independently recommended hand-authoring boards for the pilot and building the pipeline afterwards.
+
+Crossword was not rejected for entry length — the user's fragment insight (any content word can be
+the grid entry, plus constituent expansion, CAGE → CULTURAL/ADMINISTRATIVE/GEOGRAPHIC/ECONOMIC)
+solved that, reaching ≤8 cells on about a third of the bank. It was rejected on crossing density,
+the 90s board clock, and build cost.
+
+**Connections' headline claim measured down.** The reason to prefer it was that partitioning
+requires the material's own structure. A no-source screen (`scripts/spike-connections-solve.mjs`)
+found the verdict is **entirely instrument-determined**: boards rejected 0/3 on `gpt-4.1-nano`, 1/3
+on `gemma2:9b`, 3/3 on `gpt-4.1-mini` and `gpt-5-nano`. The defensible claim is only the weaker one —
+grouping is *harder* to do cold than recall is, not that it requires the deck. Do not put
+"Connections requires the material's structure" in the paper without human data.
+
+**Two near-miss false signals, now standing conventions in CLAUDE.md.** `llama3.2` 3B returned a
+clean-looking 0.10/4, then scored **0.00/4** on a control board of Colours/Animals/Countries/Fruits —
+it cannot do the task at all, so the result measured the instrument. And the screen pooled one
+verdict across boards, hiding a 40% board beside a 0% one. A rejection gate now requires a
+capability control, and a verdict never pools across the unit being rejected.
+
+**A 90-item term bank is screened and ready to import** (not imported). Five session decks — Cloud,
+Big Data, Blockchain, Sessions 5 and 6 — through the two-stage term generator, then the gap screen:
+grounded mean **0.964**, **2 broken** of 90, against gen3's 0 of 37. **37 of 90 are fully answerable
+with no deck**, much higher than the management decks; that is the public-vocabulary finding at a
+larger sample, not a defect.
+
+**G1 rebuilt three-stage**, mirroring G2's 3 Aug rebuild, because it still ran a `--per-window`
+quota — visible in a live bank containing "Which team member has a background in computer science
+from Harvard". Full detail and the unresolved length-giveaway finding are in CLAUDE.md under the G1
+entry; the short version is that MCQ options leak their answer by length (65% → 81% → 89% across
+three fix attempts, chance 25%), a prompt cannot fix it, blinding made it worse, but it does **not**
+contaminate difficulty calibration.
+
+**A Mac mini M4/16GB is set up and benchmarked** at 0.42 s/item-trial against Windows' 1.485 —
+**3.5× faster**, turning the projected 15-hour calibration job into roughly 4 hours. It needs only
+`DATABASE_URL`, since calibration reads `source_excerpt` from Neon rather than local PDFs.
+
+**Unchanged and still the top blocker: the between-arm experimental contrast is undecided**, now
+four days after the 4 Aug meeting, and the lever-drop still has no transcript in `docs/meeting/`.

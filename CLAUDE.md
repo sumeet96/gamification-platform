@@ -166,6 +166,31 @@ event logging is the research dataset.
 - Log all events (session, round, per-question interactions, score, adaptivity feedback) for DSR dataset. Do not train on student data.
 
 ## Stack & constraints (28 Jul 2026 rebuild — details in HANDOFF.md §4)
+- **G1 rebuilt three-stage, 6 Aug 2026 (`9030316`, `7aeb603`) — and one defect it does NOT fix.**
+  `scripts/generate-questions.mjs` had kept the single-call-per-window flow under a `--per-window`
+  quota, which is exactly what manufactured chart captions in G2. It shows in the bank it produced:
+  `Which team member has a background in computer science from Harvard`, `Based on the cartoon…`.
+  **The gap screen cannot catch that class** — those items are answerable from their own excerpt, so
+  they pass the grounded arm. Now: glossary (no quota, empty valid) → option writing → cold answer
+  marking. `--per-window` is deleted and passing it exits with an error. Default model on this script
+  only is **`gpt-5-mini`**; `llm-client.mjs` omits `temperature` for `gpt-5*`, which reject any value
+  but their default of 1 (a hard 400, and it means gpt-5 output is not drawn under the same sampling
+  regime as gpt-4.1 output). Content fix verified: the blockchain deck now yields
+  `What is a consensus mechanism`, `Which scenario BEST exemplifies decentralization`.
+  - **UNRESOLVED — MCQ options leak their answer by length.** Correct option is the longest in
+    **65%** of the live bank, **81%** with an emphatic length-parity instruction, **89%** with a
+    blind schema. Chance is 25%; always-pick-longest scores **88.6%**; mean correct option 106.5
+    chars vs 81.6 for distractors. **A prompt instruction does not fix it** (86→81% while validator
+    rejections went 9→0 — the model equalised spread and kept the answer marginally longest), and
+    **blinding does not either** — stage 2's schema has no `answer` field and it got *worse*. The
+    mechanism is semantic, not procedural: a true statement needs more qualification than a false
+    one, so a stronger model qualifies more carefully. Any fix must make **distractors equally
+    qualified**, not the writer blind.
+  - **But it does NOT contaminate difficulty calibration** (measured 6 Aug, `mcq6-ungrounded.json`,
+    44 items): the simulator scores **0.744** ungrounded, *below* the **0.886** a pure length-picker
+    gets, so it is using knowledge rather than the cue; r between score and length margin = 0.161,
+    n=44, CI straddles zero. **Assessment-validity problem, not a measurement one — the n=120
+    calibration run is unblocked.** One simulator only (`llama3.2` 3B).
 - **Six packages shipped: G1 (generator, 31 Jul), G2 (term/definition generator, 1 Aug), D1
   (dashboard, 31 Jul), Q1 (quiz hardening, 31 Jul), A1 (match-the-following, 1 Aug), A3
   (choose-the-right-word, 1 Aug).** `app/dashboard/page.tsx` drives its tiles from
