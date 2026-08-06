@@ -8,15 +8,30 @@
 // and silently ignored 15 of 26 pages. A loop over page windows makes coverage structural, and
 // anything claiming a page outside the current window is rejected.
 //
+// RESTRUCTURED 6 Aug 2026 INTO TWO STAGES, exactly as generate-terms.mjs was on 3 Aug, and for the
+// same reason. The old flow asked one call per window to find the material AND write `--per-window`
+// questions from it, under a quota. A quota manufactures garbage: a page of charts still has to
+// yield N questions, so it yields N questions about the chart. That is visibly what happened to the
+// bank this replaces, which contains "Which team member has a background in computer science from
+// Harvard", "What is the commission percentage taken on each transaction" and "Based on the cartoon,
+// what is the implied reason for having an elevator pitch" — slide data points wearing the clothes
+// of concepts.
+//
+// Crucially the gap screen CANNOT catch that class. Those questions are perfectly answerable from
+// their own source excerpt, so they sail through the grounded arm; the screen only detects items the
+// source fails to support. The defect has to be prevented at generation, and three separate attempts
+// at catching this family with rules on the output failed during the G2 rebuild. Only the structural
+// fix worked: ask what the deck TEACHES first, with no quota and empty as a valid answer, then write
+// one question per concept it named. `--per-window` is therefore deleted, not defaulted lower.
+//
 // Usage:
 //   node scripts/generate-questions.mjs <deck.pdf> --subject "Digital Transformation" [options]
 //
 // Options:
 //   --title "Session 12"     human title for the `sources` row (default: filename)
 //   --provider openai|gemini default openai
-//   --model <id>             default per provider; Gemini requires GEMINI_MODEL
+//   --model <id>             default gpt-5-nano on openai; Gemini requires GEMINI_MODEL
 //   --window N               pages per call (default 3)
-//   --per-window K           questions requested per window (default 2)
 //   --pages A-B              only this page range, e.g. 1-6 (default: whole deck)
 //   --out <file.json>        write the validated set to disk
 //   --dry-run                generate and validate, write nothing to the database
@@ -46,11 +61,12 @@ if (!subject) die('--subject is required: content_items is subject-scoped (PROJE
 const title = flag('--title') || pdfPath.split(/[\\/]/).pop()
 const provider = flag('--provider', 'openai')
 const windowSize = Number(flag('--window', 3))
-const perWindow = Number(flag('--per-window', 2))
 const outPath = flag('--out')
 const dryRun = process.argv.includes('--dry-run')
 if (!Number.isInteger(windowSize) || windowSize < 1) die('--window must be a positive integer.')
-if (!Number.isInteger(perWindow) || perWindow < 1) die('--per-window must be a positive integer.')
+if (process.argv.includes('--per-window')) {
+  die('--per-window is gone. It was the quota that manufactured chart-caption questions; see the header.')
+}
 
 // --- page count. pdf-parse is used ONLY for this; the model reads the PDF itself. ---
 const pdfBuf = readFileSync(pdfPath)
@@ -66,7 +82,36 @@ if (range) {
   if (firstPage < 1 || lastPage > numpages || firstPage > lastPage) die(`--pages must sit inside 1-${numpages}.`)
 }
 
-const client = createClient(provider, { model: flag('--model') })
+// gpt-5-nano is the default on openai for this script only (the adapter's own default stays
+// gpt-4.1-mini, so generate-terms.mjs is unaffected). It is a reasoning model, which is what stage 2
+// wants — writing four options where exactly one is defensible is a reasoning task, not a
+// transcription one — and at $0.05/1M in it is the cheapest tier available. It samples at
+// temperature 1 and will not accept another value; llm-client.mjs omits the field for gpt-5*.
+const client = createClient(provider, {
+  model: flag('--model') || (provider === 'openai' ? 'gpt-5-nano' : null),
+})
+
+// --- stage 1 schema: what does this deck teach? ---
+const GLOSSARY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['concepts'],
+  properties: {
+    concepts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['term', 'gloss', 'page'],
+        properties: {
+          term: { type: 'string' },
+          gloss: { type: 'string' },
+          page: { type: 'integer' },
+        },
+      },
+    },
+  },
+}
 
 // Strict JSON Schema. Constrained decoding guarantees SHAPE, not TRUTH — it cannot know an answer
 // is wrong or a page number is a lie, so the validator still runs on everything.
@@ -101,11 +146,33 @@ const SCHEMA = {
   },
 }
 
-const promptFor = (from, to) => `You are writing multiple-choice quiz questions from a lecture slide deck for university students.
+// --- stage 1: concept glossary, no quota. Carried over near-verbatim from generate-terms.mjs,
+// which is the proven version of this prompt; the disqualifying test and the named forbidden
+// examples are what stop slide titles and data points becoming "concepts". ---
+const glossaryPromptFor = (from, to) => `You are building a CONCEPT GLOSSARY from a university lecture slide deck, for pages ${from} to ${to} only. Ignore every other page.
 
-Use ONLY pages ${from} to ${to} of this PDF. Ignore every other page completely.
+A concept is something with a definition that stands on its own — independent of any particular number, company, person, or year — that a student could be asked about in a context this deck never showed. A good disqualifying test: if stating the definition requires naming a specific company, person, country, or year, it is a DATA POINT, not a concept.
 
-Write ${perWindow} questions. For each one:
+Explicitly EXCLUDE: chart titles, exhibit captions, data points, company names, people's names, job titles, team rosters, prices, percentages, and section headings. "Netflix Subscribers Statistics 2025", "the commission percentage on each transaction" and "Session 6 Agenda" are captions and data lifted from a slide, not concepts — do not list them.
+
+Do not list two concepts that are near-synonyms or that would share a definition. Merge them into one entry and keep whichever name the material actually uses.
+
+There is NO required count and no target to hit. Return as many concepts as these pages genuinely teach — that may be zero, for a title page, a divider, a team slide, or a slide that is purely a chart or a cartoon. Returning an empty list is a CORRECT answer. Do not invent a concept to avoid an empty list, and do not pad the list to reach any particular number.
+
+For each concept you DO list, give:
+- "term": the concept's name, at most 5 words, taken from or clearly named in the material.
+- "gloss": one line stating what it means, on its own, without naming a specific company/person/year.
+- "page": the single page (between ${from} and ${to}) it comes from.`
+
+// --- stage 2: one question per glossary concept. One concept in, one question out, so there is no
+// quota anywhere in this flow — if stage 1 returned nothing for a window, stage 2 is never called. ---
+const questionPromptFor = (from, to, concepts) => `You previously helped build a concept glossary from this lecture slide deck. Now write ONE multiple-choice question for EACH of the following ${concepts.length} concept(s), all already confirmed to come from pages ${from}-${to} of this PDF:
+
+${concepts.map((c, i) => `${i + 1}. "${c.term}" — ${c.gloss} (page ${c.page})`).join('\n')}
+
+Write exactly ${concepts.length} question(s), one per concept, in that order. Each question must test the CONCEPT — something a student could be asked in a context this deck never showed. It must NOT test a number, a name, a job title, a price, or anything else true only of this particular slide.
+
+For each one:
 - "page": the single page the question comes from. It MUST be between ${from} and ${to}.
 - "source_excerpt": the words on that page, transcribed verbatim, including words inside images.
 - "source_layout": if the page is a diagram, chart, matrix or quadrant, describe where things sit —
@@ -119,11 +186,17 @@ Write ${perWindow} questions. For each one:
 
 Hard rules:
 - Exactly 4 options, exactly one correct, "answer" is the 0-based index of the correct one.
+- ALL FOUR OPTIONS MUST BE CLOSE TO THE SAME LENGTH — within a few words of each other. Do not
+  write a full, careful, qualified sentence for the correct answer and short blunt phrases for the
+  wrong ones. That is the single most common way a multiple-choice item leaks its answer: a student
+  who knows nothing can score well by always choosing the longest option. If the correct answer
+  needs a qualification to be true, give the distractors comparable qualifications. Count the words
+  in each option before you return them and even them out.
 - EXACTLY ONE option may be defensible. If two options are both true, the question is broken —
   rewrite it. On a diagram, check that no other item shares the same region as the correct answer.
-- Of the ${perWindow} questions, make at most ${Math.max(1, Math.floor(perWindow / 2))} pure "recall".
-  Prefer apply, discriminate or deduce where the material supports it. If these pages genuinely only
-  support recall, return recall questions rather than inventing content to reach a level.
+- Prefer apply, discriminate or deduce over pure "recall" wherever the concept supports it. If a
+  concept genuinely only supports recall, write a recall question rather than inventing content to
+  reach a level.
 - The question must stand alone. NEVER refer to "the slide", "the deck", "the diagram above" or the
   presentation itself. A student sees only your question and its options.
 - Base every question strictly on pages ${from} to ${to}. Do not use outside knowledge.
@@ -138,17 +211,42 @@ const drafts = []
 let outOfWindow = 0
 let tokensIn = 0, tokensOut = 0
 
+let concepts = 0, emptyWindows = 0
+
 try {
   for (let from = firstPage; from <= lastPage; from += windowSize) {
     const to = Math.min(from + windowSize - 1, lastPage)
+
+    // ---- stage 1: what does this window teach? ----
+    let windowConcepts = []
+    try {
+      const { data, usage } = await client.generateJSON({ ref, prompt: glossaryPromptFor(from, to), schema: GLOSSARY_SCHEMA })
+      tokensIn += usage.in ?? 0; tokensOut += usage.out ?? 0
+      // Same window guard as stage 2 below: the model can see the whole PDF via the file
+      // reference, so a concept can claim a page it did not come from.
+      windowConcepts = (data?.concepts ?? []).filter((c) => Number.isInteger(c?.page) && c.page >= from && c.page <= to)
+    } catch (err) {
+      console.error(`  [glossary] pages ${from}-${to}: FAILED — ${err.message}`)
+      continue
+    }
+    concepts += windowConcepts.length
+    if (!windowConcepts.length) {
+      // The whole point of the rebuild: an empty window is a CORRECT answer, not a failure to
+      // retry or pad. A title page or a cartoon teaches nothing and must yield nothing.
+      emptyWindows++
+      console.log(`  pages ${String(from).padStart(2)}-${String(to).padStart(2)}: 0 concepts, no questions`)
+      continue
+    }
+
+    // ---- stage 2: one question per concept ----
     let batch = []
     try {
-      const { data, usage } = await client.generateJSON({ ref, prompt: promptFor(from, to), schema: SCHEMA })
+      const { data, usage } = await client.generateJSON({ ref, prompt: questionPromptFor(from, to, windowConcepts), schema: SCHEMA })
       batch = Array.isArray(data?.questions) ? data.questions : []
       tokensIn += usage.in ?? 0; tokensOut += usage.out ?? 0
     } catch (err) {
       // One dead window must not lose the whole deck. Report it and carry on.
-      console.error(`  pages ${from}-${to}: FAILED — ${err.message}`)
+      console.error(`  [items] pages ${from}-${to}: FAILED — ${err.message}`)
       continue
     }
     // Enforce the window. The model can see the whole PDF via the file reference, so it can still
@@ -163,7 +261,7 @@ try {
     const kept = batch.filter((q) => Number.isInteger(q?.page) && q.page >= from && q.page <= to)
     outOfWindow += batch.length - kept.length
     drafts.push(...kept)
-    console.log(`  pages ${String(from).padStart(2)}-${String(to).padStart(2)}: ${kept.length} kept${batch.length - kept.length ? `, ${batch.length - kept.length} out-of-window` : ''}`)
+    console.log(`  pages ${String(from).padStart(2)}-${String(to).padStart(2)}: ${windowConcepts.length} concept(s) -> ${kept.length} kept${batch.length - kept.length ? `, ${batch.length - kept.length} out-of-window` : ''}`)
   }
 } finally {
   await client.deleteFile(ref)
@@ -171,10 +269,32 @@ try {
 
 // --- the mandatory guard: nothing reaches the database unvalidated ---
 const { passed, rejected } = validateQuestions(drafts)
-console.log(`\n${drafts.length} drafts, ${outOfWindow} rejected out-of-window, ${rejected.length} rejected by the validator, ${passed.length} usable.`)
+console.log(`\n${concepts} concept(s) found across ${emptyWindows} empty window(s) skipped; ${drafts.length} drafts, ` +
+  `${outOfWindow} rejected out-of-window, ${rejected.length} rejected by the validator, ${passed.length} usable.`)
 for (const r of rejected) console.log(`  [${r.index}] ${r.rule}: ${r.quote}`)
 const dist = answerDistribution(passed)
 console.log(`Answer distribution after shuffle: A=${dist[0]} B=${dist[1]} C=${dist[2]} D=${dist[3]}`)
+
+// LENGTH GIVEAWAY, reported per run and never used to reject. Measured 6 Aug 2026: the live bank of
+// 17 (gpt-4.1-mini, old single-stage flow) has the correct option longest on 11 of 17 = 65%, and a
+// first gpt-5-nano run hit 86%, against a 25% chance baseline. A student who knows nothing scores
+// near that rate by always picking the longest option, so the item measures test-wiseness rather
+// than knowledge -- and the difficulty calibrator's simulated students exploit exactly the same cue,
+// which inflates simulated_p and is a candidate explanation for the ceiling that leaves band 1 empty.
+//
+// Reported, not enforced: the existing option-length-balance rule already rejects on spread, and
+// stacking a second length rule on top risks the over-rejecting-validator failure that once cost G2
+// five of eight good items. This makes the problem visible every run so a bad batch is caught by a
+// human before import; the real fix is the prompt rule above.
+const longestIsAnswer = passed.filter((q) => {
+  const lens = q.options.map((o) => String(o).length)
+  return lens[q.answer] === Math.max(...lens)
+}).length
+if (passed.length) {
+  const pct = Math.round((longestIsAnswer / passed.length) * 100)
+  console.log(`Length giveaway: correct option is the longest in ${longestIsAnswer}/${passed.length} (${pct}%) — chance is 25%` +
+    (pct > 45 ? '  <-- TOO HIGH, these items leak their answer' : ''))
+}
 const pages = [...new Set(passed.map((q) => q.page))].sort((a, b) => a - b)
 console.log(`Pages covered: ${pages.join(', ') || '(none)'}`)
 console.log(`Tokens: ${tokensIn} in, ${tokensOut} out`)

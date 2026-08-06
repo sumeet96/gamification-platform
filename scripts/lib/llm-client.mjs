@@ -75,15 +75,21 @@ const PROVIDERS = {
       await fetch(`https://api.openai.com/v1/files/${ref}`, { method: 'DELETE', headers: { authorization: `Bearer ${key}` } })
     },
     async generateJSON({ ref, prompt, schema, model, key, temperature }) {
+      // gpt-5* reject any temperature but their default of 1 ("Unsupported value: 'temperature'"),
+      // so the field must be omitted rather than set. Sending it is a hard 400, not a warning.
+      // Consequence worth knowing: a gpt-5 run samples at 1 while a gpt-4.1 run samples at whatever
+      // was passed, so output from the two is not drawn under the same regime and should not be
+      // pooled or compared item-for-item without saying so.
+      const body = {
+        model,
+        input: [{ role: 'user', content: [{ type: 'input_file', file_id: ref }, { type: 'input_text', text: prompt }] }],
+        text: { format: { type: 'json_schema', name: 'result', strict: true, schema } },
+      }
+      if (!/^gpt-5/.test(model)) body.temperature = temperature
       const res = await withRetry('OpenAI', () => fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-        body: JSON.stringify({
-          model,
-          temperature,
-          input: [{ role: 'user', content: [{ type: 'input_file', file_id: ref }, { type: 'input_text', text: prompt }] }],
-          text: { format: { type: 'json_schema', name: 'result', strict: true, schema } },
-        }),
+        body: JSON.stringify(body),
       }))
       const data = await res.json()
       const text = (data.output ?? []).flatMap((o) => o.content ?? [])
