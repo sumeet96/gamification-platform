@@ -8,8 +8,8 @@
 // and silently ignored 15 of 26 pages. A loop over page windows makes coverage structural, and
 // anything claiming a page outside the current window is rejected.
 //
-// RESTRUCTURED 6 Aug 2026 INTO TWO STAGES, exactly as generate-terms.mjs was on 3 Aug, and for the
-// same reason. The old flow asked one call per window to find the material AND write `--per-window`
+// RESTRUCTURED 6 Aug 2026 INTO THREE STAGES. Stages 1-2 mirror generate-terms.mjs's 3 Aug rebuild;
+// stage 3 is new and exists for a second defect found the same day (see SCHEMA below). The old flow asked one call per window to find the material AND write `--per-window`
 // questions from it, under a quota. A quota manufactures garbage: a page of charts still has to
 // yield N questions, so it yields N questions about the chart. That is visibly what happened to the
 // bank this replaces, which contains "Which team member has a background in computer science from
@@ -24,13 +24,19 @@
 // fix worked: ask what the deck TEACHES first, with no quota and empty as a valid answer, then write
 // one question per concept it named. `--per-window` is therefore deleted, not defaulted lower.
 //
+// STAGE 3 — mark the answer in a separate call, blind. Stage 2's schema has no `answer` field, so
+// the model that writes the four options has nowhere to record which is correct and nothing to
+// elaborate toward; a third call then reads them cold and picks. It doubles as the pipeline's
+// cheapest verification, because a cold reader can report that two options are defensible, which is
+// a defect no downstream screen detects — a broken item is still "supported by its source".
+//
 // Usage:
 //   node scripts/generate-questions.mjs <deck.pdf> --subject "Digital Transformation" [options]
 //
 // Options:
 //   --title "Session 12"     human title for the `sources` row (default: filename)
 //   --provider openai|gemini default openai
-//   --model <id>             default gpt-5-nano on openai; Gemini requires GEMINI_MODEL
+//   --model <id>             default gpt-5-mini on openai; Gemini requires GEMINI_MODEL
 //   --window N               pages per call (default 3)
 //   --pages A-B              only this page range, e.g. 1-6 (default: whole deck)
 //   --out <file.json>        write the validated set to disk
@@ -44,7 +50,7 @@ import { validateQuestions, answerDistribution } from './lib/questions-validate.
 
 loadEnv()
 
-const USAGE = 'Usage: node scripts/generate-questions.mjs <deck.pdf> --subject "Name" [--title T] [--provider openai|gemini] [--model M] [--window 3] [--per-window 2] [--pages A-B] [--out f.json] [--dry-run]'
+const USAGE = 'Usage: node scripts/generate-questions.mjs <deck.pdf> --subject "Name" [--title T] [--provider openai|gemini] [--model M] [--window 3] [--pages A-B] [--out f.json] [--dry-run]'
 const die = (msg) => { console.error(`${msg}\n${USAGE}`); process.exit(1) }
 const flag = (name, fallback = null) => {
   const i = process.argv.indexOf(name)
@@ -82,13 +88,15 @@ if (range) {
   if (firstPage < 1 || lastPage > numpages || firstPage > lastPage) die(`--pages must sit inside 1-${numpages}.`)
 }
 
-// gpt-5-nano is the default on openai for this script only (the adapter's own default stays
-// gpt-4.1-mini, so generate-terms.mjs is unaffected). It is a reasoning model, which is what stage 2
-// wants — writing four options where exactly one is defensible is a reasoning task, not a
-// transcription one — and at $0.05/1M in it is the cheapest tier available. It samples at
-// temperature 1 and will not accept another value; llm-client.mjs omits the field for gpt-5*.
+// gpt-5-mini is the default on openai for this script only (the adapter's own default stays
+// gpt-4.1-mini, so generate-terms.mjs is unaffected). A reasoning model is what stages 2 and 3 want
+// — writing four options where exactly one is defensible, and then judging them cold, are reasoning
+// tasks rather than transcription. gpt-5-nano was tried first and is 5x cheaper, but took over ten
+// minutes on an 11-page deck and lost two windows of six to `fetch failed`, costing half the drafts;
+// mini is the cheapest tier that finishes reliably. Both sample at temperature 1 and reject any
+// other value, so llm-client.mjs omits the field for gpt-5*.
 const client = createClient(provider, {
-  model: flag('--model') || (provider === 'openai' ? 'gpt-5-nano' : null),
+  model: flag('--model') || (provider === 'openai' ? 'gpt-5-mini' : null),
 })
 
 // --- stage 1 schema: what does this deck teach? ---
@@ -125,14 +133,22 @@ const SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['topic', 'cognitive_level', 'difficulty', 'prompt', 'options', 'answer', 'page', 'source_excerpt', 'source_layout'],
+        // NO `answer` FIELD, and that omission is the entire mechanism. Asked to write four options
+        // AND mark the correct one in the same call, the model elaborates the one it is about to
+        // mark and leaves the others terse — measured at 65% of the live bank and 81-86% of a
+        // gpt-5-nano run having the correct option longest, against a 25% baseline. An emphatic
+        // instruction not to do this moved 86% -> 81%, i.e. barely, which is the same result three
+        // lexical attempts got against chart captions. Removing the field makes the giveaway
+        // unrepresentable rather than discouraged: there is nowhere to record which option is
+        // correct, so there is nothing to elaborate toward. A separate call (ANSWER_SCHEMA) then
+        // reads the four options cold and says which one is right.
+        required: ['topic', 'cognitive_level', 'difficulty', 'prompt', 'options', 'page', 'source_excerpt', 'source_layout'],
         properties: {
           topic: { type: 'string' },
           cognitive_level: { type: 'string', enum: ['recall', 'apply', 'discriminate', 'deduce', 'transfer'] },
           difficulty: { type: 'integer' },
           prompt: { type: 'string' },
           options: { type: 'array', items: { type: 'string' } },
-          answer: { type: 'integer' },
           page: { type: 'integer' },
           source_excerpt: { type: 'string' },
           // Separate from source_excerpt on purpose. Asked for as one field, the model returns a
@@ -149,6 +165,47 @@ const SCHEMA = {
 // --- stage 1: concept glossary, no quota. Carried over near-verbatim from generate-terms.mjs,
 // which is the proven version of this prompt; the disqualifying test and the named forbidden
 // examples are what stop slide titles and data points becoming "concepts". ---
+// --- stage 3 schema: which option is correct? ---
+// `unanswerable` is not decoration. This call is the first time anything reads the four options as a
+// student would — cold, without having authored them — so it is also the cheapest verification the
+// pipeline has. An item whose options do not contain exactly one defensible answer is broken at
+// birth, and the gap screen would not catch it: a broken item is still "supported by its source".
+const ANSWER_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['answers'],
+  properties: {
+    answers: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['question_index', 'answer_index', 'unanswerable', 'reason'],
+        properties: {
+          question_index: { type: 'integer' },
+          answer_index: { type: 'integer' },
+          unanswerable: { type: 'boolean' },
+          reason: { type: 'string' },
+        },
+      },
+    },
+  },
+}
+
+const answerPromptFor = (questions) => `Below are ${questions.length} multiple-choice question(s) written from this PDF. For each one, decide which option is correct, using the PDF as the source of truth.
+
+You did not write these questions. Judge only what is on the page in front of you.
+
+${questions.map((q, i) => `[${i}] ${q.prompt}\n${q.options.map((o, j) => `   ${j}. ${o}`).join('\n')}`).join('\n\n')}
+
+For each question return:
+- "question_index": the number in square brackets above.
+- "answer_index": the 0-based index of the single correct option.
+- "unanswerable": true if the question is defective — no option is correct, or MORE THAN ONE option is defensible, or the question cannot be decided from this PDF. Set "answer_index" to 0 when you do this; it will be ignored.
+- "reason": one short line. If unanswerable, say which options compete.
+
+Do not guess to avoid marking something unanswerable. An item with two defensible options is broken, and saying so is more useful than picking one.`
+
 const glossaryPromptFor = (from, to) => `You are building a CONCEPT GLOSSARY from a university lecture slide deck, for pages ${from} to ${to} only. Ignore every other page.
 
 A concept is something with a definition that stands on its own — independent of any particular number, company, person, or year — that a student could be asked about in a context this deck never showed. A good disqualifying test: if stating the definition requires naming a specific company, person, country, or year, it is a DATA POINT, not a concept.
@@ -185,22 +242,20 @@ For each one:
 - "difficulty": your 1-5 guess. It is a discarded placeholder, so do not labour over it.
 
 Hard rules:
-- Exactly 4 options, exactly one correct, "answer" is the 0-based index of the correct one.
-- ALL FOUR OPTIONS MUST BE CLOSE TO THE SAME LENGTH — within a few words of each other. Do not
-  write a full, careful, qualified sentence for the correct answer and short blunt phrases for the
-  wrong ones. That is the single most common way a multiple-choice item leaks its answer: a student
-  who knows nothing can score well by always choosing the longest option. If the correct answer
-  needs a qualification to be true, give the distractors comparable qualifications. Count the words
-  in each option before you return them and even them out.
-- EXACTLY ONE option may be defensible. If two options are both true, the question is broken —
-  rewrite it. On a diagram, check that no other item shares the same region as the correct answer.
+- Exactly 4 options. Write them as a PARALLEL SET: four statements of the same kind, the same
+  grammatical shape and near enough the same length that nothing about their form distinguishes
+  them. A later step decides which one is correct, so do not mark it, do not order them so the
+  correct one comes first or last, and do not write one of them more fully than the rest.
+- Exactly one of the four must be defensible from the material and the other three must be clearly
+  wrong to someone who knows the concept — wrong in substance, never wrong in style. A distractor
+  that is obviously filler teaches the student to eliminate it without knowing anything.
+- On a diagram, check that no other item shares the same region as the defensible option.
 - Prefer apply, discriminate or deduce over pure "recall" wherever the concept supports it. If a
   concept genuinely only supports recall, write a recall question rather than inventing content to
   reach a level.
 - The question must stand alone. NEVER refer to "the slide", "the deck", "the diagram above" or the
   presentation itself. A student sees only your question and its options.
 - Base every question strictly on pages ${from} to ${to}. Do not use outside knowledge.
-- Vary which index is correct.
 - If these pages are a title page, a divider, or otherwise carry no teachable content, return an
   empty questions array. Do not invent content to fill the quota.`
 
@@ -211,7 +266,7 @@ const drafts = []
 let outOfWindow = 0
 let tokensIn = 0, tokensOut = 0
 
-let concepts = 0, emptyWindows = 0
+let concepts = 0, emptyWindows = 0, unanswerable = 0, unmarked = 0, malformed = 0
 
 try {
   for (let from = firstPage; from <= lastPage; from += windowSize) {
@@ -260,8 +315,41 @@ try {
     }
     const kept = batch.filter((q) => Number.isInteger(q?.page) && q.page >= from && q.page <= to)
     outOfWindow += batch.length - kept.length
-    drafts.push(...kept)
-    console.log(`  pages ${String(from).padStart(2)}-${String(to).padStart(2)}: ${windowConcepts.length} concept(s) -> ${kept.length} kept${batch.length - kept.length ? `, ${batch.length - kept.length} out-of-window` : ''}`)
+
+    // ---- stage 3: mark the answer, cold ----
+    // Nothing above this line knows which option is correct, because ITEM_SCHEMA has no field for
+    // it. This call is the first read of the options as a student sees them.
+    const wellFormed = kept.filter((q) => Array.isArray(q.options) && q.options.length === 4)
+    malformed += kept.length - wellFormed.length
+    let marked = []
+    if (wellFormed.length) {
+      try {
+        const { data, usage } = await client.generateJSON({ ref, prompt: answerPromptFor(wellFormed), schema: ANSWER_SCHEMA })
+        tokensIn += usage.in ?? 0; tokensOut += usage.out ?? 0
+        marked = data?.answers ?? []
+      } catch (err) {
+        console.error(`  [answer] pages ${from}-${to}: FAILED — ${err.message}`)
+        continue
+      }
+    }
+    const byIndex = new Map(marked.map((m) => [m.question_index, m]))
+    let windowKept = 0
+    for (let qi = 0; qi < wellFormed.length; qi++) {
+      const q = wellFormed[qi]
+      const m = byIndex.get(qi)
+      if (!m) { unmarked++; continue }
+      if (m.unanswerable) {
+        unanswerable++
+        console.log(`      [unanswerable] ${String(q.prompt).slice(0, 60)} — ${m.reason}`)
+        continue
+      }
+      if (!Number.isInteger(m.answer_index) || m.answer_index < 0 || m.answer_index > 3) { unmarked++; continue }
+      q.answer = m.answer_index
+      drafts.push(q)
+      windowKept++
+    }
+    console.log(`  pages ${String(from).padStart(2)}-${String(to).padStart(2)}: ${windowConcepts.length} concept(s) -> ${windowKept} kept` +
+      `${batch.length - kept.length ? `, ${batch.length - kept.length} out-of-window` : ''}`)
   }
 } finally {
   await client.deleteFile(ref)
@@ -269,8 +357,9 @@ try {
 
 // --- the mandatory guard: nothing reaches the database unvalidated ---
 const { passed, rejected } = validateQuestions(drafts)
-console.log(`\n${concepts} concept(s) found across ${emptyWindows} empty window(s) skipped; ${drafts.length} drafts, ` +
-  `${outOfWindow} rejected out-of-window, ${rejected.length} rejected by the validator, ${passed.length} usable.`)
+console.log(`\n${concepts} concept(s) found, ${emptyWindows} empty window(s) skipped; ${drafts.length} drafts, ` +
+  `${outOfWindow} out-of-window, ${malformed} malformed, ${unanswerable} judged UNANSWERABLE by the cold reader, ` +
+  `${unmarked} unmarked, ${rejected.length} rejected by the validator, ${passed.length} usable.`)
 for (const r of rejected) console.log(`  [${r.index}] ${r.rule}: ${r.quote}`)
 const dist = answerDistribution(passed)
 console.log(`Answer distribution after shuffle: A=${dist[0]} B=${dist[1]} C=${dist[2]} D=${dist[3]}`)
