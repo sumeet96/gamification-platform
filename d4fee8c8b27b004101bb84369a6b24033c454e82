@@ -1,0 +1,21 @@
+KNOWN-DEFECTIVE SNAPSHOT — do not demo or cherry-pick from this commit.
+
+Package A5 (Connections) is in-progress here and an adversarial review found
+seven defects in exactly this code, three of them HIGH:
+
+  1. The board partition is fully recoverable from the served response. The
+     shuffle seed is sha256(nonce), the nonce is plaintext inside the board
+     token, and the pre-shuffle rows are ordered grouped 4/4/4/4 — so a client
+     can replay the PRNG and read off every tile's group. Verified: exact
+     partition recovered on every trial.
+  2. points.maxMistakes is never enforced server-side, so busting the mistake
+     budget scores strictly better than stopping honestly.
+  3. Connections points never reach the lifetime score, and accrual is written
+     on two different event rows, so widening the stats filter double-counts.
+
+Plus: floorPenalty charged on abandoned boards; lever:'none' leaking through
+sessionStorage into the quiz's research log; board_reported_ambiguous carrying
+no board id; a dead-end on a duplicate board-complete.
+
+Nothing here was student-reachable — the registry row is enabled:false — and
+no board content was ever loaded. Fixes land in a follow-up commit.
