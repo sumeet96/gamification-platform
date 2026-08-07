@@ -626,6 +626,13 @@ export default function ConnectionsGame() {
   const boardsLabel = `Board ${Math.min(roundTotals.boardsPlayed + 1, BOARDS_PER_ROUND)} of ${BOARDS_PER_ROUND}`
   const remainingTileIds = tileOrder.filter((id) => !solvedTileIds.has(id))
 
+  // Round net INCLUDING the board in progress — see the header comment on why
+  // perfectBonus and floorPenalty are excluded until the board actually ends.
+  const liveNet =
+    roundTotals.net +
+    solvedGroups.length * CONNECTIONS_POINTS.perGroup +
+    mistakes * CONNECTIONS_POINTS.mistakePenalty
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-8">
       <div className="mx-auto max-w-2xl">
@@ -638,7 +645,15 @@ export default function ConnectionsGame() {
           <div className="flex items-center gap-4">
             <div className="text-center">
               <p className="text-slate-400 text-xs uppercase font-semibold">Round Net</p>
-              <p className={`text-2xl font-black ${roundTotals.net < 0 ? 'text-red-300' : 'text-violet-300'}`}>{roundTotals.net}</p>
+              {/* roundTotals.net only moves when recordRound() fires at board completion, so
+                  mid-board this sat frozen at 0 while the student solved groups worth +20 each —
+                  it reads as broken. Add the CURRENT board's accrual and mistake cost so the
+                  number responds to play. perfectBonus and floorPenalty are deliberately NOT
+                  included: both are only decidable once the board ends (a perfect run stops being
+                  perfect on the next wrong guess), and showing a bonus that can evaporate is
+                  worse than showing it a moment late. The server remains the only scorer — this
+                  is display arithmetic over values it already returned. */}
+              <p className={`text-2xl font-black ${liveNet < 0 ? 'text-red-300' : 'text-violet-300'}`}>{liveNet}</p>
             </div>
             {/* Mistake budget, shown as dots -- no clock in this build (§6). */}
             <div className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50">
@@ -694,7 +709,11 @@ export default function ConnectionsGame() {
                     key={id}
                     onClick={() => clickTile(id)}
                     disabled={submitting}
-                    className={`aspect-square rounded-lg border px-2 py-2 text-center font-bold text-xs sm:text-sm flex items-center justify-center transition-all duration-150 ${
+                    // aspect-[3/2], not aspect-square: square tiles make the 4x4 board ~840px
+                    // tall, which pushes Shuffle/Deselect/Submit below the fold so a student has
+                    // to scroll to submit every single guess. The real game uses wider-than-tall
+                    // tiles for the same reason — the whole point is scanning all 16 at once.
+                    className={`aspect-[3/2] rounded-lg border px-2 py-2 text-center font-bold text-xs sm:text-sm leading-tight flex items-center justify-center transition-all duration-150 ${
                       isSelected
                         ? 'bg-violet-600/30 border-violet-400/70 text-violet-100 ring-2 ring-violet-400/40 scale-95'
                         : 'bg-slate-800/50 border-slate-700/50 text-slate-200 hover:border-violet-400/40'
