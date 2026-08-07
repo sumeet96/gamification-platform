@@ -324,4 +324,12 @@ export function revalidateItem(item, ignorePages = []) {
 
 // Exported for tests and for the read-only census against live rows (checks are pure functions
 // of an item shaped like a `content_items` term_definition row plus its distractors).
-export { checkOptionSetGiveaway, checkChartTitle }
+//
+// checkClueLeak / checkSourceLeak / checkProvenance added to this list 7 Aug 2026, for
+// scripts/mint-connections-tiles.mjs (package A5): that script writes term_definition rows that
+// don't have distractors yet (Connections doesn't render them; a future match/choose-word pass can
+// add distractors later), so it reuses these three checks individually rather than the whole
+// validateTerms pipeline -- checkOptionSetGiveaway and checkDistractors specifically assume a real
+// distractor set exists and would misfire (or trivially no-op) against an empty one. Reused, not
+// reimplemented, per CLAUDE.md's standing "reuse, do not rewrite" convention.
+export { checkOptionSetGiveaway, checkChartTitle, checkClueLeak, checkSourceLeak, checkProvenance }

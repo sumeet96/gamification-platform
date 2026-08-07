@@ -23,9 +23,13 @@ test('ids are unique', () => {
   assert.equal(new Set(ids).size, ids.length, 'duplicate id found in registry')
 })
 
-test('wordle is unlevered; every other game honours both levers', () => {
+test('wordle and connections are unlevered; every other game honours both levers', () => {
+  // wordle: one board/day, the lever would fire 24h apart, not adaptivity.
+  // connections: deliberate for this build (docs/NEXT_SESSION_BUILD_BRIEF.md
+  // §6, confirmed by the user 6 Aug 2026) — no clock, no difficulty tiebreak.
+  const unlevered = new Set(['wordle', 'connections'])
   for (const g of GAME_REGISTRY) {
-    if (g.id === 'wordle') {
+    if (unlevered.has(g.id)) {
       assert.equal(g.lever, 'none')
     } else {
       assert.equal(g.lever, 'both', `${g.id} should honour both levers`)
@@ -55,6 +59,30 @@ test('every wrong/miss/floor payout is zero or negative', () => {
         assert.ok(
           g.points.perPair + g.points.floorPenalty < 0,
           `${g.id} floor must make a randomly-filled board negative-EV`
+        )
+        break
+      case 'partition':
+        assert.ok(g.points.perGroup > 0, `${g.id} must reward a correctly solved group`)
+        assert.ok(g.points.perfectBonus >= 0, `${g.id} clean-board bonus must not be a punishment`)
+        assert.ok(g.points.mistakePenalty <= 0, `${g.id} mistake penalty must be <= 0`)
+        assert.ok(g.points.floorPenalty <= 0, `${g.id} floor penalty must be <= 0`)
+        assert.ok(g.points.maxMistakes > 0, `${g.id} must allow at least one mistake`)
+        // Solving all 4 groups with zero mistakes must be the maximum achievable
+        // score — true structurally as long as perGroup > 0, mistakePenalty <= 0
+        // and perfectBonus >= 0 above hold, since every mistake only ever
+        // subtracts and every unsolved group only ever forgoes accrual.
+        // Unlike match's random-permutation exploit (a blind guess has exactly 1
+        // expected fixed point), a blind 4-tile guess here is 1 of C(16,4) = 1820
+        // combinations — guessing essentially never lands a group, so the floor
+        // is not defeating an accrual exploit. It exists to make giving up
+        // (exhausting the mistake budget while stuck at or below floorAtOrBelow
+        // groups) net negative instead of merely break-even.
+        assert.ok(
+          g.points.floorAtOrBelow * g.points.perGroup +
+            g.points.maxMistakes * g.points.mistakePenalty +
+            g.points.floorPenalty <
+            0,
+          `${g.id} exhausting the mistake budget at or below the floor must net negative`
         )
         break
       default: {

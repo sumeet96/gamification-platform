@@ -112,12 +112,13 @@ create unique index if not exists events_board_nonce_uidx
   on events (question_id)
   where event_type = 'board_complete';
 
--- db/008_add_answer_dedupe.sql: NOT YET APPLIED as of this snapshot -- blocked
--- on 11 duplicate choose-word question_answered rows from a live race test
--- (session_id 'e2e-sess-word-1785536102762', round 3) that must be cleared
--- with explicit user sign-off before this index can build. Included here so
--- schema.sql documents the intended shape; see db/008 for the full preflight
--- and the commented-out dedupe SQL a human must run first.
+-- db/008_add_answer_dedupe.sql: APPLIED 1 Aug 2026 to Neon project
+-- ancient-brook-62806105. CORRECTION, 6 Aug 2026 (db/011 preflight): this
+-- comment previously said "NOT YET APPLIED -- blocked on 11 duplicate
+-- choose-word rows". That was stale -- db/008's own header already recorded
+-- the block being cleared and the index applied the same day, and
+-- `pg_indexes` confirms `events_answer_commit_uidx` exists live. The
+-- duplicate-row preflight query below returns zero rows today.
 --
 -- Makes the quiz's and choose-word's answer-commit dedupe atomic, closing the
 -- same class of race db/007 closed for match's board-submit: a
@@ -337,3 +338,199 @@ end $$;
 create index if not exists content_items_live_idx
   on content_items (kind, subject)
   where retired_at is null;
+
+-- db/011_add_connections.sql: NOT YET APPLIED as of this snapshot -- see that
+-- file for the full preflight, cardinality-invariant verification queries,
+-- and the FK-for-events.board_id evaluation. Package A5, the Connections
+-- game: hand-authored boards of 4 groups x 4 term_definition tiles each,
+-- server-scored, lever: 'none' for this build (no clock, no difficulty --
+-- confirmed by the user 6 Aug 2026).
+--
+-- No board_token column on connection_boards -- docs/NEXT_SESSION_BUILD_
+-- BRIEF.md §5 lists one and it is wrong; a per-serve nonce persisted on the
+-- row would be a static, reused secret. The nonce is minted per serve
+-- (lib/auth/board-token.ts) and lives only in the response payload and the
+-- one events row it authorizes, same as match's board_complete/question_id.
+create table if not exists connection_groups (
+  id             text primary key,
+  subject        text not null,
+  label          text not null,               -- category name revealed on solve
+  created_at     timestamptz default now(),
+  retired_at     timestamptz,                  -- retire, never delete -- see db/011
+  retired_reason text                          -- 'ambiguous' | 'superseded' | 'member-retired'
+);
+
+create table if not exists connection_group_members (
+  group_id        text not null references connection_groups(id),
+  content_item_id text not null references content_items(id),
+  ordinal         int  not null check (ordinal between 0 and 3),
+
+  primary key (group_id, ordinal),
+  unique (group_id, content_item_id)
+);
+
+-- "Exactly 4 members per group" and (below) "exactly 4 groups per board,
+-- no tile in two groups of the same board" are AUTHORING-TIME invariants,
+-- checked by the board-authoring script and its tests, not by the database
+-- -- Postgres cannot express "exactly N" declaratively without a trigger,
+-- and this project does not use triggers. The constraints above bound each
+-- table at AT MOST 4 rows per parent. See db/011 for the ready-to-run
+-- verification queries (empty result = healthy).
+create index if not exists connection_group_members_item_idx
+  on connection_group_members (content_item_id);
+
+create table if not exists connection_boards (
+  id             text primary key,
+  subject        text not null,
+  -- Nullable and unwritten in this build -- no term_definition row has a
+  -- difficulty value yet (all 113 live DT rows null as of db/011's
+  -- preflight), and Connections ships without the difficulty lever. Kept as
+  -- a column so switching the lever on later is a data change, not a
+  -- migration.
+  difficulty     int check (difficulty is null or difficulty between 1 and 5),
+  created_at     timestamptz default now(),
+  retired_at     timestamptz,                  -- retire, never delete -- see db/011
+  retired_reason text                          -- 'ambiguous' | 'superseded' | 'member-retired'
+);
+
+create table if not exists connection_board_groups (
+  board_id  text not null references connection_boards(id),
+  group_id  text not null references connection_groups(id),
+  ordinal   int  not null check (ordinal between 0 and 3),
+
+  primary key (board_id, ordinal),
+  unique (board_id, group_id)
+);
+
+create index if not exists connection_board_groups_group_idx
+  on connection_board_groups (group_id);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'connection_groups_retired_consistency_check'
+      and conrelid = 'connection_groups'::regclass
+  ) then
+    alter table connection_groups
+      add constraint connection_groups_retired_consistency_check
+      check ((retired_at is null) = (retired_reason is null));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'connection_groups_retired_reason_check'
+      and conrelid = 'connection_groups'::regclass
+  ) then
+    alter table connection_groups
+      add constraint connection_groups_retired_reason_check
+      check (retired_reason is null or retired_reason in ('ambiguous', 'superseded', 'member-retired'));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'connection_boards_retired_consistency_check'
+      and conrelid = 'connection_boards'::regclass
+  ) then
+    alter table connection_boards
+      add constraint connection_boards_retired_consistency_check
+      check ((retired_at is null) = (retired_reason is null));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'connection_boards_retired_reason_check'
+      and conrelid = 'connection_boards'::regclass
+  ) then
+    alter table connection_boards
+      add constraint connection_boards_retired_reason_check
+      check (retired_reason is null or retired_reason in ('ambiguous', 'superseded', 'member-retired'));
+  end if;
+end $$;
+
+create index if not exists connection_groups_live_idx
+  on connection_groups (subject)
+  where retired_at is null;
+
+create index if not exists connection_boards_live_idx
+  on connection_boards (subject)
+  where retired_at is null;
+
+-- db/011_add_connections.sql: events columns for Connections, additive,
+-- nullable, never backfilled. board_id is intentionally NOT a foreign key --
+-- see db/011 for the full evaluation; the short version is that events
+-- already has one exactly analogous precedent (content_item_id, db/004,
+-- never given a references clause) and the log is deliberately decoupled
+-- from strict referential integrity on its forward-pointing columns.
+-- mistakes_made/groups_solved/deselect_count/shuffle_count are board-grained
+-- AGGREGATES written once on board_complete -- tile taps, deselects,
+-- shuffles and timer ticks are NOT logged as their own rows (§7 of
+-- docs/NEXT_SESSION_BUILD_BRIEF.md); do not "improve" this into per-tap rows.
+-- shuffle_seed/one_away/group_ordinal were added in an in-place amendment to
+-- db/011 (same day, before that file was ever applied) after the first draft
+-- packed all three into submitted_text as an ad-hoc blob instead of first-
+-- class columns -- see db/011's header for the full story. shuffle_seed is
+-- bigint, not int: it is a full UNSIGNED 32-bit sha256-derived value
+-- (range 0..4294967295), which overflows Postgres's SIGNED 32-bit `integer`
+-- on roughly half of all possible digests.
+alter table events
+  add column if not exists board_id text,
+  add column if not exists shuffle_seed bigint,       -- board_served only
+  add column if not exists guess_hash text,
+  add column if not exists one_away boolean,            -- guess_submitted only
+  add column if not exists mistakes_made int,
+  add column if not exists groups_solved int,
+  add column if not exists deselect_count int,
+  add column if not exists shuffle_count int,
+  add column if not exists is_forced boolean,
+  add column if not exists group_ordinal int,           -- group_solved only
+  add column if not exists terminal_reason text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'events_terminal_reason_check'
+      and conrelid = 'events'::regclass
+  ) then
+    alter table events
+      add constraint events_terminal_reason_check
+      -- 'timeout' deliberately excluded -- no clock in this build. See
+      -- db/011 for why baking a mechanic-shape assumption into the schema
+      -- now would be premature.
+      check (terminal_reason is null or terminal_reason in ('solved', 'budget', 'abandoned'));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'events_group_ordinal_check'
+      and conrelid = 'events'::regclass
+  ) then
+    alter table events
+      add constraint events_group_ordinal_check
+      check (group_ordinal is null or group_ordinal between 0 and 3);
+  end if;
+end $$;
+
+create index if not exists events_board_id_idx
+  on events (board_id)
+  where board_id is not null;
+
+-- Guess idempotency + concurrency lock, same shape as db/007's
+-- events_board_nonce_uidx and db/008's events_answer_commit_uidx: the
+-- INSERT is the lock. guess_hash is sha256 of the four guessed tile ids,
+-- sorted ascending. The key is (question_id, guess_hash) -- question_id
+-- holds the board token's per-serve nonce on guess_submitted rows, the same
+-- column-repurposing match uses on board_complete -- NOT (session_id,
+-- board_id, guess_hash): least-recently-served board selection reorders but
+-- never excludes, so a session legitimately replays the same board_id, and
+-- a keyed-on-board_id index would wrongly reject a genuine repeat correct
+-- guess on a fresh serve. round/boards_completed were rejected as the fix
+-- because both are client-supplied and forgeable. See db/011 for the full
+-- writeup. board_complete dedupe needs no new index -- it reuses
+-- events_board_nonce_uidx (db/007), which cannot collide with this index
+-- since the two are partial on mutually exclusive event_type values.
+create unique index if not exists events_guess_submitted_uidx
+  on events (question_id, guess_hash)
+  nulls not distinct
+  where event_type = 'guess_submitted';

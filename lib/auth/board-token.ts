@@ -1,9 +1,13 @@
-// Server-issued signed board token for match-the-following (package A1, FIX 1).
-// Binds a POST to /api/match/submit to the exact board /api/match/board actually
-// issued -- without this, a client can read the six terms out of one board
-// response and replay them against a fabricated boards_completed value for
-// unlimited points, or poll GET repeatedly to isolate each clue's term by
-// intersecting shuffled term bags.
+// Server-issued signed board token, originally for match-the-following
+// (package A1, FIX 1). Binds a POST to /api/match/submit to the exact board
+// GET /api/match/board actually issued -- without this, a client can read the
+// six terms out of one board response and replay them against a fabricated
+// boards_completed value for unlimited points, or poll GET repeatedly to
+// isolate each clue's term by intersecting shuffled term bags.
+//
+// Package A5 (Connections) reuses this module as-is rather than minting a
+// second token type: `boardId` (below) is the only addition, and it is
+// optional so every existing match token/test is unaffected.
 //
 // Same HMAC pattern as lib/auth/session.ts: base64url JSON payload + '.' +
 // HMAC-SHA256 signature, verified with timingSafeEqual, never trusted
@@ -43,6 +47,14 @@ export interface BoardTokenPayload {
   // calibration doesn't exist yet. Decided server-side at issue time so submit
   // cannot be tricked into logging a difficulty_level that was never honoured.
   difficultyHonored: boolean
+  // Package A5 (Connections) only -- undefined for every match token. Match's
+  // board is COMPOSED at request time from `itemIds` alone and has no id of
+  // its own (see lib/games/match-board-select.ts's selectBoard). Connections'
+  // board is a pre-authored atomic unit (connection_boards.id); carrying it
+  // here lets the submit route look the board straight up instead of having
+  // to re-derive "which board has exactly these 16 tile ids" via a
+  // set-equality query.
+  boardId?: string
 }
 
 function sign(payloadB64: string): string {
@@ -55,7 +67,8 @@ function sign(payloadB64: string): string {
 export function issueBoardToken(
   itemIds: readonly string[],
   studentId: string,
-  difficultyHonored: boolean
+  difficultyHonored: boolean,
+  boardId?: string
 ): string {
   const payload: BoardTokenPayload = {
     itemIds: [...itemIds].sort(),
@@ -63,6 +76,11 @@ export function issueBoardToken(
     studentId,
     iat: Math.floor(Date.now() / 1000),
     difficultyHonored,
+    // Omitted (not just `undefined`) from the serialised payload when the
+    // caller doesn't pass one -- JSON.stringify drops `undefined` values, so
+    // a match token's payload shape is byte-identical to before this field
+    // existed.
+    boardId,
   }
   const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url')
   return `${payloadB64}.${sign(payloadB64)}`
@@ -96,7 +114,8 @@ export function readBoardToken(token: string | undefined | null): BoardTokenPayl
     typeof payload?.nonce !== 'string' ||
     typeof payload?.studentId !== 'string' ||
     typeof payload?.iat !== 'number' ||
-    typeof payload?.difficultyHonored !== 'boolean'
+    typeof payload?.difficultyHonored !== 'boolean' ||
+    (payload?.boardId !== undefined && typeof payload.boardId !== 'string')
   ) {
     return null
   }

@@ -17,10 +17,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { CLIENT_EMITTABLE_EVENT_TYPES } from '../lib/log/logEvent.ts'
 
-test('the client-emittable allowlist is exactly the five interaction event types', () => {
+test('the client-emittable allowlist is exactly the six interaction event types', () => {
+  // Package A5 added 'board_reported_ambiguous' -- Connections' one-tap
+  // "this board seems ambiguous" affordance (docs/NEXT_SESSION_BUILD_BRIEF.md
+  // §5/§7). Like the five round-lifecycle types below it, it carries no score.
   assert.deepEqual(
     [...CLIENT_EMITTABLE_EVENT_TYPES].sort(),
-    ['round_continue', 'round_offer', 'round_start', 'round_stop', 'session_start']
+    ['board_reported_ambiguous', 'round_continue', 'round_offer', 'round_start', 'round_stop', 'session_start']
   )
 })
 

@@ -31,6 +31,12 @@ export const CLIENT_EMITTABLE_EVENT_TYPES = [
   // deliberate decline, not an abandonment -- that case stays a direct emit() at its
   // own call site (see app/results/page.tsx, app/games/match/page.tsx's stopRound())
   // and must never go through abandonRound.
+  // Package A5 (Connections): a one-tap "this board seems ambiguous" affordance
+  // (docs/NEXT_SESSION_BUILD_BRIEF.md §5/§7) -- the only client-emitted type that
+  // isn't part of the round lifecycle above. It carries no score, same reasoning
+  // as the round_* types: safe for the client to emit directly rather than
+  // requiring a server-scored route.
+  'board_reported_ambiguous',
 ] as const
 
 export type EventType = (typeof CLIENT_EMITTABLE_EVENT_TYPES)[number]

@@ -50,6 +50,11 @@ const HREF_BY_ID: Record<string, string> = {
   'quiz-rapid': '/game-setup?mode=rapid',
   match: '/games/match',
   'choose-word': '/games/word',
+  // Package A5: routes/page shipped, registry `enabled` still false pending a
+  // live Neon play (docs/NEXT_SESSION_BUILD_BRIEF.md's acceptance checklist)
+  // -- wired here now so flipping that one flag is enough to make the tile
+  // playable, rather than also needing this file touched at the same time.
+  connections: '/games/connections',
 }
 
 // The tile blurb is the student's only advance notice of what a game pays, so it has to
@@ -65,6 +70,8 @@ function pointsBlurb(entry: GameEntry): string {
       return `Up to +${p.byGuessCount[0]} pts, scored by guess count`
     case 'board':
       return `+${p.perPair} per pair, +${p.perfectBonus} for a clean board`
+    case 'partition':
+      return `+${p.perGroup} per group, +${p.perfectBonus} for zero mistakes`
     default: {
       const exhaustive: never = p
       throw new Error(`pointsBlurb: unhandled points kind ${JSON.stringify(exhaustive)}`)

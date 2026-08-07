@@ -70,7 +70,17 @@ export async function GET() {
         count(*) filter (where event_type = 'question_answered')::int as answered,
         count(*) filter (where event_type = 'question_answered' and is_correct)::int as correct,
         count(*) filter (where event_type = 'question_answered' and is_correct = false)::int as wrong,
-        count(distinct (session_id, round)) filter (where event_type = 'question_answered')::int as rounds_played,
+        -- Package A5 fix (7 Aug 2026): Connections never writes question_answered
+        -- (it writes guess_submitted/group_solved/board_complete instead, see
+        -- app/api/connections/submit/route.ts), so counting rounds off
+        -- question_answered alone silently read zero for a Connections-only
+        -- student. board_complete is a safe addition here, not a double-count:
+        -- match already writes both a board_complete AND a question_answered
+        -- per pair for the same (session_id, round) on every completed board
+        -- (app/api/match/submit/route.ts writes all BOARD_SIZE pair rows
+        -- unconditionally), so match's existing rounds_played figure is
+        -- unchanged -- the round was already counted via question_answered.
+        count(distinct (session_id, round)) filter (where event_type in ('question_answered', 'board_complete'))::int as rounds_played,
         count(*) filter (where event_type = 'round_continue')::int as continues,
         count(distinct session_id)::int as sessions,
         (select max(created_at) from base where event_type = 'question_answered')::text as last_played_at,

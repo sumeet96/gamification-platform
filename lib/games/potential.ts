@@ -48,6 +48,13 @@ export function potentialForGame(gameId: string, answered: number, boards: numbe
       // every attempt solved in the best-paying guess count -- if Wordle ships (WP A4),
       // revisit whether that's still the right "potential" definition before trusting it.
       return answered * Math.max(...entry.points.byGuessCount)
+    case 'partition':
+      // Connections logs per-guess facility as guess_submitted, not
+      // question_answered (docs/NEXT_SESSION_BUILD_BRIEF.md §7) -- so
+      // `answered` is always 0 for this game_id and `boards` (board_complete
+      // count) is the only real signal. Best case per board actually played:
+      // all 4 groups solved with zero mistakes.
+      return boards * (4 * entry.points.perGroup + entry.points.perfectBonus)
     default: {
       const exhaustive: never = entry.points
       throw new Error(`unhandled points kind: ${JSON.stringify(exhaustive)}`)

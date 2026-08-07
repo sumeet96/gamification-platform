@@ -106,6 +106,45 @@ test('a token issued one second inside the TTL still verifies (boundary check)',
   assert.ok(readBoardToken(stillValid))
 })
 
+// Package A5 (Connections): boardId is an optional 4th arg, added for a game
+// whose board is a pre-authored atomic unit rather than composed at request
+// time (see lib/auth/board-token.ts's header). Backward compatibility is the
+// property under test here -- every call above this point uses the original
+// 3-arg form and must keep working unchanged.
+test('boardId is optional: an omitted boardId round-trips as undefined, not a decode failure', () => {
+  const token = issueBoardToken(['a', 'b'], 's_student1', false)
+  const payload = readBoardToken(token)
+  assert.ok(payload)
+  assert.equal(payload!.boardId, undefined)
+})
+
+test('boardId round-trips when supplied', () => {
+  const token = issueBoardToken(['a', 'b', 'c', 'd'], 's_student1', false, 'board-42')
+  const payload = readBoardToken(token)
+  assert.ok(payload)
+  assert.equal(payload!.boardId, 'board-42')
+})
+
+test('a tampered boardId fails signature verification, same as any other field', () => {
+  const token = issueBoardToken(['a', 'b'], 's_student1', false, 'board-1')
+  const [payloadB64, sig] = token.split('.')
+  const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'))
+  payload.boardId = 'board-2'
+  const tamperedB64 = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  assert.equal(readBoardToken(`${tamperedB64}.${sig}`), null)
+})
+
+test('a non-string boardId injected into an otherwise-valid payload is rejected', () => {
+  // Can't go through issueBoardToken (it's typed to a string) -- construct the
+  // payload directly, the same way the malformed-payload tests elsewhere in
+  // this file do, to prove readBoardToken's own runtime guard (not just
+  // TypeScript) rejects it.
+  const bad = { itemIds: ['a', 'b'], nonce: 'n', studentId: 's1', iat: Math.floor(Date.now() / 1000), difficultyHonored: false, boardId: 123 }
+  const payloadB64 = Buffer.from(JSON.stringify(bad)).toString('base64url')
+  const sig = createHmac('sha256', secret()).update(payloadB64).digest('base64url')
+  assert.equal(readBoardToken(`${payloadB64}.${sig}`), null)
+})
+
 test('a token issued to one student does not silently verify for another (payload carries studentId)', () => {
   const token = issueBoardToken(['a', 'b'], 's_student1', false)
   const payload = readBoardToken(token)

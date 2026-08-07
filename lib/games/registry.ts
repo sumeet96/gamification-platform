@@ -65,7 +65,38 @@ export interface BoardPoints {
   floorPenalty: number // zero or negative — positive would reward failing a board
 }
 
-export type Points = FlatPoints | GuessCountPoints | BoardPoints
+/**
+ * Board-grained scoring for a partition game (Connections): 4 groups of 4, a
+ * mistake budget instead of a per-item wrong answer. `BoardPoints` above
+ * doesn't fit — there is no "correct-pair count" here, and a mistake budget
+ * that runs out mid-board has no home in it.
+ *
+ * Same double-billing trap as `BoardPoints`, restated for this shape:
+ * `mistakePenalty` is charged per WRONG GUESS, never per tile. A four-tile
+ * guess is one decision — a student who guesses [A, B, C, D] and is wrong
+ * made one mistake, not four, even though four tiles were "involved".
+ *
+ * `floorPenalty` here is doing a different job than `BoardPoints.floorPenalty`
+ * does for match. On a match board a random permutation has exactly 1
+ * expected fixed point, so the floor exists to defeat an accrual exploit —
+ * without it, guessing pays. On a Connections board there are C(16,4) = 1820
+ * possible four-tile guesses; blind guessing essentially never lands a group,
+ * so there is no accrual exploit to defeat. The floor here is about
+ * discouraging give-up behaviour (stop trying once the mistake budget is
+ * clearly lost) rather than about making random play negative-EV — random
+ * play is already worthless without any floor at all.
+ */
+export interface PartitionBoardPoints {
+  kind: 'partition'
+  perGroup: number // per correctly submitted group
+  perfectBonus: number // zero mistakes
+  mistakePenalty: number // per WRONG GUESS, never per tile — zero or negative
+  maxMistakes: number // 4
+  floorAtOrBelow: number // groups-solved count at or below which floorPenalty applies
+  floorPenalty: number // zero or negative — positive would reward giving up
+}
+
+export type Points = FlatPoints | GuessCountPoints | BoardPoints | PartitionBoardPoints
 
 export interface GameEntry {
   id: string
@@ -142,6 +173,36 @@ export const GAME_REGISTRY: readonly GameEntry[] = [
     adaptGranularity: 'board',
     points: WORDLE_POINTS,
     enabled: false, // not yet built (WP A4)
+  },
+  {
+    id: 'connections',
+    displayName: 'Connections',
+    primitive: 'term_definition',
+    // Deliberate, not an oversight — confirmed by the user 6 Aug 2026
+    // (docs/NEXT_SESSION_BUILD_BRIEF.md §6). No clock (BOARD_TIME_BASE was
+    // sized for a 6-pair match board, not a 16-tile taxonomy search — getting
+    // that number right needs a timing study this build doesn't have time
+    // for) and no difficulty tiebreak (no term_definition row has a
+    // difficulty value yet, so there is nothing to sort on). Both stay
+    // parked behind this flag, not deleted, per CLAUDE.md's standing
+    // machinery-retention rule.
+    lever: 'none',
+    adaptGranularity: 'board',
+    // Paid once per board: 20 x groups solved, +20 if zero mistakes, -10 per
+    // wrong guess (never per tile), -30 if the mistake budget is exhausted
+    // with 1 or fewer groups solved. See PartitionBoardPoints above for why
+    // there is no per-tile penalty and why the floor here is about
+    // discouraging give-up rather than defeating an accrual exploit.
+    points: {
+      kind: 'partition',
+      perGroup: 20,
+      perfectBonus: 20,
+      mistakePenalty: -10,
+      maxMistakes: 4,
+      floorAtOrBelow: 1,
+      floorPenalty: -30,
+    },
+    enabled: false, // WP A5: pure logic only this pass — no routes/page yet, flip once they ship
   },
 ]
 

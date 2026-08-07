@@ -160,3 +160,47 @@ test('resolveLever board profile: difficulty is unaffected by profile (only timi
   state = advanceLeverState(config, state, true)
   assert.equal(resolveLever(config, state).difficulty, resolveLever(config, state, 'board').difficulty)
 })
+
+// Added 7 Aug 2026 for Connections (package A5's round-collision fix): 'none'
+// is a third lever, for games with no lever-choice screen at all. It must be
+// exactly as inert as the guarantee the other two levers give each other --
+// neither difficulty nor timeLimit may vary, under either timing profile, no
+// matter what answers come in.
+test('none lever: neither difficulty nor timeLimit ever varies (item profile)', () => {
+  const config: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: 3 }
+  let state = initialLeverState(config)
+  const first = resolveLever(config, state)
+  for (const correct of ANSWERS) {
+    const { difficulty, timeLimit } = resolveLever(config, state)
+    assert.equal(difficulty, first.difficulty)
+    assert.equal(timeLimit, first.timeLimit)
+    state = advanceLeverState(config, state, correct)
+  }
+})
+
+test('none lever: neither difficulty nor timeLimit ever varies (board profile)', () => {
+  const config: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: 3 }
+  let state = initialLeverState(config)
+  const first = resolveLever(config, state, 'board')
+  for (const correct of ANSWERS) {
+    const { difficulty, timeLimit } = resolveLever(config, state, 'board')
+    assert.equal(difficulty, first.difficulty)
+    assert.equal(timeLimit, first.timeLimit)
+    state = advanceLeverState(config, state, correct)
+  }
+})
+
+test('none lever: advanceLeverState never changes state, correct or wrong', () => {
+  const config: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: 3 }
+  const start = initialLeverState(config)
+  let state = start
+  for (const correct of ANSWERS) state = advanceLeverState(config, state, correct)
+  assert.deepEqual(state, start, 'state must be bit-for-bit identical to its starting value after any sequence of answers')
+})
+
+test('none lever: fixedDifficulty pins both initialLeverState and resolveLever', () => {
+  const config: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: 4 }
+  const state = initialLeverState(config)
+  assert.equal(state.difficulty, 4)
+  assert.equal(resolveLever(config, state).difficulty, 4)
+})

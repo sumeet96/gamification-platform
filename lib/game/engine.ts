@@ -4,10 +4,16 @@
 // - Student chooses ONE challenge lever: adaptive difficulty OR time pressure.
 //   * adaptive: difficulty ramps (correct -> harder, wrong -> easier); time is not the pressure.
 //   * time:     difficulty fixed; time-per-question ramps down as the streak grows.
+//   * none:     added 7 Aug 2026 for games with no lever at all (Connections,
+//               registry LeverSupport 'none') -- neither difficulty nor time
+//               ever varies. Exists so a lever-less game can still use the
+//               shared GameConfig/RoundSummary/session machinery below
+//               instead of keeping its own parallel round-tracking state; see
+//               resolveLever/advanceLeverState for how it stays inert.
 // Kept pure + framework-free so it's testable and reusable.
 
-export type Mode = 'rapid' | 'normal'
-export type Lever = 'adaptive' | 'time'
+export type Mode = 'rapid' | 'normal' | 'none'
+export type Lever = 'adaptive' | 'time' | 'none'
 
 export interface GameConfig {
   mode: Mode
@@ -121,6 +127,11 @@ export function initialLeverState(config: GameConfig): LeverState {
       return { difficulty: START_DIFFICULTY, streak: 0 }
     case 'time':
       return { difficulty: config.fixedDifficulty, streak: 0 }
+    case 'none':
+      // Pinned to fixedDifficulty like 'time', but nothing ever reads this as
+      // a ranking input for a lever-less game -- it exists only so LeverState
+      // has a value to hold.
+      return { difficulty: config.fixedDifficulty, streak: 0 }
     default: {
       const exhaustive: never = config.lever
       throw new Error(`initialLeverState: unhandled lever ${exhaustive}`)
@@ -147,6 +158,13 @@ export function resolveLever(
       return { difficulty: state.difficulty, timeLimit: profile === 'board' ? BOARD_TIME_BASE : TIME_BASE }
     case 'time':
       return { difficulty: config.fixedDifficulty, timeLimit: timeForStreak(state.streak, profile) }
+    case 'none':
+      // Inert by construction: difficulty pins to fixedDifficulty (never
+      // ranked or ramped) and timeLimit pins to the same base every other
+      // lever starts from -- neither field moves regardless of `state` or
+      // `profile`. tests/lever.test.ts asserts both stay constant across a
+      // full mixed sequence of answers.
+      return { difficulty: config.fixedDifficulty, timeLimit: profile === 'board' ? BOARD_TIME_BASE : TIME_BASE }
     default: {
       const exhaustive: never = config.lever
       throw new Error(`resolveLever: unhandled lever ${exhaustive}`)
@@ -170,6 +188,11 @@ export function advanceLeverState(config: GameConfig, state: LeverState, correct
     }
     case 'time':
       return { difficulty: state.difficulty, streak: correct ? state.streak + 1 : 0 }
+    case 'none':
+      // Nothing to advance -- returns `state` unchanged (not a copy with the
+      // same values, literally the same object) so a lever-less game's state
+      // is provably untouched by any answer, correct or wrong.
+      return state
     default: {
       const exhaustive: never = config.lever
       throw new Error(`advanceLeverState: unhandled lever ${exhaustive}`)

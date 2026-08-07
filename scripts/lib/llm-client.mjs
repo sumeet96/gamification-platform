@@ -80,9 +80,18 @@ const PROVIDERS = {
       // Consequence worth knowing: a gpt-5 run samples at 1 while a gpt-4.1 run samples at whatever
       // was passed, so output from the two is not drawn under the same regime and should not be
       // pooled or compared item-for-item without saying so.
+      //
+      // `ref` is OPTIONAL as of 7 Aug 2026 (scripts/mint-connections-tiles.mjs, package A5): every
+      // caller before this one grounded generation in an uploaded PDF, but Connections' clue-writing
+      // pass grounds in a plain-text excerpt already extracted into spike-data/ instead -- there is
+      // no PDF to upload for a one-paragraph excerpt. Every existing caller still passes a real
+      // `ref` and gets the exact same request shape as before; only a caller that passes `ref: null`
+      // (or omits it) gets the file-free path.
+      const content = [{ type: 'input_text', text: prompt }]
+      if (ref) content.unshift({ type: 'input_file', file_id: ref })
       const body = {
         model,
-        input: [{ role: 'user', content: [{ type: 'input_file', file_id: ref }, { type: 'input_text', text: prompt }] }],
+        input: [{ role: 'user', content }],
         text: { format: { type: 'json_schema', name: 'result', strict: true, schema } },
       }
       if (!/^gpt-5/.test(model)) body.temperature = temperature
