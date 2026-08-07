@@ -91,6 +91,27 @@ the caveat: the brief listed crossword's open problems against Connections' sett
 the framing favoured the outcome. **Unreconciled** — the supervisor steered toward crossword on
 4 Aug and has not been told.
 
+**Crossword reopened as a sixth tile, 7 Aug 2026 — Connections is NOT being unwound.** The RFC's
+sharpest open objection (crossing density, §7.1: "is a crossword meaningfully different from
+fill-in-the-blanks arranged decoratively?") is spike-verified false: `scripts/spike-crossword-
+density.mjs` against the live bank clears the RFC's own <25% freeform-generator floor at every
+scale tested — 46.5% on the full bank, 43.5%/44.6% at realistic single-deck board scale. Full
+record: `docs/architecture/games-and-content-findings.md`. Scope, per the user: crossword ships
+**alongside** Connections as a new `GAME_REGISTRY` entry; A5 stays shipped as-is, no rollback.
+This resolves ONE objection, not the whole RFC — mobile viewport, difficulty without an MCQ
+rendering, and lever/time-pressure compatibility (§5.2–§5.4, §6 finding 5) are still open and
+gate the actual build. **Still unreconciled**: the supervisor has still not been told about the
+4 Aug divergence; a density spike makes reopening crossword more defensible, it does not
+substitute for that conversation.
+
+**Crossword's lever, 7 Aug 2026: `lever: 'both'`, declared but unconsumed until designed** — not
+`'none'` like Connections, chosen by the user specifically to keep crossword eligible as a future
+study arm once the between-arm contrast (the standing top blocker) is resolved. Consequence that
+must hold: **the crossword `GAME_REGISTRY` entry must ship `enabled: false` until it genuinely
+consumes `resolveLever()`** — declaring `'both'` without acting on it would log events claiming a
+lever was active when nothing enforced it, the same class of defect as a client-supplied score.
+Full reasoning: `docs/architecture/games-and-content-findings.md`.
+
 **Wordle, Strands and the NYT Mini are dead, not deferred.** The corpus has a measured 9-cell floor
 in canonical form (136 domain strings, none ≤8 cells) and short terms cannot be prompted into
 existence. Independently corroborated by the supervisor on 4 Aug from domain knowledge.

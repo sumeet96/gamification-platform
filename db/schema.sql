@@ -534,3 +534,88 @@ create unique index if not exists events_guess_submitted_uidx
   on events (question_id, guess_hash)
   nulls not distinct
   where event_type = 'guess_submitted';
+
+-- db/013_add_crossword.sql: NOT YET APPLIED as of this snapshot -- see that
+-- file for the full preflight, the authoring-time-invariant verification
+-- queries, and the FK evaluations. Board/grid persistence ONLY for package
+-- A6, the crossword game (GAME_REGISTRY's sixth tile, enabled: false --
+-- lib/games/registry.ts). No events columns: crossword's scoring economics
+-- and lever mechanic are undesigned (see GridPoints' docstring in that
+-- file), so there is no shape yet to log against.
+--
+-- Flatter than Connections -- no group layer. Each grid entry maps 1:1 to
+-- one content_items row (the term whose fragment was placed), per
+-- game4-rfc-prompt.md section 4.2's fragment-entry method, so this is a
+-- single board -> entry table rather than Connections' board -> group ->
+-- member split.
+create table if not exists crossword_boards (
+  id             text primary key,
+  subject        text not null,
+  -- The deck a board was built from -- same grain content_items.source_id
+  -- uses, and a real FK to sources(id) for the same reason that column is
+  -- one. Not 'subject': scripts/spike-crossword-density.mjs's live
+  -- measurement found source_id (9-33 terms/deck), not subject (125 terms),
+  -- is the real board unit, same "a board never spans two subjects" logic
+  -- as Connections. See db/013 for the fuller reasoning.
+  source_id      text not null references sources(id),
+  -- Grid bounding box -- informs the mobile pan-and-zoom viewport, computed
+  -- once at authoring time rather than re-derived from every entry on render.
+  width          int not null check (width > 0),
+  height         int not null check (height > 0),
+  created_at     timestamptz default now(),
+  retired_at     timestamptz,                  -- retire, never delete -- see db/013
+  retired_reason text                          -- 'fragment-collision' | 'member-retired' | 'superseded'
+);
+
+create table if not exists crossword_entries (
+  board_id        text not null references crossword_boards(id),
+  content_item_id text not null references content_items(id),   -- real FK, unlike events' forward-pointing columns -- see db/013
+  -- The actual grid string, e.g. "EMPATHY" -- NOT always equal to
+  -- content_items.term (a fragment or constituent-expansion part of it).
+  fragment        text not null,
+  x               int not null,
+  y               int not null,
+  direction       text not null check (direction in ('H', 'V')),
+  -- Not bounded to 0..3 like Connections' ordinals -- a board can carry as
+  -- many entries as the placer fits (live spikes measured up to ~30 on a
+  -- single-deck board).
+  ordinal         int not null,
+
+  primary key (board_id, ordinal),
+  unique (board_id, content_item_id)   -- a term cannot supply two entries on the same board
+);
+
+-- "No two entries may occupy the same (x,y) with conflicting letters" and
+-- "every entry's fragment must actually derive from its linked term" are
+-- AUTHORING-TIME invariants, enforced by the placement algorithm and its
+-- tests, not by the database -- see db/013 for the ready-to-run read-only
+-- verification queries (empty result = healthy).
+create index if not exists crossword_entries_item_idx
+  on crossword_entries (content_item_id);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'crossword_boards_retired_consistency_check'
+      and conrelid = 'crossword_boards'::regclass
+  ) then
+    alter table crossword_boards
+      add constraint crossword_boards_retired_consistency_check
+      check ((retired_at is null) = (retired_reason is null));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'crossword_boards_retired_reason_check'
+      and conrelid = 'crossword_boards'::regclass
+  ) then
+    alter table crossword_boards
+      add constraint crossword_boards_retired_reason_check
+      check (retired_reason is null or retired_reason in ('fragment-collision', 'member-retired', 'superseded'));
+  end if;
+end $$;
+
+create index if not exists crossword_boards_live_idx
+  on crossword_boards (subject)
+  where retired_at is null;

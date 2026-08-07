@@ -85,6 +85,16 @@ test('every wrong/miss/floor payout is zero or negative', () => {
           `${g.id} exhausting the mistake budget at or below the floor must net negative`
         )
         break
+      case 'grid':
+        // Sign invariants only — NOT a negative-EV check like 'board'/'partition' above.
+        // GridPoints' own docstring is explicit that the reachable-score set for a real
+        // grid's intersection graph has never been derived, unlike match's proven
+        // "never 5" or Connections' proven mistake-budget floor. Asserting a negative-EV
+        // claim here would assert something this project has not actually verified.
+        assert.ok(g.points.perEntry > 0, `${g.id} must reward a correct entry`)
+        assert.ok(g.points.perfectBonus >= 0, `${g.id} clean-grid bonus must not be a punishment`)
+        assert.ok(g.points.floorPenalty <= 0, `${g.id} floor penalty must be <= 0`)
+        break
       default: {
         const exhaustive: never = g.points
         throw new Error(`unhandled points kind: ${JSON.stringify(exhaustive)}`)
@@ -94,7 +104,7 @@ test('every wrong/miss/floor payout is zero or negative', () => {
 })
 
 test('getGame throws loudly on an unknown id rather than returning undefined', () => {
-  assert.throws(() => getGame('crossword'), /Unknown game id/)
+  assert.throws(() => getGame('nonexistent-game'), /Unknown game id/)
 })
 
 test('getGame returns the matching entry for a known id', () => {

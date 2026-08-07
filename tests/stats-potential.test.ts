@@ -45,5 +45,5 @@ test("unknown (legacy pre-game_type) bucket keeps the old flat POINTS_CORRECT be
 })
 
 test('a game_type not in the registry contributes 0 rather than throwing', () => {
-  assert.equal(potentialForGame('crossword', 5, 0), 0)
+  assert.equal(potentialForGame('nonexistent-game', 5, 0), 0)
 })

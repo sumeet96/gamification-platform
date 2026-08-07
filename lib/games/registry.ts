@@ -96,7 +96,37 @@ export interface PartitionBoardPoints {
   floorPenalty: number // zero or negative — positive would reward giving up
 }
 
-export type Points = FlatPoints | GuessCountPoints | BoardPoints | PartitionBoardPoints
+/**
+ * Board-grained scoring for crossword: per-entry (word) accrual paid once at
+ * grid completion, plus a clean-grid bonus and a floor penalty. Shares the
+ * accrual+bonus+floor SHAPE with BoardPoints/PartitionBoardPoints, but reuse
+ * of either was rejected: BoardPoints' floor is derived from match's specific
+ * permutation-fixed-point argument (a random bijection has exactly 1 expected
+ * fixed point), which does not describe a crossword grid at all, and
+ * `perPair` is the wrong noun for "correct word entries". PartitionBoardPoints
+ * is shaped around a mistake BUDGET, which crossword has no equivalent of yet.
+ *
+ * PLACEHOLDER SHAPE, not just placeholder numbers — scoring economics for
+ * crossword were never answered. game4-rfc-prompt.md section 5 asked
+ * explicitly ("cover partial completion, hints, revision, and whether
+ * guessing must be negative-EV") and the RFC picked Connections before any
+ * model answered it. In particular: crossword crossings create the same kind
+ * of coupling match's and Connections' floors exist to handle — a wrong
+ * letter at a shared intersection can invalidate more than one entry — but
+ * nobody has derived the reachable-score set for a real grid's intersection
+ * graph the way match's "6,4,3,2,1,0, never 5" was derived. Treat
+ * `floorAtOrBelow`/`floorPenalty` here as unverified until that design pass
+ * happens, not as confirmed negative-EV the way match's and Connections' are.
+ */
+export interface GridPoints {
+  kind: 'grid'
+  perEntry: number
+  perfectBonus: number
+  floorAtOrBelow: number
+  floorPenalty: number
+}
+
+export type Points = FlatPoints | GuessCountPoints | BoardPoints | PartitionBoardPoints | GridPoints
 
 export interface GameEntry {
   id: string
@@ -209,6 +239,43 @@ export const GAME_REGISTRY: readonly GameEntry[] = [
     // a second round re-serves the same 16 tiles. Board 2 is blocked on an
     // unregistered source deck (design thinking / six thinking hats).
     enabled: true,
+  },
+  {
+    id: 'crossword',
+    displayName: 'Crossword',
+    primitive: 'term_definition',
+    // Declared 'both', deliberately NOT consumed yet — decided by the user
+    // 7 Aug 2026 specifically to keep crossword eligible as a future study
+    // arm once the between-arm contrast (AGENTS.md's standing top blocker) is
+    // resolved, unlike Connections' lever:'none' (which forecloses that
+    // permanently). See docs/architecture/games-and-content-findings.md and
+    // DECISIONS.md, "Crossword's lever, 7 Aug 2026".
+    //
+    // HARD CONSTRAINT tied to `enabled` below: do not flip this game live
+    // while `lever: 'both'` is declared but unread. resolveLever() (lib/
+    // game/engine.ts) is the one chokepoint every game is supposed to consume
+    // — an enabled game that never reads its resolved (difficulty, timeLimit)
+    // would log events claiming a lever was active when nothing enforced it,
+    // the same class of defect as a client-supplied score.
+    lever: 'both',
+    adaptGranularity: 'board',
+    // PLACEHOLDER shape and numbers — see GridPoints' docstring above.
+    // Scoring economics for crossword are undesigned (game4-rfc-prompt.md
+    // section 5), not just unsigned-off-on like every other row's numbers.
+    points: { kind: 'grid', perEntry: 15, perfectBonus: 25, floorAtOrBelow: 1, floorPenalty: -15 },
+    // Kept false deliberately, not because nothing works yet. The
+    // crossing-density objection that killed crossword on 6 Aug is
+    // spike-resolved (scripts/spike-crossword-density.mjs: 46.5% fill on the
+    // full live bank, 43.5%/44.6% at realistic single-deck board scale,
+    // against the RFC's own cited <25% freeform-generator floor) — see
+    // games-and-content-findings.md, 7 Aug 2026. What remains open and
+    // genuinely blocks enabling this: no board/grid data model is wired up
+    // yet (db/013_add_crossword.sql, not yet applied), no routes or page
+    // exist, the mobile pan-and-zoom viewport is unbuilt, and the
+    // lever/difficulty mechanic this entry's `lever: 'both'` promises does
+    // not exist. Do not flip true piecemeal — see the comment on `lever`
+    // above for why a half-wired lever is worse than no lever.
+    enabled: false,
   },
 ]
 

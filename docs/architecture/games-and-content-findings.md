@@ -88,6 +88,61 @@ record of what was concluded.
       explore crossword" and the user answering "that is the only thing I would be working on now".
       The RFC then chose Connections and A5 shipped it. The choice is well-evidenced; the change of
       direction has not been communicated. See `HANDOFF.md` §20.
+    - **Crossword's sharpest open objection (crossing density) is spike-verified RESOLVED — 7 Aug
+      2026.** §7.1 asked: "with crossing density this low, is a crossword meaningfully different
+      from fill-in-the-blanks arranged decoratively?" `scripts/spike-crossword-density.mjs`
+      implements the exact greedy-placement-with-random-restarts algorithm §6 already analysed in
+      published generators (sort longest-first, search every candidate letter against the grid,
+      test the perpendicular placement both orientations, score `intersections×10 − area`, keep the
+      best of 100 random restarts) and runs it against the REAL live bank (`content_items` where
+      `kind = 'term_definition'`) instead of reasoning from the four published-puzzle comparisons
+      alone. Fragment extraction follows §4.2's already-settled method (any content word, 3–10
+      cells) verbatim — not re-decided.
+      - **Three scales, all clear the RFC's own cited freeform-generator floor of <25% fill:** full
+        live bank (134 terms → 179 fragments, **179/179 placed, 46.5% fill**); largest single
+        `source_id` — one lecture deck, the real board grain (33 terms → 30 fragments, 28/30
+        placed, 43.5% fill, 2 orphaned); smallest single source (9 terms → 20 fragments, 17/20
+        placed, 44.6% fill, 3 orphaned). Orphaned fragments per board are a board-construction
+        problem (supplement from an adjacent topic or drop), not a placement failure.
+      - Fragment collisions reproduced the RFC's own table exactly (AGILE, STORY, MODEL claimed by
+        multiple terms) — confirms the extraction is right, and confirms collisions remain a
+        board-selection concern only: a placer needs one instance of each unique string, and which
+        term's clue attaches to it downstream never blocked a placement in any run.
+      - **What this does NOT resolve** — still open per §7.1/§5: the mobile viewport (finding 5, a
+        dense grid is still far below minimum touch target and needs pan-and-zoom plus a
+        focused-clue banner), difficulty without an MCQ rendering (§5.3), and whether time pressure
+        survives a slow, non-linear solve (§5.2/§5.4). This spike answers one question, not the RFC.
+      - **This is a narrow, targeted feasibility check, not a re-run of the five-model RFC or a
+        rebuild of Connections** — `docs/CURRENT_STATE.md`'s "do not redo" entry refers to those,
+        and neither happened. Connections stays shipped as-is; the user's scope decision (7 Aug) is
+        crossword ships as an additional `GAME_REGISTRY` tile, not a replacement.
+      - Data: `spike-data/crossword-density.json` (full bank), `spike-data/crossword-density-
+        source33.json`, `spike-data/crossword-density-source9.json`.
+      - **Lever stance, decided by the user, 7 Aug 2026: `lever: 'both'`, declared but left
+        unconsumed until a crossword-appropriate mechanic is designed** — not `'none'` like
+        Connections. Rejected the simpler `'none'` path deliberately: `'none'` forecloses the game
+        as a study arm structurally and permanently, even after the between-arm contrast (the
+        AGENTS.md top blocker) is resolved, whereas `'both'` keeps crossword symmetric with
+        quiz/match/choose-word and leaves the door open. **The trap this creates and must not be
+        walked into:** `resolveLever()` is the single chokepoint every game is supposed to consume
+        (`lib/game/engine.ts`) — if crossword ships `enabled: true` while declaring `'both'` but
+        never actually reading the resolved `(difficulty, timeLimit)`, any event logged for it
+        would misrepresent a lever as active when nothing enforced it, corrupting the research
+        data exactly the way a client-supplied score would. **Do not set `enabled: true` on the
+        crossword registry entry until the mechanic genuinely consumes `resolveLever()`** — ship
+        it `enabled: false` (matching Wordle's current precedent) through however much of the build
+        happens before that design work lands. §5.2's objection (crossword is slow and non-linear;
+        a 90s board clock or 10s item clock is nonsensical for it) and §5.3's (no MCQ rendering to
+        hang the difficulty calibrator on) are UNCHANGED by the density spike — a crossword-shaped
+        clock and a crossword-shaped difficulty source are still fully open design problems, not
+        solved by declaring the capability.
+      - **Mobile viewport recommendation (not yet built):** even the smallest measured single-deck
+        board (24 columns) is ~16px/cell at a 390px screen — under a usable touch target at every
+        board size tested, so pan-and-zoom with a focused-cell viewport plus a separate clue banner
+        (RFC finding 5) is required regardless of board-size capping, not an edge case. Cap boards
+        to single-`source_id` grain — the real board unit, ranging 9-33 terms live, producing grids
+        in the 20x10 to 32x12 range rather than the RFC's 38-column worst case. Buildable with CSS
+        transforms and React state; no new dependency needed.
     - _RFC answered 6 Aug 2026 — five model families (ChatGPT via API and Playground, Claude, Gemini,
       DeepSeek, Grok) ALL chose Connections._ Weigh that against a real caveat: the brief was written
       with §7.1 (crossword) as a list of open problems and §7.2 (Connections) as a list of settled

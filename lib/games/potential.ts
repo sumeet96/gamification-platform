@@ -55,6 +55,12 @@ export function potentialForGame(gameId: string, answered: number, boards: numbe
       // count) is the only real signal. Best case per board actually played:
       // all 4 groups solved with zero mistakes.
       return boards * (4 * entry.points.perGroup + entry.points.perfectBonus)
+    case 'grid':
+      // Same shape as 'board' above: best case is every attempted entry correct
+      // plus one perfectBonus per grid actually completed. PLACEHOLDER along with
+      // the rest of GridPoints -- crossword is enabled: false, no grid row exists
+      // in production data yet.
+      return answered * entry.points.perEntry + boards * entry.points.perfectBonus
     default: {
       const exhaustive: never = entry.points
       throw new Error(`unhandled points kind: ${JSON.stringify(exhaustive)}`)
