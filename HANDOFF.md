@@ -1138,3 +1138,60 @@ vanishing after the first answer; Connections' setup screen already satisfies th
 you, crossword, explore crossword" and the user's "that is the only thing I would be working on now",
 with a Friday check-in promised. The RFC on 5–6 Aug then chose Connections and A5 shipped it. The
 choice is well-evidenced; the divergence has not been communicated.
+
+## 21. Crossword reopened as a sixth tile, scaffolded not enabled (7 Aug 2026)
+
+**The RFC's sharpest surviving objection got tested, not just argued.** §7.1's open question — "is a
+crossword meaningfully different from fill-in-the-blanks arranged decoratively", i.e. crossing
+density — had only ever been reasoned about from four published-puzzle comparisons. The user brought
+a described technique (standard greedy criss-cross placement with random restarts, the kind consumer
+generators like Crossword Labs use); a new script, `scripts/spike-crossword-density.mjs`, implements
+it for real (both orientations, adjacency/fake-word guards, 100 random restarts) and runs it against
+the actual live term bank (`content_items` where `kind='term_definition'`). Full bank (134 terms →
+179 fragments): 179/179 placed at 46.5% fill. Largest single-deck board (33→30 fragments): 28/30 at
+43.5%. Smallest (9→20): 17/20 at 44.6%. All three clear the RFC's own cited freeform-generator floor
+of <25% by a wide margin. This closes the one open technical objection from §7.1 — it does not rerun
+the five-model RFC and does not touch Connections, which stays shipped as-is.
+
+**Scope and lever, both explicit user calls.** Crossword ships as an *additional* sixth tile, not a
+replacement — no rollback of package A5. Its registry entry declares `lever: 'both'`, unlike
+Connections' `lever: 'none'`, specifically to keep it eligible as a future study arm once the
+between-arm contrast (still the standing top blocker, still absent from the 4 Aug transcript) is
+resolved — accepting that the declaration is presently unconsumed. That creates a hard constraint,
+written into the registry entry, `DECISIONS.md`, and the findings doc: the entry must stay
+`enabled: false` until the game genuinely reads `resolveLever()`'s output, because an enabled game
+with a declared-but-unconsumed lever would log events misrepresenting a lever as active — the same
+defect class as a client-supplied score.
+
+**Build output, committed in `53b9fd0` ("Reopen crossword as a sixth tile, scaffolded not
+enabled").** The `lib/games/registry.ts` crossword entry itself, with a new `GridPoints` scoring
+shape documented as placeholder/undesigned rather than reusing match's or Connections' shapes, whose
+floor-penalty proofs don't transfer to a crossword grid's intersection graph. `db/013_add_crossword.sql`
+— board/grid persistence (`crossword_boards`, `crossword_entries`) mirroring `db/011`'s conventions,
+folded into `db/schema.sql`, **not applied to Neon**. Two exhaustive-switch call sites
+(`app/dashboard/page.tsx`, `lib/games/potential.ts`) updated for the new Points kind, caught by
+TypeScript's `never`-exhaustiveness guard. Two tests fixed that had used the string `'crossword'` as
+their example of a *nonexistent* game id, which broke the instant the id became real.
+
+**A `db-engineer` subagent's first migration draft needed the same review discipline as any
+human-authored one.** It omitted folding the new tables into `db/schema.sql`, misreading a
+report-back checklist item as an instruction to skip it — corrected, since both `schema.sql`'s stated
+purpose and `db/011`'s own precedent is that the fold-in happens when the migration is written, not
+deferred. It also argued `crossword_boards.source_id` should not be a real foreign key, by false
+analogy to `events.board_id`'s no-FK convention — but that convention is specific to `events` being a
+heterogeneous append-only log, and the column it was matching grain against, `content_items.source_id`,
+is itself already a real FK. Both fixed before commit.
+
+**What remains fully open, untouched this session:** the mobile pan-and-zoom viewport (a
+recommendation is on record, nothing built), a crossword-shaped time-pressure mechanic (§5.2's
+objection — slow, non-linear task, doesn't fit the existing 10s/90s clocks — unchanged), a
+crossword-shaped difficulty source (§5.3 — no MCQ rendering to hang the calibrator on), and scoring
+economics (§5 — partial completion, hints, revision, negative-EV guessing, never answered). No
+board-authoring script, no routes, no page, no board content exist yet. This is a scaffold, not
+partial gameplay. Also unchanged: the supervisor still has not been told about the 4 Aug "explore
+crossword" divergence — this spike makes reopening more defensible, it does not substitute for that
+conversation. `db/012` (Connections' mistake-budget concurrency fix, §20) is still unwritten and was
+not touched this session.
+
+Full reasoning for all of the above: `DECISIONS.md` ("Crossword reopened as a sixth tile, 7 Aug
+2026" and "Crossword's lever, 7 Aug 2026") and `docs/architecture/games-and-content-findings.md`.

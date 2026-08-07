@@ -2,144 +2,143 @@
 
 ## Where we are
 
-Package A5, the Connections game, is **built, verified against live Neon, and pushed** — the
-dashboard's fifth tile and second board-grained game. `db/011` is applied, one hand-authored board
-(`b1-data-ai`, 4 groups × 4 tiles) is loaded, and the registry row is `enabled: true`. An adversarial
-review found seven defects in the first cut and fixing one opened an eighth; all eight are closed and
-covered by tests. What is *not* finished is content: only one board exists, so a second round
-re-serves the same 16 tiles, and boards 2 and 3 are blocked on source decks that were never
-registered in `sources`. One real defect is knowingly shipped and documented — the mistake budget is
-not enforced under concurrency.
+Crossword is reopened as a **sixth, additive** `GAME_REGISTRY` tile after being ruled out on 6 Aug.
+The crossing-density objection that killed it (`game4-rfc-prompt.md` §7.1: "is a crossword
+meaningfully different from fill-in-the-blanks arranged decoratively?") is spike-verified false
+against real data: `scripts/spike-crossword-density.mjs` runs a real greedy criss-cross placer (both
+orientations, adjacency-guarded, 100 random restarts) against the live term bank and clears the
+RFC's own cited <25% freeform-generator floor at every scale tested — 46.5% fill / 179 of 179
+fragments placed on the full live bank (134 rows), 43.5%/44.6% fill at realistic single-deck board
+scale (28/30 and 17/20 placed). Connections is **untouched** and stays shipped as-is; crossword is
+additive, not a replacement.
+
+What exists: `lib/games/registry.ts`'s `crossword` entry (`enabled: false`) and
+`db/013_add_crossword.sql`'s board/grid data model (folded into `db/schema.sql`, **not applied to
+Neon**). What does not exist yet: routes, page, API, a board-authoring script, any actual board
+content, the mobile viewport, the scoring economics, and the lever/difficulty mechanic. This is
+metadata and schema only — a scaffold, not a playable or even partially-built game.
+
+Everything is committed and pushed: commit `53b9fd0` on `main`, tree clean.
 
 ## Working tree
 
-- Branch `main`, clean, fully pushed (`## main...origin/main`, nothing ahead).
-- Last commit: `8665a6d` — "Hand off: Connections is shipped, content is now the constraint".
-- Also this session: `feef69a` (UI playability), `cc14fe7` (eight defect fixes + board load +
-  enable), `d4fee8c` (in-progress snapshot committed by a *parallel session*, not by this one).
+- Branch `main`, clean, fully pushed (`git status` — "up to date with origin/main", nothing to
+  commit).
+- Last commit: `53b9fd0` — "Reopen crossword as a sixth tile, scaffolded not enabled".
 - Nothing uncommitted.
-- **`d4fee8c` carries a git note marking it known-defective** (its board serve is solvable by
-  decoding its own token). The note is pushed to `refs/notes/commits`; a fresh clone must run
-  `git fetch origin refs/notes/*:refs/notes/*` to see it. It was NOT amended — it was already
-  pushed and a parallel session was active, so force-pushing was rejected as too risky.
-- `spike-data/` is gitignored; `spike-data/connections-mint-candidates.json` (22 tiles, 12 approved)
-  exists locally only.
 
 ## In progress right now
 
-Nothing is mid-edit. The session ended at a clean stopping point: everything committed, dev server
-stopped, browser tab closed.
+Nothing is mid-edit. Session ended at a clean stopping point: everything committed and pushed.
 
-The next task is **`db/012`**, which has not been started. It must close a concurrency race in
-`app/api/connections/submit/route.ts`: the function `boardProgress(sql, nonce)` does a SELECT and
-then the route INSERTs, and there are no transactions on the Neon HTTP driver, so simultaneous
-guesses all read the same stale prior-mistake count. **Measured: 12 concurrent wrong guesses recorded
-7 mistakes, not the 4 the budget allows.** Serial play is correct and was verified end to end.
-
-Start from `db/007_add_board_dedupe.sql` and `db/008_add_answer_dedupe.sql` — this is the identical
-check-then-insert race they each closed at their own grain, and the fix shape is the same: make the
-INSERT itself the lock. A count cap ("at most 4 wrong rows per serve") is not directly expressible as
-a unique index, so the likely design is a per-serve guess ordinal plus a unique index on
-`(question_id, guess_ordinal) where event_type = 'guess_submitted'`, with a losing concurrent insert
-returning 409 and retrying against a re-read count. `isMistakeBudgetExhausted()` in
-`lib/games/connections.ts` is the existing predicate; it is correct and is not the problem.
-
-**Do not fix this at the application level — that is exactly what is there now and what fails.**
+The user's stated next action is to check the dashboard in a browser — no specific build task was
+handed off beyond that. See "Next 3 actions" below for what a resuming session should do once that
+check is done (or if it surfaces a problem).
 
 ## Decisions made this session
 
-- **Connections ships with `lever: 'none'` and no difficulty** — confirmed by the user. The 90s
-  `BOARD_TIME_BASE` was sized for a 6-pair match board and would produce a floor effect on a 16-tile
-  search that *looks like working data*; and no `term_definition` row has a difficulty value, so a
-  tiebreak would have nothing to sort on.
-- **A future lever for this game may not be a clock at all** — user's position, 7 Aug. The natural
-  manipulations for a partition game are tile count, mistake budget, or whether one-away feedback is
-  given. Consequence: `terminal_reason`'s CHECK deliberately **excludes `'timeout'`**, because adding
-  it would bake in a mechanic nobody has chosen. Widening it later is a drop-and-re-add of the named
-  CHECK, per `db/010`.
-- **Boards are hand-authored, not generated** — three of five model families recommended it; removes
-  the largest work block and the largest correctness risk.
-- **`connection_boards` has NO `board_token` column** — the original brief specified one; it was
-  wrong. A board token is a per-serve nonce from `lib/auth/board-token.ts`; persisting it would make
-  it a static reused secret and let one student replay another's submission.
-- **Guess dedupe is keyed on the board token nonce, not `board_id`** — `(question_id, guess_hash)`.
-  Least-recently-served reorders and never excludes, so one session legitimately replays a board; a
-  `board_id`-keyed index would have rejected the replay's guesses as duplicates. Verified empirically.
-- **`terminal_reason` is derived server-side, never read from the request body**
-  (`deriveTerminalReason()` in `lib/games/connections.ts`). Gating `floorPenalty` on it had quietly
-  made it a scoring input, so a client could claim `'abandoned'` after busting the budget and dodge
-  the floor.
-- **`'none'` is a first-class inert value inside `resolveLever()`**, not a branch around it — the
-  both-levers-never-active-at-once guarantee stays one tested chokepoint. `Mode` had to be widened
-  too; the alternative was writing a bogus `'normal'` into the research log.
-- **Config carries `ownerGameId`** and the guard lives in `lib/game/game-context.tsx`, not per-game —
-  `lever:'none'` was leaking through sessionStorage into the quiz. A per-game guard is the shape that
-  let match reintroduce the abandoned-round bug two days after the quiz fixed it.
-- **Loosened the clue bar for Connections tiles only**, tagged `recipe = 'connections-tile-v1'` and
-  excluded from `app/api/word/question/route.ts` and `app/api/match/board/route.ts`. The clue is never
-  rendered in Connections; it *is* rendered by those two games, where an under-specified clue produces
-  the unanswerable item that scored 0.10 grounded. Grounding in the deck was **not** loosened.
-- **Ship one board and say so plainly** rather than padding with two medium-confidence groups (one
-  substituted Big data for a Cybersecurity term absent from the bank; another put two "agile" terms in
-  one group).
-- **Fix forward rather than rewrite history** on the already-pushed defective commit.
+- **Crossword reopened as an ADDITIONAL sixth tile, not a replacement for Connections** — user's
+  explicit scope call, 7 Aug. A5 (Connections) is not being unwound; no rollback.
+- **`lever: 'both'`, declared but deliberately NOT consumed yet** — user's explicit call, 7 Aug,
+  chosen over the simpler `lever: 'none'` (Connections' shape). Reason: `'none'` would permanently
+  foreclose crossword as a study arm even once the between-arm contrast (`AGENTS.md`'s standing top
+  blocker) is resolved; `'both'` keeps it structurally eligible. **Hard constraint that follows:
+  crossword's registry entry must stay `enabled: false` until the game genuinely reads
+  `resolveLever()`'s output** — an enabled game declaring an unconsumed lever would log events
+  claiming a lever was active when nothing enforced it, the same class of defect as a
+  client-supplied score. Written into `lib/games/registry.ts`'s crossword entry comments,
+  `DECISIONS.md`, and `docs/architecture/games-and-content-findings.md`.
+- **Board grain is `source_id` (one lecture deck), not `subject`** — measured live: 9–33 term rows
+  per deck vs. 125+9 per subject. Mirrors Connections' "a board never spans two subjects" rule at a
+  finer grain.
+- **`crossword_boards.source_id` and `crossword_entries.content_item_id` are both real FKs**
+  (to `sources(id)` and `content_items(id)`) — corrected during review of the `db-engineer`
+  subagent's first draft, which left `source_id` as plain text, reasoning by false analogy to
+  `events.board_id`'s no-FK convention. That convention is specific to `events` being a
+  heterogeneous append-only log; `crossword_boards` is homogeneous authoring data, and
+  `content_items.source_id` (the column being matched) is itself already a real FK. See
+  `db/013_add_crossword.sql`'s "CORRECTED IN REVIEW" comment.
+- **Scoring shape (`GridPoints` in `lib/games/registry.ts`) is new, not reused from `BoardPoints`
+  (match) or `PartitionBoardPoints` (Connections)** — reuse was rejected because both existing
+  shapes' floor values rest on a derived argument (match's permutation fixed-point count,
+  Connections' mistake-budget math) that has not been re-derived for a crossword grid's
+  intersection graph. `GridPoints` exists so a future scoring pass has an honestly-unverified home
+  rather than borrowing another game's proof by association. **Current numbers (perEntry: 15,
+  perfectBonus: 25, floorAtOrBelow: 1, floorPenalty: -15) don't even clear a naive negative-EV
+  check** (1×15 + (-15) = 0, not negative) — do not treat them as considered.
+- **`db/013_add_crossword.sql` adds NO `events` columns** — deliberate. Interaction/event logging
+  depends on scoring economics (`game4-rfc-prompt.md` §5, never answered) and the lever mechanic
+  (§5.2/§5.3, never designed) landing first. Guessing at event shape now would repeat, worse, the
+  mistake `db/011`'s header describes catching in its own first draft.
+- **`db/schema.sql` was updated in this same commit**, not deferred until Neon apply — matches
+  `db/011`'s own precedent (folded in "in the same edit" that wrote the migration, with a "NOT YET
+  APPLIED as of this snapshot" header note). The `db-engineer` subagent's first draft skipped this,
+  misreading a report-back verification-checklist line as an instruction to omit it; caught and
+  fixed before commit.
+- **Migration numbered `db/013`, not `db/012`** — `db/012` stays reserved for the still-unwritten
+  Connections mistake-budget concurrency fix (see "Do not redo" below; unchanged by this session).
 
 ## Open questions / blocked on
 
-- **Board 2 needs `Session 6,7.pdf`** (design thinking, Six Thinking Hats) registered in `sources`
-  and extracted. Eight tiles cannot be minted without it. `Session 6.pdf`'s 37 pages stop before that
-  content, so they are not the same file. **Unblocked by: the user supplying the PDF.** This is the
-  single highest-value unblock available.
-- **Board 3 needs `B_5_Agentic_AI_Presentation`** registered, same problem.
-- **Is `session.roundsPlayed` genuinely shared across games?** A private counter was removed and
-  `ownerGameId` added; both are unit-tested, but the real check is React state and was unreachable
-  from the HTTP-level pass. **Unblocked by: playing Connections then the quiz in one browser tab and
-  confirming round numbers do not collide and `round_offer` is not suppressed.**
-- **Six of the twelve minted clues are placeholders**, not definitions (e.g. "One of the items the
-  source lists under Dimensions of big data"). Harmless in Connections; must be rewritten before any
-  clue-rendering game uses those rows.
-- **`checkSourceLeak`'s `\blisted in\b` pattern over-rejects** legitimate provenance phrasing — it
-  refused "Generate quick wins". Fourth over-rejecting validator in this project; needs its own review.
-- **Still unresolved from the game-4 RFC:** two of five model families argued a difficulty-led design
-  points away from Connections (a board carries one difficulty for all 16 tiles, so it adapts
-  coarsely) toward **fill-in-the-blanks**, which is item-grained and already renders as an MCQ so it
-  inherits the calibrator unchanged. Deferred with the lever, not settled by deferring it.
-- **Connections produces no experimental data.** With `lever: 'none'` it is an engagement tile and
-  instrumented content, not a study arm. The research claim rests on quiz, match and choose-word. If
-  it is still lever-less at pilot start, that belongs in the methods section explicitly.
+- **The mobile pan-and-zoom viewport is unbuilt.** Even the smallest measured single-deck board
+  (24 columns) is ~16px/cell at a 390px screen — under a usable touch target at every board size
+  tested. Recommendation on record (`games-and-content-findings.md`): CSS-transform pan/zoom +
+  focused-cell viewport + separate clue banner, no new dependency. Not started.
+- **The crossword-shaped time-pressure mechanic is fully open.** `game4-rfc-prompt.md` §5.2's
+  objection is unchanged by anything this session did: a crossword is slow and non-linear, the
+  existing item clock (10s) and board clock (90s) don't fit it. This is what actually blocks ever
+  flipping lever consumption on.
+- **A crossword-appropriate difficulty source is fully open.** §5.3: no MCQ rendering to hang the
+  existing calibrator on. Nothing proposed yet.
+- **Scoring economics are fully open.** §5 asked about partial completion, hints, revision, and
+  whether guessing must be negative-EV; never answered because the RFC picked Connections before
+  any model reached it.
+- **No board-authoring script exists.** `scripts/spike-crossword-density.mjs` is a feasibility
+  spike (proves density, writes nothing to the DB) — not a `scripts/author-connections-boards.mjs`
+  equivalent. Writing real `crossword_boards`/`crossword_entries` rows needs a new script.
+- **The supervisor still has not been told about the 4 Aug "explore crossword" divergence.**
+  `DECISIONS.md` still carries this as unreconciled; nothing this session closes that gap, it only
+  makes reopening crossword more defensible. This is a human conversation, not a build task.
+- **`db/013_add_crossword.sql` is NOT applied to Neon.** A human must paste it into the Neon SQL
+  editor when ready (psql is not installed on the dev machine, per `db/011`'s precedent).
 
 ## Next 3 actions
 
-1. **Write `db/012` to close the mistake-budget concurrency race.** Start by reading
-   `db/008_add_answer_dedupe.sql`, then `boardProgress()` and the `'guess'` branch of
-   `app/api/connections/submit/route.ts`. Do not apply it to Neon without asking the user.
-   Reproduce first: fire ≥5 distinct wrong guesses simultaneously at `/api/connections/submit` on a
-   fresh board and confirm more than 4 mistakes land.
-2. **Play Connections then the quiz in one browser tab** and confirm round numbers do not collide.
-   `npm run dev`, then `/games/connections` → play a round → `/quiz`. Check `events` for duplicated
-   `(session_id, round)` across `game_type` and for a missing `round_offer`.
-3. **Ask the user for the design-thinking deck**, register it in `sources`, extract it, then
-   `node scripts/mint-connections-tiles.mjs` for the 8 blocked tiles and
-   `node scripts/author-connections-boards.mjs --boards b2-change-process --mint-file spike-data/connections-mint-candidates.json --dry-run`
-   before `--commit`.
+1. **Confirm the dashboard renders the new tile correctly.** `npm run dev`, log in, open
+   `/dashboard` — crossword should appear as a sixth tile, disabled/non-clickable (`GameTile`'s
+   `enabled: false` path, same as the existing Fill in the Blanks and Wordle tiles). This is the
+   user's stated next action for this session; nothing further is required unless it renders wrong.
+2. **If continuing the crossword build, the next real design gate is scoring economics
+   (`game4-rfc-prompt.md` §5) or the lever mechanic (§5.2/§5.3)** — either could go first, but
+   `enabled: true` is specifically blocked on the lever one (see hard constraint above). Do not
+   write a board-authoring script or routes before at least one is decided; there is nothing to
+   author against yet.
+3. **`db/012` (the Connections mistake-budget concurrency race) is still unwritten**, and unrelated
+   to this session's work — still the oldest open item, per `HANDOFF.md` §20. Not reprioritized by
+   anything that happened this session. Start from `db/007_add_board_dedupe.sql` and
+   `db/008_add_answer_dedupe.sql` — same check-then-insert race shape, fix is making the INSERT
+   itself the lock.
 
 ## Do not redo
 
-- **Do not rebuild Connections, and do not re-run the game-selection analysis or the
-  crossword-vs-Connections RFC.** Both settled; repeating either costs a week.
-- **Do not assemble a second board from the existing 113-row bank.** Already checked: only two groups
-  are both fully live and cleanly coherent. A mushy board is worse than one good board.
-- **Do not "fix" the board layout markup if it renders as one column in dev.** Tailwind had never
-  scanned `app/games/connections/page.tsx`, so `grid-cols-4` and `aspect-square` were absent from the
-  dev stylesheet while `grid-cols-2`/`grid-cols-3` from older pages were present. The production
-  build was correct the whole time. **Kill the dev server, `rm -rf .next/dev .next/cache`, restart.**
-- **Do not trust API-level verification for UI.** Everything passed over HTTP while the board was
-  unplayable. Exercise it in a browser.
-- **Do not add `'timeout'` to the `terminal_reason` allowlist** as a convenience. See the decision
-  above — it presumes a mechanic that has not been chosen.
-- **Do not render `distractors` as board tiles.** They are generated strings; a student who correctly
-  sorts a fabricated term learns it as real. Use them offline as a confusability signal only.
-- **Do not add a sixth Connections screening instrument.** The instrument-dependence *is* the finding.
-- **Do not force-push over `d4fee8c`.** It is pushed, a parallel session was active, and the git note
-  already records the defect.
-- **Do not `git add -A`** — course-material PDFs are in the working tree. Stage by name.
+- **Do not re-run the five-model crossword-vs-Connections RFC, and do not rebuild Connections.**
+  Unchanged. This session's crossword work was a narrow, targeted density spike against real data,
+  not a re-litigation of the RFC or a rollback of A5 — noted explicitly in both
+  `games-and-content-findings.md` and `DECISIONS.md` to head off exactly this confusion later.
+- **Do not flip crossword's registry entry to `enabled: true`** without the lever mechanic actually
+  consuming `resolveLever()` first. Recorded in three places (`lib/games/registry.ts`'s comments,
+  `DECISIONS.md`, `games-and-content-findings.md`) — an enabled game with an unconsumed declared
+  lever would corrupt the event log's meaning.
+- **Do not reuse `BoardPoints` or `PartitionBoardPoints` for crossword's scoring** — `GridPoints`
+  exists specifically because neither shape's floor-penalty proof transfers. See its docstring in
+  `lib/games/registry.ts`.
+- **Do not add `events` columns for crossword yet** — blocked on the scoring/lever design passes
+  above, not an oversight.
+- **Do not treat `GridPoints`' current numbers as ordinary sign-off placeholders** like every other
+  row's — they are additionally shape-unverified (see "Decisions" above).
+- *(Carried forward, unchanged)* Do not assemble a second Connections board from the existing bank.
+  Do not "fix" board layout markup without killing the dev cache first
+  (`rm -rf .next/dev .next/cache`). Do not trust API-level verification for UI — exercise it in a
+  browser. Do not add `'timeout'` to `terminal_reason`. Do not render `distractors` as board tiles.
+  Do not add a sixth Connections screening instrument. Do not force-push over `d4fee8c`. Do not
+  `git add -A` — course-material PDFs are in the working tree; stage by name.
