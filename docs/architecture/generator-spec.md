@@ -166,7 +166,8 @@ It must become importable so guard 2 is structural rather than a convention some
 ## Other defects in the current stub, fixed on the way
 
 - `MODEL` falls back to `gemini-2.0-flash`, **shut down 1 Jun 2026**. Replace the fallback with a
-  hard error — CLAUDE.md requires the model be set via `GEMINI_MODEL`, not by editing the script.
+  hard error — the standing rule (now `docs/architecture/product-design-rules.md`) requires the
+  model be set via `GEMINI_MODEL`, not by editing the script.
   Confirmed current id: `gemini-3.5-flash-lite`.
 - `pdf-parse` text extraction (lines 33–37) becomes dead — Gemini reads the PDF natively. Check
   whether `pdf-parse` is referenced elsewhere before dropping the dependency.
@@ -208,3 +209,91 @@ It must become importable so guard 2 is structural rather than a convention some
   `aistudio.google.com/rate-limit` before sizing a full 20-deck run.
 - **How many questions per window?** 3 slides × K questions. K=2 gives ~17 per deck before
   rejections; at a ~73% pass rate that lands near 12 usable. Overgenerate — it costs cents.
+
+---
+
+## G1 rebuilt three-stage, and the defect it does not fix (moved from CLAUDE.md, 7 Aug 2026)
+
+Moved out of launch-time context on 7 Aug 2026; this is the same subject as the rest of this
+file. Nothing was edited in the move.
+
+- **G1 rebuilt three-stage, 6 Aug 2026 (`9030316`, `7aeb603`) — and one defect it does NOT fix.**
+  `scripts/generate-questions.mjs` had kept the single-call-per-window flow under a `--per-window`
+  quota, which is exactly what manufactured chart captions in G2. It shows in the bank it produced:
+  `Which team member has a background in computer science from Harvard`, `Based on the cartoon…`.
+  **The gap screen cannot catch that class** — those items are answerable from their own excerpt, so
+  they pass the grounded arm. Now: glossary (no quota, empty valid) → option writing → cold answer
+  marking. `--per-window` is deleted and passing it exits with an error. Default model on this script
+  only is **`gpt-5-mini`**; `llm-client.mjs` omits `temperature` for `gpt-5*`, which reject any value
+  but their default of 1 (a hard 400, and it means gpt-5 output is not drawn under the same sampling
+  regime as gpt-4.1 output). Content fix verified: the blockchain deck now yields
+  `What is a consensus mechanism`, `Which scenario BEST exemplifies decentralization`.
+  - **UNRESOLVED — MCQ options leak their answer by length.** Correct option is the longest in
+    **65%** of the live bank, **81%** with an emphatic length-parity instruction, **89%** with a
+    blind schema. Chance is 25%; always-pick-longest scores **88.6%**; mean correct option 106.5
+    chars vs 81.6 for distractors. **A prompt instruction does not fix it** (86→81% while validator
+    rejections went 9→0 — the model equalised spread and kept the answer marginally longest), and
+    **blinding does not either** — stage 2's schema has no `answer` field and it got *worse*. The
+    mechanism is semantic, not procedural: a true statement needs more qualification than a false
+    one, so a stronger model qualifies more carefully. Any fix must make **distractors equally
+    qualified**, not the writer blind.
+  - **But it does NOT contaminate difficulty calibration** (measured 6 Aug, `mcq6-ungrounded.json`,
+    44 items): the simulator scores **0.744** ungrounded, *below* the **0.886** a pure length-picker
+    gets, so it is using knowledge rather than the cue; r between score and length margin = 0.161,
+    n=44, CI straddles zero. **Assessment-validity problem, not a measurement one — the n=120
+    calibration run is unblocked.** One simulator only (`llama3.2` 3B).
+
+---
+
+## Validator and rejection-gate conventions (moved from CLAUDE.md, 7 Aug 2026)
+
+These were standing conventions in CLAUDE.md. They are generator-methodology rules and are
+read when working on generation, not on every session launch. Nothing was edited in the move.
+
+- **An over-rejecting validator is not automatically the safe direction.** G2's clue-leak rule
+  (1 Aug 2026) rejected 5 of 8 valid items by testing each word of a multi-word term independently; a
+  guard that is too strict can silently destroy yield the same way a guard that is too loose lets bad
+  data through. Check yield, not just precision, before trusting a new validation rule.
+- **A rejection gate is meaningless until a CAPABILITY CONTROL has passed on the same instrument.**
+  Found 6 Aug 2026. The Connections no-source screen returned 0.10/4 on `llama3.2:3b` — an apparently
+  decisive "these boards need the deck". It was disbelieved only because board 1 contained
+  Volume/Velocity/Variety/Veracity, which any model that knows anything should group. A control board
+  of Colours / Animals / Countries / Fruits then scored **0.00/4 on the same model**: it cannot
+  partition at all, and the real result was measuring the instrument, not the material. `gemma2:9b`
+  scores 3.65/4 on that control and is a valid instrument. This is the third instrument in which the
+  standing lesson "a weak simulator's low score can mean the simulator is ignorant" has bitten (after
+  `llama3.2:1b` not knowing Bing). **Ship a trivially-solvable control alongside any new gate, and
+  run it first** — `spike-data/connections-control-v1.json` is the pattern.
+- **Never pool a verdict across heterogeneous units when the unit is what gets rejected.** Same run.
+  The solve script's first version printed one aggregate: 1.10/4, "PASSES". That average concealed one
+  board solved cold 40% of the time and another 0% — memorability is a property of a board, and a
+  board is the thing shipped. The gate now fires per board. Related, same script, same day: it also
+  printed "PASSES the gate" after all 30 trials had failed on a wrong model tag. **A gate that can
+  pass on zero observations is a false signal**; it now refuses a verdict and exits non-zero.
+- **A permissive instruction is not neutral either — loosening one constraint loosens the ones next
+  to it.** The mirror of the rule above, found 5 Aug 2026 by `scripts/spike-short-terms.mjs`. Adding
+  "a concept's name may be of ANY length" to the glossary prompt was meant to surface short terms. It
+  surfaced none, made terms *longer* (median 23→28, max 37→42 on the CAGE deck), and **re-broke the
+  chart-caption guard** — arm B emitted `Netflix Subscribers Statistics` and `Google's Market Share`,
+  strings the same prompt names as forbidden examples. So the structural caption fix (ask what the
+  deck teaches before asking for questions) is **fragile to unrelated prompt perturbation**: any new
+  clause added to `glossaryPromptFor` must be re-screened for caption leakage, not just for the thing
+  it was added to do. **Do not add a name-length clause to the glossary prompt.**
+- **A clue must name what distinguishes its answer from its nearest distractor — "not a synonym" is
+  not sufficient.** Checked against each distractor in turn, inside the same call that writes them
+  (commit `e243022`, 4 Aug 2026). `Extreme Programming` with distractors Scrum / Kanban / Lean Startup
+  and a clue describing "a framework that integrates business demands with software development rules
+  to achieve shared and realizable goals" scored 0.10 grounded — worse than chance — because that clue
+  also fits Scrum; the older, looser clue scored 0.93. Making distractors more confusable without
+  tightening the clue is what broke it. After the rule, the same item scores 0.97.
+- **Do not build a templated-distractor detector on lexical/structural grounds.** Tried and deleted,
+  same commit as above (4 Aug 2026). Hypothesis: a chart caption's distractors are template variants
+  with one slot swapped, a real item's are different concepts. Run against 38 real generated items it
+  flagged 8, and 4 were good (`Agile Software Development` vs Waterfall/Spiral, `Thin Slice Team` vs
+  Scrum Team, `Intraregional Trade` vs International Trade, `User Story` vs User Scenario) — items that
+  share a head noun with their distractors, which the clue-precision rule above requires rather than
+  forbids. `Agile Software Development → Waterfall Software Development` is structurally identical to
+  the real chart-caption swap `Android Sessions by Game Category → iOS Sessions by Game Category`; the
+  difference (rival concepts vs two slices of one chart) is semantic, not structural, and no token rule
+  reaches it. Third over-rejecting guard of the session; cost nothing because it was caught before
+  shipping.

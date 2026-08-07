@@ -8,6 +8,31 @@ this is the decomposition and the work-package list. It replaces `docs/PROJECT_B
 
 ---
 
+## Doc map (added 7 Aug 2026)
+
+`CLAUDE.md` was split on 7 Aug because it had reached 749 lines and loads in full on every session
+launch, against a documented target of under 200. Launch context is now 174 lines. Nothing was
+deleted — everything moved, and this is where each block went.
+
+| File | Holds | Loads at launch? |
+|---|---|---|
+| `AGENTS.md` | The project-wide brief: what we're building, the rules that bind, the agent contract, pointers. Read by Codex and any other agent directly. | **Yes** |
+| `CLAUDE.md` | Claude-Code-only: subagent roster, session lifecycle. Imports `AGENTS.md`. | **Yes** |
+| `DECISIONS.md` | Settled rulings and *why*, append-only. Read before changing architecture. | No |
+| `HANDOFF.md` | Chronological history, §1–§20. | No |
+| this file | Decomposition, work packages, and status (§2 is the status ledger). | No |
+| `docs/architecture/generator-spec.md` | Generation and validator methodology, incl. the G1 rebuild. | No |
+| `docs/architecture/games-and-content-findings.md` | Game-family analysis, the crossword/Connections decision, relation-harvest failure classes, per-package findings. | No |
+| `docs/architecture/local-models-and-ingestion.md` | Ollama local-only rule; PDF-in / LibreOffice-out ingestion. | No |
+| `docs/architecture/product-design-rules.md` | Lever detail, rapid-mode spec, persistence loop, runtime stack detail. | No |
+| `docs/experiments/2026-08-02_term-item-calibration.md` | How difficulty is established, and the standing calibration rules. | No |
+
+**The distinction between this file's §2 and `DECISIONS.md`:** §2 is *status* (built / specced /
+deferred / unknown / assumed / broken) and changes weekly. `DECISIONS.md` is *why*, and does not
+change — a reversal appends a superseding entry. Do not let them become two competing decision logs.
+
+---
+
 ## 0. Corrections to the working brief
 
 Re-reading the transcript surfaced five places where `CLAUDE.md` and the derived memory notes drift
