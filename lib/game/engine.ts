@@ -19,6 +19,35 @@ export interface GameConfig {
   mode: Mode
   lever: Lever
   fixedDifficulty: number // used when lever === 'time'
+  // FIX 5 (A5 adversarial review): which game set this config -- 'quiz',
+  // 'choose-word', 'match', or 'connections' (each game's own GAME_ID
+  // constant). game-context.tsx persists config to sessionStorage across the
+  // WHOLE app, not per-game, so without this a browser-back from Connections
+  // (lever: 'none') straight into the quiz would hand the quiz a
+  // lever-less config it never chose and never validated -- new, since
+  // 'none' became a legal Mode/Lever value. configBelongsTo() below is the
+  // one chokepoint that checks this before a config is handed back to any
+  // caller; a game must never read the raw persisted config directly.
+  ownerGameId: string
+}
+
+/** The quiz's own ownerGameId. NOT the same as quizGameId(mode) (which
+ *  returns 'quiz-rapid'/'quiz-normal' for event logging) -- the config-
+ *  ownership check only needs to know "this config was set by the quiz's own
+ *  setup screen", not which mode was chosen, so one constant covers both
+ *  modes. Shared between app/game-setup/page.tsx (writer) and
+ *  app/quiz/page.tsx (reader) so the tag can never drift by typo between
+ *  the two files. */
+export const QUIZ_OWNER_ID = 'quiz'
+
+/** FIX 5's one chokepoint: a persisted config is only ever handed back to the
+ *  game that actually set it. Pulled out as a pure function (mirrors
+ *  isTokenCurrent's extraction in lib/auth/board-token.ts) so it is unit-
+ *  testable without rendering GameProvider. game-context.tsx's `getConfig`
+ *  is a thin wrapper around this -- see that file for why raw `config` is
+ *  not exposed on the context at all. */
+export function configBelongsTo(config: GameConfig | null, ownerGameId: string): GameConfig | null {
+  return config && config.ownerGameId === ownerGameId ? config : null
 }
 
 export const POINTS_CORRECT = 20

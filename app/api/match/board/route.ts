@@ -106,6 +106,18 @@ export async function GET(req: Request) {
   // withdrawn items -- e.g. chart-caption rows that are not real
   // term/definition pairs. The row is never deleted (events may already
   // reference it), it just stops being eligible for a new board.
+  //
+  // `recipe is distinct from 'connections-tile-v1'` excludes Connections
+  // tiles (scripts/mint-connections-tiles.mjs, package A5) from this pool.
+  // Some of those rows were minted under a deliberately loosened
+  // "--clue-bar=provenance" standard (see that script's header) -- their clue
+  // proves the deck teaches the term but does NOT distinguish it from its
+  // group-mates, because a Connections tile's clue is never rendered during
+  // play. This route DOES render the clue, as the left-hand column -- an
+  // under-specified clue here is the exact "worse than chance" failure the
+  // strict bar exists to prevent (CLAUDE.md, the `Extreme Programming` /
+  // Scrum example). `recipe` is tagged at mint time by
+  // author-connections-boards.mjs's --mint-file insert path.
   let allRows: EligibleRow[]
   try {
     allRows = (await sql`
@@ -115,6 +127,7 @@ export async function GET(req: Request) {
         and term is not null and trim(term) <> ''
         and clue is not null and trim(clue) <> ''
         and retired_at is null
+        and recipe is distinct from 'connections-tile-v1'
     `) as EligibleRow[]
   } catch (err) {
     console.error('match/board: content_items query failed', err)

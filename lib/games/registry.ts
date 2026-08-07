@@ -202,7 +202,13 @@ export const GAME_REGISTRY: readonly GameEntry[] = [
       floorAtOrBelow: 1,
       floorPenalty: -30,
     },
-    enabled: false, // WP A5: pure logic only this pass — no routes/page yet, flip once they ship
+    // Routes, page and one authored board (b1-data-ai, 4 groups / 16 tiles,
+    // loaded 7 Aug 2026) are all live, so the tile renders. Board ROTATION is
+    // content-blocked, not engine-blocked: least-recently-served selection is
+    // built and tested, it currently has exactly one board to choose from, so
+    // a second round re-serves the same 16 tiles. Board 2 is blocked on an
+    // unregistered source deck (design thinking / six thinking hats).
+    enabled: true,
   },
 ]
 

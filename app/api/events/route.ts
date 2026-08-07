@@ -22,11 +22,11 @@ function insertEvent(sql: Sql, e: Record<string, unknown>, studentId: string | n
   return sql`
     insert into events
       (session_id, student_id, event_type, game_type, mode, lever, round, question_id,
-       difficulty_level, time_limit, time_taken_ms, is_correct, points_delta,
+       board_id, difficulty_level, time_limit, time_taken_ms, is_correct, points_delta,
        negative_applied, net_after)
     values
       (${e.session_id}, ${studentId}, ${e.event_type}, ${e.game_type ?? null}, ${e.mode ?? null},
-       ${e.lever ?? null}, ${e.round ?? null}, ${e.question_id ?? null},
+       ${e.lever ?? null}, ${e.round ?? null}, ${e.question_id ?? null}, ${e.board_id ?? null},
        ${e.difficulty_level ?? null}, ${e.time_limit ?? null}, ${e.time_taken_ms ?? null},
        ${e.is_correct ?? null}, ${e.points_delta ?? null}, ${e.negative_applied ?? null},
        ${e.net_after ?? null})
@@ -84,6 +84,16 @@ export async function POST(req: Request) {
   delete e.points_delta
   delete e.negative_applied
   delete e.net_after
+
+  // FIX 6 (A5 adversarial review): board_id (added for board_reported_ambiguous
+  // to be joinable back to a board at all -- see db/011's header) is an
+  // opaque identifier, never a foreign key (db/011), and MUST stay that way
+  // here: validated as a non-empty string or dropped entirely, never trusted
+  // to widen into a path for a client to smuggle a scoring value the way the
+  // delete block above guards against for the columns that actually score.
+  if (typeof e.board_id !== 'string' || e.board_id.length === 0) {
+    delete e.board_id
+  }
 
   const sql = getSql()
   if (!sql) return Response.json({ ok: true, stored: false })

@@ -44,6 +44,17 @@ import { itemOptions } from '@/lib/games/word'
 // The row is never deleted (events may already reference it), it just stops
 // being served.
 //
+// `recipe is distinct from 'connections-tile-v1'` excludes Connections tiles
+// (scripts/mint-connections-tiles.mjs, package A5) from this pool. Some of
+// those rows were minted under a deliberately loosened "--clue-bar=provenance"
+// standard (see that script's header) -- their clue proves the deck teaches
+// the term but does NOT distinguish it from its group-mates, because a
+// Connections tile's clue is never rendered during play. This route DOES
+// render the clue, as the prompt -- an under-specified clue here is the exact
+// "worse than chance" failure the strict bar exists to prevent (CLAUDE.md,
+// the `Extreme Programming` / Scrum example). `recipe` is tagged at mint time
+// by author-connections-boards.mjs's --mint-file insert path.
+//
 // A single-row minimum-distractor filter (FIX 2) also applies below: this
 // game always shows 4 options (term + up to 3 distractors -- MAX_DISTRACTORS
 // in lib/games/word.ts), so a row with fewer than 3 distractors would be
@@ -108,6 +119,7 @@ export async function GET(req: Request) {
         and clue is not null and trim(clue) <> ''
         and jsonb_array_length(distractors) >= 3
         and retired_at is null
+        and recipe is distinct from 'connections-tile-v1'
     `) as Array<{ id: string; clue: string; term: string; distractors: unknown; difficulty: number | null }>
     allRows = rows.map((r) => ({
       id: r.id,

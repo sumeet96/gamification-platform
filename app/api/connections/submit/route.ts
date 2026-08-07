@@ -4,7 +4,10 @@ import { getCurrentStudent } from '@/lib/auth/current-student'
 import { readBoardToken, isTokenCurrent, BOARD_TOKEN_ISSUED_EVENT_TYPE } from '@/lib/auth/board-token'
 import { getGame } from '@/lib/games/registry'
 import { attributeStudent, insertAnswerAtomic } from '@/lib/game/answer-commit'
-import { evaluateGuess, guessHash, scoreBoard, type ConnectionsBoard, type ConnectionsGroup } from '@/lib/games/connections'
+import {
+  evaluateGuess, guessHash, scoreBoard, isMistakeBudgetExhausted, deriveTerminalReason,
+  type ConnectionsBoard, type ConnectionsGroup, type TerminalReason,
+} from '@/lib/games/connections'
 
 // POST /api/connections/submit -- scores Connections play (package A5).
 // Mirrors app/api/match/submit/route.ts's security shape (board-token
@@ -257,6 +260,24 @@ export async function POST(req: Request) {
 
     const { groupsSolved: groupsSolvedBefore, mistakes: priorMistakes } = await boardProgress(sql, tokenPayload.nonce)
 
+    // FIX 2 (A5 adversarial review): once the mistake budget is spent, no
+    // FURTHER guess may be recorded or scored -- correct or not. Without
+    // this, a client that keeps guessing past the budget could still solve
+    // the remaining groups (accrual has no cap of its own), making busting
+    // the budget strictly better than stopping. priorMistakes is counted
+    // fresh from this serve's own already-committed events above, never
+    // trusted from the client, so this cannot be bypassed by a client that
+    // simply omits its own local mistake counter. The exact guess that
+    // brings mistakes TO the budget is still recorded normally below (this
+    // check only refuses the NEXT one) -- isMistakeBudgetExhausted is the
+    // same predicate the client's own auto-complete effect mirrors locally.
+    if (isMistakeBudgetExhausted(priorMistakes, points)) {
+      return Response.json(
+        { ok: false, error: 'mistake budget exhausted', duplicate: false, budgetExhausted: true, terminalReason: 'budget' },
+        { status: 409 }
+      )
+    }
+
     const evaluation = evaluateGuess(board, guessedItemIds, groupsSolvedBefore)
     if (!evaluation.ok) {
       // Malformed: never scored, never charged a mistake, no event written.
@@ -265,6 +286,12 @@ export async function POST(req: Request) {
 
     const hash = guessHash(guessedItemIds)
     const timeTakenMs = typeof body.time_taken_ms === 'number' ? body.time_taken_ms : null
+    // FIX 3 (A5 adversarial review): guess_submitted carries NO points --
+    // accrual has exactly one home now, group_solved below (see this route's
+    // header and app/api/stats/route.ts). `pointsDelta` here is a display-
+    // only value for the JSON response (the client shows it as feedback);
+    // it is never written to the DB row's points_delta column, which is
+    // always null for this event type.
     const pointsDelta = evaluation.correct ? points.perGroup : 0
     // one_away is a first-class boolean column (db/011, amended in place
     // before that migration was ever applied) -- it does NOT ride inside
@@ -282,7 +309,7 @@ export async function POST(req: Request) {
            is_forced, one_away, negative_applied, adapt_granularity, time_taken_ms)
         values
           (${sessionId}, ${studentId}, 'guess_submitted', 'connections', ${null}, 'none', ${round},
-           ${tokenPayload.nonce}, ${tokenPayload.boardId}, ${hash}, ${submittedText}, ${evaluation.correct}, ${pointsDelta},
+           ${tokenPayload.nonce}, ${tokenPayload.boardId}, ${hash}, ${submittedText}, ${evaluation.correct}, ${null},
            ${evaluation.forced}, ${evaluation.oneAway}, ${!evaluation.correct}, 'board', ${timeTakenMs})
         on conflict (question_id, guess_hash) where event_type = 'guess_submitted' do nothing
         returning id
@@ -294,21 +321,20 @@ export async function POST(req: Request) {
       // the only way to name a group's 4 tiles at all is this exact hash, so
       // "already solved" and "this literal guess was already submitted" are
       // the same event here). Read back what the winning attempt recorded
-      // rather than re-scoring, per the brief. `forced` and `pointsDelta` are
-      // read from the stored row (the state at the ORIGINAL insert); every
-      // other field is recomputed from `evaluation`, which is a pure function
-      // of (board, guessedItemIds) alone and so is identical either way.
+      // rather than re-scoring, per the brief. `forced` is read from the
+      // stored row (the state at the ORIGINAL insert); every other field
+      // (including `pointsDelta`, a display-only value never stored -- FIX 3
+      // above) is recomputed from `evaluation`, a pure function of (board,
+      // guessedItemIds) alone, so it is identical either way.
       let storedForced = evaluation.forced
-      let storedPointsDelta = pointsDelta
       try {
         const stored = (await sql`
-          select points_delta, is_forced from events
+          select is_forced from events
           where question_id = ${tokenPayload.nonce} and guess_hash = ${hash} and event_type = 'guess_submitted'
           limit 1
-        `) as Array<{ points_delta: number | null; is_forced: boolean | null }>
+        `) as Array<{ is_forced: boolean | null }>
         if (stored.length > 0) {
           storedForced = stored[0].is_forced ?? evaluation.forced
-          storedPointsDelta = stored[0].points_delta ?? pointsDelta
         }
       } catch (err) {
         console.error('connections/submit: stored-guess lookup failed', err)
@@ -325,7 +351,7 @@ export async function POST(req: Request) {
           groupLabel: group?.label ?? null,
           oneAway: evaluation.oneAway,
           forced: storedForced,
-          pointsDelta: storedPointsDelta,
+          pointsDelta,
         },
         { status: 409 }
       )
@@ -370,8 +396,8 @@ export async function POST(req: Request) {
   }
 
   // kind === 'complete' -----------------------------------------------------
-  const terminalReasonRaw = typeof body.terminal_reason === 'string' ? body.terminal_reason : null
-  if (!terminalReasonRaw || !(TERMINAL_REASONS as readonly string[]).includes(terminalReasonRaw)) {
+  const terminalReasonClaimed = typeof body.terminal_reason === 'string' ? body.terminal_reason : null
+  if (!terminalReasonClaimed || !(TERMINAL_REASONS as readonly string[]).includes(terminalReasonClaimed)) {
     return Response.json({ ok: false, error: 'invalid terminal_reason' }, { status: 400 })
   }
 
@@ -386,7 +412,22 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: 'failed to compute board state' }, { status: 500 })
   }
 
-  const scored = scoreBoard(groupsSolved, mistakes, points)
+  // The terminal reason is DERIVED from server-known state, never taken from
+  // the request body -- see deriveTerminalReason's comment for why that
+  // distinction is load-bearing rather than stylistic.
+  const terminalReason: TerminalReason = deriveTerminalReason(groupsSolved, mistakes, points)
+
+  // Kept only as a research signal: a mismatch means the client's view of the
+  // board diverged from the server's, which is worth being able to count
+  // later. It never feeds scoring.
+  if (terminalReasonClaimed !== terminalReason) {
+    console.warn(
+      `connections/submit: terminal_reason claimed '${terminalReasonClaimed}' but derived '${terminalReason}' ` +
+        `(groupsSolved=${groupsSolved}, mistakes=${mistakes})`
+    )
+  }
+
+  const scored = scoreBoard(groupsSolved, mistakes, points, terminalReason)
   const deselectCount = typeof body.deselect_count === 'number' ? body.deselect_count : null
   const shuffleCount = typeof body.shuffle_count === 'number' ? body.shuffle_count : null
   const timeTakenMs = typeof body.time_taken_ms === 'number' ? body.time_taken_ms : null
@@ -397,11 +438,15 @@ export async function POST(req: Request) {
 
   // Dedupe on the nonce via the SAME index match's board_complete rows use
   // (db/007's events_board_nonce_uidx, on question_id where event_type =
-  // 'board_complete') -- no new index needed, per the brief. points_delta
-  // here is bonus+floor only: the accrual portion (perGroup x groupsSolved)
-  // was already logged per-group on group_solved above, same split match
-  // uses between its board_complete row and its per-pair question_answered
-  // rows.
+  // 'board_complete') -- no new index needed, per the brief. FIX 3 (A5
+  // adversarial review): points_delta here is mistakeCost + bonus + floor --
+  // NOT accrual, which already went out per-group on group_solved above (see
+  // this route's header). Every component of the score now has exactly one
+  // home: group_solved carries perGroup accrual, board_complete carries
+  // mistakeCost + perfectBonus + floor, guess_submitted carries nothing.
+  // Summing points_delta over (group_solved, board_complete) for this nonce
+  // equals scoreBoard().net exactly -- asserted in
+  // tests/connections.test.ts.
   const insertBoardComplete = (studentId: string | null) =>
     sql`
       insert into events
@@ -412,16 +457,50 @@ export async function POST(req: Request) {
       values
         (${sessionId}, ${studentId}, 'board_complete', 'connections', ${null}, 'none', ${round}, ${tokenPayload.nonce},
          ${tokenPayload.boardId}, 'board', ${boardsCompleted}, ${groupsSolved}, ${mistakes},
-         ${deselectCount}, ${shuffleCount}, ${timeTakenMs}, ${terminalReasonRaw},
-         ${groupsSolved === 4}, ${scored.bonus + scored.floor}, ${scored.floor !== 0}, ${netAfter})
+         ${deselectCount}, ${shuffleCount}, ${timeTakenMs}, ${terminalReason},
+         ${groupsSolved === 4}, ${scored.mistakeCost + scored.bonus + scored.floor}, ${scored.floor !== 0}, ${netAfter})
       on conflict (question_id) where event_type = 'board_complete' do nothing
       returning id
     ` as unknown as Promise<Array<{ id: unknown }>>
   const commit = await insertAnswerAtomic(insertBoardComplete, studentIdForInsert, 'connections/submit complete')
 
   if (commit.outcome === 'conflict') {
-    // Mirrors match's own board_complete conflict response exactly: bare 409,
-    // no reveal. Unlike a guess, the brief does not ask for a read-back here.
+    // FIX 7 (A5 adversarial review): a lost response to the FIRST 'complete'
+    // (network drop, tab suspend) used to leave a Retry stuck here forever --
+    // this branch returned a bare 409 with nothing to reconcile, so
+    // lastScored stayed null and Next Board stayed disabled; only Exit
+    // escaped. Now mirrors the 'guess' path's duplicate handling: read back
+    // what the winning attempt actually recorded and recompute its full
+    // breakdown (scoreBoard is pure, so this reproduces the original
+    // response exactly), so the client can proceed as if this request had
+    // succeeded the first time.
+    try {
+      const stored = (await sql`
+        select groups_solved, mistakes_made, terminal_reason
+        from events
+        where question_id = ${tokenPayload.nonce} and event_type = 'board_complete'
+        limit 1
+      `) as Array<{ groups_solved: number | null; mistakes_made: number | null; terminal_reason: string | null }>
+      if (stored.length > 0 && stored[0].terminal_reason) {
+        const storedGroupsSolved = stored[0].groups_solved ?? 0
+        const storedMistakes = stored[0].mistakes_made ?? 0
+        const storedScored = scoreBoard(
+          storedGroupsSolved,
+          storedMistakes,
+          points,
+          stored[0].terminal_reason as TerminalReason
+        )
+        return Response.json(
+          { ok: false, error: 'already completed', duplicate: true, groupsSolved: storedGroupsSolved, mistakes: storedMistakes, ...storedScored },
+          { status: 409 }
+        )
+      }
+    } catch (err) {
+      console.error('connections/submit: stored-completion lookup failed', err)
+    }
+    // Lookup failed or found nothing (should not happen given the conflict
+    // this branch is inside) -- fall back to the bare rejection rather than
+    // fabricate a result.
     return Response.json({ ok: false, error: 'already completed', duplicate: true }, { status: 409 })
   }
   if (commit.outcome === 'error') {

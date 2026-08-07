@@ -57,6 +57,13 @@ export interface GameEvent {
   lever?: string | null
   round?: number | null
   question_id?: string | null
+  // FIX 6 (A5 adversarial review): board_reported_ambiguous carried no way to
+  // join back to a board -- its whole purpose (db/011's header: reviewing a
+  // spike in reports to retire a board) is impossible without one. Opaque
+  // from the client's point of view: events.board_id is deliberately NOT a
+  // foreign key (db/011), and /api/events/route.ts validates this as a plain
+  // string, never a path to write a scoring column.
+  board_id?: string | null
   difficulty_level?: number | null
   time_limit?: number | null
   time_taken_ms?: number | null

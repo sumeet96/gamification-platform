@@ -53,18 +53,28 @@ export async function GET() {
           count(*) filter (where event_type = 'question_answered')::int as answered,
           count(*) filter (where event_type = 'question_answered' and is_correct)::int as correct,
           count(*) filter (where event_type = 'board_complete')::int as boards,
+          -- Package A5 FIX 3 (adversarial review, 7 Aug 2026): Connections'
+          -- accrual (perGroup x groupsSolved) lives on group_solved, not on
+          -- question_answered or board_complete -- see app/api/connections/
+          -- submit/route.ts's header for the full split. Without
+          -- 'group_solved' in both this filter and the one below, Connections
+          -- points never reached this total at all (board_complete alone only
+          -- ever carried mistakeCost+bonus+floor). Safe to widen: no other
+          -- game ever writes a 'group_solved' row (an in-list value, not a
+          -- backtick anywhere in here), so this cannot change what quiz's or
+          -- match's net/gross already meant.
           coalesce(
-            sum(points_delta) filter (where event_type in ('question_answered', 'board_complete')),
+            sum(points_delta) filter (where event_type in ('question_answered', 'board_complete', 'group_solved')),
             0
           )::int as net
         from base
-        where event_type in ('question_answered', 'board_complete')
+        where event_type in ('question_answered', 'board_complete', 'group_solved')
         group by coalesce(game_type, 'unknown')
       )
       select
-        coalesce(sum(points_delta) filter (where event_type in ('question_answered', 'board_complete')), 0)::int as net,
+        coalesce(sum(points_delta) filter (where event_type in ('question_answered', 'board_complete', 'group_solved')), 0)::int as net,
         coalesce(
-          sum(points_delta) filter (where event_type in ('question_answered', 'board_complete') and points_delta > 0),
+          sum(points_delta) filter (where event_type in ('question_answered', 'board_complete', 'group_solved') and points_delta > 0),
           0
         )::int as gross,
         count(*) filter (where event_type = 'question_answered')::int as answered,

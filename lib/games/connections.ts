@@ -148,17 +148,27 @@ export interface ScoredConnectionsBoard {
  * one decision, so `mistakePenalty` is charged once per guess, not four
  * times. See PartitionBoardPoints in ./registry for the full reasoning
  * (the same double-billing trap BoardPoints was designed around for match).
+ *
+ * FIX 4 (A5 adversarial review): `terminalReason` gates `floor`. The registry
+ * documents the floor as "budget exhausted with <= floorAtOrBelow groups
+ * solved" — but a board abandoned mid-round (exitMidRound calling
+ * completeBoard('abandoned') on a freshly served board) also has
+ * groupsSolved === 0, and was being floored too, invisibly (the client
+ * returns before reading that response on an abandoned exit, so the student
+ * never even saw it get charged). The floor must only fire when the board
+ * actually ended on the mistake budget.
  */
 export function scoreBoard(
   groupsSolved: number,
   mistakes: number,
-  points: PartitionBoardPoints
+  points: PartitionBoardPoints,
+  terminalReason: TerminalReason
 ): ScoredConnectionsBoard {
   const perfect = groupsSolved === 4 && mistakes === 0
   const accrual = groupsSolved * points.perGroup
   const mistakeCost = mistakes * points.mistakePenalty
   const bonus = perfect ? points.perfectBonus : 0
-  const floor = groupsSolved <= points.floorAtOrBelow ? points.floorPenalty : 0
+  const floor = terminalReason === 'budget' && groupsSolved <= points.floorAtOrBelow ? points.floorPenalty : 0
 
   return {
     accrual,
@@ -169,6 +179,48 @@ export function scoreBoard(
     potential: accrual + bonus,
     perfect,
   }
+}
+
+/**
+ * FIX 2 (A5 adversarial review): whether this board's mistake budget is
+ * already spent, i.e. whether a NEW guess (correct or not) must be refused
+ * outright rather than evaluated. Pulled out as a pure, one-line predicate
+ * (mirrors isTokenCurrent's extraction in lib/auth/board-token.ts) purely so
+ * the submit route's decision is unit-testable without a DB. `priorMistakes`
+ * must come from counting this board serve's own already-committed events
+ * (never a client-supplied count) — see app/api/connections/submit/route.ts's
+ * boardProgress().
+ */
+export function isMistakeBudgetExhausted(priorMistakes: number, points: PartitionBoardPoints): boolean {
+  return priorMistakes >= points.maxMistakes
+}
+
+/**
+ * Decide why a board ended, from server-known state alone.
+ *
+ * This exists because gating `floorPenalty` on `terminalReason === 'budget'`
+ * (see scoreBoard) turned the terminal reason into a scoring input — and the
+ * submit route used to read it straight out of the request body. A client that
+ * had burned the whole mistake budget could claim 'abandoned' and dodge the
+ * floor, which is the same shape of hole as an unenforced mistake budget:
+ * misreporting your own end state pays. Both `groupsSolved` and `mistakes` are
+ * recomputed server-side from the board serve's committed events, so the
+ * server can decide this itself and the client's claim is worth nothing.
+ *
+ * Order is deliberate. A board that reached all four groups is 'solved' even
+ * if the last group was won on the final permitted mistake — the budget being
+ * spent does not retroactively make a completed board a failure. Budget
+ * exhaustion is checked before 'abandoned' precisely because that is the
+ * substitution a client would want to make.
+ */
+export function deriveTerminalReason(
+  groupsSolved: number,
+  mistakes: number,
+  points: PartitionBoardPoints
+): TerminalReason {
+  if (groupsSolved === 4) return 'solved'
+  if (isMistakeBudgetExhausted(mistakes, points)) return 'budget'
+  return 'abandoned'
 }
 
 /**

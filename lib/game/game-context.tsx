@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { GameConfig, RoundSummary } from './engine'
+import { configBelongsTo, type GameConfig, type RoundSummary } from './engine'
 import { logEvent, type GameEvent } from '@/lib/log/logEvent'
 
 interface SessionTotals {
@@ -20,7 +20,10 @@ const EMPTY_SESSION: SessionTotals = {
 
 interface GameState {
   sessionId: string
-  config: GameConfig | null
+  // FIX 5 (A5 review): raw config is deliberately NOT exposed here. A game
+  // must go through getConfig(ownerGameId) below -- there is no `config`
+  // field to destructure by mistake and accidentally inherit another game's
+  // persisted choice (see configBelongsTo's doc comment in lib/game/engine.ts).
   session: SessionTotals
   lastRound: RoundSummary | null
   // The student id this tab believes it's playing as (see fetchStudentId below).
@@ -30,6 +33,12 @@ interface GameState {
   // (package Q1 FIX 6). Never trusted server-side as the identity to write.
   studentId: string | null
   setConfig: (c: GameConfig) => void
+  // The one chokepoint for reading the persisted config: returns it only if
+  // `config.ownerGameId === ownerGameId`, otherwise null -- exactly as if no
+  // config had ever been set. Every game page calls this with its OWN id
+  // (its GAME_ID constant, or QUIZ_OWNER_ID for the quiz) instead of reading
+  // a raw `config` field, so a foreign game's config can never leak in.
+  getConfig: (ownerGameId: string) => GameConfig | null
   recordRound: (r: RoundSummary) => void
   registerContinue: () => void
   // Emits 'round_offer' the first time the results screen actually renders the
@@ -188,6 +197,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }
 
   const setConfig = (c: GameConfig) => setConfigState(c)
+  const getConfig = (ownerGameId: string): GameConfig | null => configBelongsTo(config, ownerGameId)
 
   const recordRound = (r: RoundSummary) => {
     setSession((s) => ({
@@ -240,7 +250,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   return (
     <GameContext.Provider
-      value={{ sessionId, config, session, lastRound, studentId, setConfig, recordRound, registerContinue, announceRoundOffer, abandonRound, resetSession, emit }}
+      value={{ sessionId, session, lastRound, studentId, setConfig, getConfig, recordRound, registerContinue, announceRoundOffer, abandonRound, resetSession, emit }}
     >
       {children}
     </GameContext.Provider>

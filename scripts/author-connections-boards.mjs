@@ -142,6 +142,13 @@ if (mintFile) {
       term: c.term,
       clue: c.clue,
       source_excerpt: c.source_excerpt ?? null,
+      // Every row minted by this path is a Connections tile, tagged so item-selection routes that
+      // render a clue as the prompt (word/question, match/board) can exclude it -- see
+      // mint-connections-tiles.mjs's header for why some of these clues are provenance-only and
+      // would be unanswerable if shown as a question. `recipe` already exists
+      // (db/003_add_content_items.sql, "groups items generated the same way, for pooled facility
+      // calibration") -- this is exactly that use, not a new column.
+      recipe: 'connections-tile-v1',
     })
   }
   console.log(`  ${mintUpserts.length} content_items row(s) will be upserted before board resolution.\n`)
@@ -172,6 +179,29 @@ for (const board of requestedBoards) {
       and lower(trim(term)) = any(${allMembers.map((m) => m.trim().toLowerCase())})
   `
   const byKey = new Map(rows.map((r) => [r.term.trim().toLowerCase(), r]))
+
+  // Tiles this invocation is about to mint count as resolvable.
+  //
+  // Without this the script could never succeed on a first run: step 1 only
+  // COLLECTS the mint upserts (they are not written until step 6, so that
+  // nothing is written before every invariant has passed), but the query
+  // above sees only rows already in the database -- so a brand-new tile
+  // always failed resolution, including under --commit, despite step 1
+  // announcing it would be upserted.
+  //
+  // Resolving against the pending upserts rather than moving the writes
+  // earlier is deliberate: "validate everything, then write, or write
+  // nothing" is this script's entire job (db/011 documents these invariants
+  // as authoring-time because Postgres cannot enforce them), and minting
+  // first would mean a board that fails a later invariant still leaves its
+  // content_items rows behind. The id used here is the same deterministic
+  // computeTermId the upsert will use, so the board rows point at exactly the
+  // rows that get written in the same transaction.
+  for (const m of mintUpserts) {
+    if (m.subject !== subject) continue
+    const key = m.term.trim().toLowerCase()
+    if (!byKey.has(key)) byKey.set(key, { id: m.id, term: m.term, pendingMint: true })
+  }
   const resolvedGroups = groups.map((g) => ({
     ...g,
     resolvedMembers: g.members.map((m) => {
@@ -218,10 +248,10 @@ const queries = []
 
 for (const m of mintUpserts) {
   queries.push(sql`
-    insert into content_items (id, source_id, subject, topic, page, kind, term, clue, source_excerpt)
-    values (${m.id}, ${m.source_id}, ${m.subject}, ${m.topic}, ${m.page}, 'term_definition', ${m.term}, ${m.clue}, ${m.source_excerpt})
+    insert into content_items (id, source_id, subject, topic, page, kind, term, clue, source_excerpt, recipe)
+    values (${m.id}, ${m.source_id}, ${m.subject}, ${m.topic}, ${m.page}, 'term_definition', ${m.term}, ${m.clue}, ${m.source_excerpt}, ${m.recipe})
     on conflict (id) do update set
-      topic = excluded.topic, page = excluded.page, clue = excluded.clue, source_excerpt = excluded.source_excerpt
+      topic = excluded.topic, page = excluded.page, clue = excluded.clue, source_excerpt = excluded.source_excerpt, recipe = excluded.recipe
   `)
 }
 

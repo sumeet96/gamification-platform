@@ -39,7 +39,7 @@ import { getGame, type PartitionBoardPoints } from '@/lib/games/registry'
 
 const CONNECTIONS_GAME_ID = 'connections'
 const CONNECTIONS_POINTS = getGame(CONNECTIONS_GAME_ID).points as PartitionBoardPoints
-const CONNECTIONS_CONFIG: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: FIXED_DIFFICULTY }
+const CONNECTIONS_CONFIG: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: FIXED_DIFFICULTY, ownerGameId: CONNECTIONS_GAME_ID }
 
 // UNCONFIRMED, same flag as match's BOARDS_PER_ROUND: how many boards make one
 // "round" for Connections is not specified anywhere in the spec. Three, for
@@ -49,7 +49,10 @@ const CONNECTIONS_CONFIG: GameConfig = { mode: 'none', lever: 'none', fixedDiffi
 const BOARDS_PER_ROUND = 3
 
 interface Tile { contentItemId: string; text: string }
-interface BoardData { tiles: Tile[]; boardToken: string }
+// boardId (FIX 6, A5 review): the plain board id the board route now also
+// returns -- not secret (unlike the shuffle seed, which never leaves the
+// server), needed so board_reported_ambiguous can be joined back to a board.
+interface BoardData { tiles: Tile[]; boardToken: string; boardId: string }
 interface SolvedGroup { groupId: string; groupOrdinal: number; label: string; tileIds: string[] }
 
 interface GuessResponse {
@@ -153,7 +156,7 @@ export default function ConnectionsGame() {
       }
       const tiles: Tile[] = data.tiles
       tilesByIdRef.current = new Map(tiles.map((t) => [t.contentItemId, t]))
-      setBoard({ tiles, boardToken: data.boardToken })
+      setBoard({ tiles, boardToken: data.boardToken, boardId: data.boardId })
       setTileOrder(tiles.map((t) => t.contentItemId))
       setSolvedGroups([])
       setMistakes(0)
@@ -335,6 +338,30 @@ export default function ConnectionsGame() {
 
   // ---- Board completion ---------------------------------------------------
 
+  // FIX 7 (A5 adversarial review): applies a (possibly duplicate) complete
+  // response to round state. Shared by the normal success path and the
+  // conflict/duplicate path below, so a lost-response retry that comes back
+  // as a 409 reconciles the SAME way a fresh success would -- see the route's
+  // own FIX 7 comment (app/api/connections/submit/route.ts) for the read-back
+  // this depends on.
+  function applyCompleteResult(data: CompleteResponse) {
+    roundNetRef.current += data.net ?? 0
+    setRoundTotals((t) => ({
+      net: t.net + (data.net ?? 0),
+      potential: t.potential + (data.potential ?? 0),
+      accrual: t.accrual + (data.accrual ?? 0),
+      bonus: t.bonus + (data.bonus ?? 0),
+      floor: t.floor + (data.floor ?? 0),
+      mistakeCost: t.mistakeCost + (data.mistakeCost ?? 0),
+      groupsSolved: t.groupsSolved + (data.groupsSolved ?? 0),
+      boardsPlayed: t.boardsPlayed + 1,
+      boardsSolved: t.boardsSolved + (data.perfect || data.groupsSolved === 4 ? 1 : 0),
+      mistakes: t.mistakes + (data.mistakes ?? 0),
+    }))
+    setLastScored(data)
+    setPhase('boardResult')
+  }
+
   async function completeBoard(reason: 'solved' | 'budget' | 'abandoned', opts?: { keepalive?: boolean }) {
     if (!board || completeGuardRef.current) return
     completeGuardRef.current = true
@@ -361,25 +388,19 @@ export default function ConnectionsGame() {
       if (reason === 'abandoned') return // fire-and-forget: navigating away regardless
       const data = (await res.json()) as CompleteResponse
       if (!res.ok || !data?.ok) {
+        if (data?.duplicate) {
+          // FIX 7: the first attempt's response was lost (network drop, tab
+          // suspend) but the server already scored it -- reconcile from the
+          // read-back instead of dead-ending here (previously: lastScored
+          // stayed null, Next Board stayed disabled, only Exit escaped).
+          applyCompleteResult(data)
+          return
+        }
         console.error('connections: /api/connections/submit complete failed', data)
         setCompleteError('Could not finalise this board -- your score may not be saved. Try again.')
         return
       }
-      roundNetRef.current += data.net ?? 0
-      setRoundTotals((t) => ({
-        net: t.net + (data.net ?? 0),
-        potential: t.potential + (data.potential ?? 0),
-        accrual: t.accrual + (data.accrual ?? 0),
-        bonus: t.bonus + (data.bonus ?? 0),
-        floor: t.floor + (data.floor ?? 0),
-        mistakeCost: t.mistakeCost + (data.mistakeCost ?? 0),
-        groupsSolved: t.groupsSolved + (data.groupsSolved ?? 0),
-        boardsPlayed: t.boardsPlayed + 1,
-        boardsSolved: t.boardsSolved + (data.perfect || data.groupsSolved === 4 ? 1 : 0),
-        mistakes: t.mistakes + (data.mistakes ?? 0),
-      }))
-      setLastScored(data)
-      setPhase('boardResult')
+      applyCompleteResult(data)
     } catch (err) {
       if (reason === 'abandoned') return
       console.error('connections: /api/connections/submit complete request failed', err)
@@ -448,11 +469,12 @@ export default function ConnectionsGame() {
   }
 
   function reportAmbiguous() {
-    if (ambiguousReported) return
+    if (ambiguousReported || !board) return
     setAmbiguousReported(true)
     emit({
       event_type: 'board_reported_ambiguous', game_type: CONNECTIONS_GAME_ID,
       mode: CONNECTIONS_CONFIG.mode, lever: CONNECTIONS_CONFIG.lever, round: roundNo,
+      board_id: board.boardId, // FIX 6: so this event can be joined back to a board at all
     })
   }
 

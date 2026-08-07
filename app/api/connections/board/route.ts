@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { randomInt } from 'node:crypto'
 import { getSql } from '@/lib/db/client'
 import { getCurrentStudent } from '@/lib/auth/current-student'
 import { issueBoardToken, readBoardToken, BOARD_TOKEN_ISSUED_EVENT_TYPE } from '@/lib/auth/board-token'
@@ -150,12 +150,27 @@ export async function GET(req: Request) {
     return Response.json({ ok: false, error: 'failed to issue board' }, { status: 500 })
   }
 
-  // Deterministic shuffle seed, derived from the token's nonce (an id: random
-  // per issue, never array position or time -- CLAUDE.md's standing rule).
-  // Logged verbatim below on board_served so the served order is
-  // reconstructable from the log; sha256 rather than a weaker hash so two
-  // different nonces essentially never collide onto the same seed.
-  const seed = createHash('sha256').update(nonce).digest().readUInt32BE(0)
+  // FIX 1 (A5 adversarial review): the seed MUST NOT be derivable from
+  // anything the client can see. It used to be sha256(nonce) -- and the
+  // nonce rides the boardToken in plaintext base64url JSON (signed, not
+  // encrypted, see lib/auth/board-token.ts's header), so a client could
+  // decode its own nonce, replay sha256 + mulberry32 itself, and read the
+  // partition straight off which pre-shuffle slot (and therefore which
+  // group) each served tile came from. Verified: exact recovery, every
+  // trial, zero mistakes, +100 a board -- see
+  // tests/connections-shuffle-security.test.ts, which genuinely attempts
+  // that reconstruction rather than just checking the response for an
+  // absent groupId key.
+  //
+  // Now a CSPRNG value with no relationship to the nonce, the board id, or
+  // any other token field -- the client never needs the seed at all, only
+  // the already-shuffled tiles. Still logged verbatim to shuffle_seed on
+  // board_served below: that column's job is analysis-time reproducibility
+  // (the served order is reconstructable from the log), not client-side
+  // derivation, and logging the actual value used satisfies that without
+  // exposing anything -- shuffle_seed is a server-only event column, never
+  // returned in this route's JSON response.
+  const seed = randomInt(0, 0x100000000) // uniform over the full uint32 range
   const tiles: ConnectionsTile[] = shuffleBoardTiles(
     rows.map((r) => ({ contentItemId: r.content_item_id, text: r.tile_text })),
     seed
@@ -192,5 +207,12 @@ export async function GET(req: Request) {
     tiles: tiles.map((t) => ({ contentItemId: t.contentItemId, text: t.text })),
     boardToken,
     difficultyHonored,
+    // FIX 6 (A5 review): the plain board id, not secret -- it does not reveal
+    // the partition (unlike the shuffle seed above, which is never returned
+    // here) -- so the client can attach it to board_reported_ambiguous and
+    // that event can actually be joined back to a board (see
+    // app/api/events/route.ts and app/games/connections/page.tsx's
+    // reportAmbiguous()).
+    boardId: selection.boardId,
   })
 }

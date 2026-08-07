@@ -15,6 +15,8 @@ import {
   guessHash,
   scoreBoard,
   shuffleBoardTiles,
+  isMistakeBudgetExhausted,
+  deriveTerminalReason,
   type ConnectionsBoard,
 } from '../lib/games/connections.ts'
 import { getGame, type PartitionBoardPoints } from '../lib/games/registry.ts'
@@ -140,17 +142,19 @@ test('the registry entry for connections is partition-scored', () => {
 })
 
 test('a perfect board (4 groups, 0 mistakes) is the maximum achievable score', () => {
-  const perfect = scoreBoard(4, 0, POINTS)
+  const perfect = scoreBoard(4, 0, POINTS, 'solved')
   assert.equal(perfect.perfect, true)
   assert.equal(perfect.net, 4 * POINTS.perGroup + POINTS.perfectBonus)
 
   // Nothing else beats it: fewer groups solved forgoes accrual, any mistake
-  // both loses the bonus and subtracts mistakePenalty.
+  // both loses the bonus and subtracts mistakePenalty. terminalReason is
+  // 'budget' throughout -- the most favourable-to-the-floor case -- so this
+  // remains true even where the floor could apply.
   for (let g = 0; g <= 4; g++) {
     for (let m = 0; m <= POINTS.maxMistakes; m++) {
       if (g === 4 && m === 0) continue
       assert.ok(
-        scoreBoard(g, m, POINTS).net < perfect.net,
+        scoreBoard(g, m, POINTS, 'budget').net < perfect.net,
         `(${g} groups, ${m} mistakes) must score less than a perfect board`
       )
     }
@@ -158,7 +162,7 @@ test('a perfect board (4 groups, 0 mistakes) is the maximum achievable score', (
 })
 
 test('a board lost on the mistake budget, solving nothing, nets the floor plus mistake cost', () => {
-  const lost = scoreBoard(0, POINTS.maxMistakes, POINTS)
+  const lost = scoreBoard(0, POINTS.maxMistakes, POINTS, 'budget')
   assert.equal(lost.perfect, false)
   assert.equal(lost.bonus, 0)
   assert.equal(lost.accrual, 0)
@@ -168,14 +172,40 @@ test('a board lost on the mistake budget, solving nothing, nets the floor plus m
 })
 
 test('the floor case: exhausting the budget at exactly floorAtOrBelow groups solved nets negative', () => {
-  const s = scoreBoard(POINTS.floorAtOrBelow, POINTS.maxMistakes, POINTS)
+  const s = scoreBoard(POINTS.floorAtOrBelow, POINTS.maxMistakes, POINTS, 'budget')
   assert.equal(s.floor, POINTS.floorPenalty)
   assert.ok(s.net < 0, 'giving up at or below the floor threshold must not be break-even or positive')
 })
 
+// ---------------------------------------------------------------------------
+// FIX 4 (A5 adversarial review): the floor must fire ONLY when the board
+// actually ended on the mistake budget, never on a genuinely abandoned board
+// (exitMidRound calling completeBoard('abandoned') on a freshly served
+// board used to floor it invisibly -- groupsSolved 0 <= floorAtOrBelow, and
+// scoreBoard used to ignore terminal_reason entirely).
+// ---------------------------------------------------------------------------
+
+test('FIX 4: floor only applies when terminalReason is "budget"', () => {
+  const budget = scoreBoard(0, POINTS.maxMistakes, POINTS, 'budget')
+  assert.equal(budget.floor, POINTS.floorPenalty)
+
+  const abandoned = scoreBoard(0, 0, POINTS, 'abandoned')
+  assert.equal(abandoned.floor, 0, 'a board abandoned immediately after being served must not be floored')
+
+  const solved = scoreBoard(4, 0, POINTS, 'solved')
+  assert.equal(solved.floor, 0)
+})
+
+test('FIX 4: an abandoned board is never floored, even with the exact groups/mistakes that would floor a budget-exhausted one', () => {
+  // Same numbers as "the floor case" above -- only terminalReason differs.
+  const s = scoreBoard(POINTS.floorAtOrBelow, POINTS.maxMistakes, POINTS, 'abandoned')
+  assert.equal(s.floor, 0)
+  assert.equal(s.net, s.accrual + s.mistakeCost + s.bonus, 'no floor component should be present in net at all')
+})
+
 test('N wrong guesses cost N x mistakePenalty, never N x 4', () => {
   for (let n = 1; n <= POINTS.maxMistakes; n++) {
-    const s = scoreBoard(2, n, POINTS)
+    const s = scoreBoard(2, n, POINTS, 'budget')
     assert.equal(s.mistakeCost, n * POINTS.mistakePenalty)
     // n=0 is skipped -- both formulas agree trivially at zero mistakes, so it
     // proves nothing about per-guess vs per-tile billing.
@@ -188,11 +218,62 @@ test('N wrong guesses cost N x mistakePenalty, never N x 4', () => {
 })
 
 test('potential ignores the floor penalty but keeps the bonus, mirroring match', () => {
-  const failed = scoreBoard(0, POINTS.maxMistakes, POINTS)
+  const failed = scoreBoard(0, POINTS.maxMistakes, POINTS, 'budget')
   assert.equal(failed.potential, 0, 'a failed board must not cost potential points')
 
-  const clean = scoreBoard(4, 0, POINTS)
+  const clean = scoreBoard(4, 0, POINTS, 'solved')
   assert.equal(clean.potential, clean.net, 'with no penalty applied the two views agree')
+})
+
+// ---------------------------------------------------------------------------
+// FIX 2 (A5 adversarial review): the mistake budget must be enforced
+// server-side, not merely assumed from client behaviour.
+// ---------------------------------------------------------------------------
+
+test('FIX 2: isMistakeBudgetExhausted is false below the budget, true at and beyond it', () => {
+  for (let m = 0; m < POINTS.maxMistakes; m++) {
+    assert.equal(isMistakeBudgetExhausted(m, POINTS), false, `${m} mistakes must not yet exhaust a ${POINTS.maxMistakes}-mistake budget`)
+  }
+  assert.equal(isMistakeBudgetExhausted(POINTS.maxMistakes, POINTS), true)
+  assert.equal(isMistakeBudgetExhausted(POINTS.maxMistakes + 1, POINTS), true, 'must stay exhausted, not flip back once past the budget')
+})
+
+// ---------------------------------------------------------------------------
+// FIX 3 (A5 adversarial review): every component of a board's score has
+// exactly one home -- group_solved carries perGroup accrual, board_complete
+// carries mistakeCost + perfectBonus + floor, guess_submitted carries
+// nothing. Summing points_delta over (group_solved, board_complete) for one
+// board serve must equal scoreBoard().net exactly, with no double-write and
+// no missing component (previously: accrual was double-written to BOTH
+// guess_submitted and group_solved, board_complete never carried mistakeCost
+// at all, and app/api/stats/route.ts summed neither guess_submitted nor
+// group_solved -- so a perfect board showed the student +100 but recorded 0
+// accrual anywhere the lifetime score could see it).
+// ---------------------------------------------------------------------------
+
+test('FIX 3: group_solved + board_complete points sum to scoreBoard().net exactly, across a range of outcomes', () => {
+  const cases: Array<[number, number, 'solved' | 'budget' | 'abandoned']> = [
+    [4, 0, 'solved'],
+    [3, 2, 'budget'],
+    [0, POINTS.maxMistakes, 'budget'],
+    [POINTS.floorAtOrBelow, POINTS.maxMistakes, 'budget'],
+    [2, 1, 'abandoned'],
+    [0, 0, 'abandoned'],
+  ]
+  for (const [groupsSolved, mistakes, terminalReason] of cases) {
+    const scored = scoreBoard(groupsSolved, mistakes, POINTS, terminalReason)
+    // group_solved: one row per solved group, each carrying perGroup -- so
+    // the rows for this serve sum to exactly groupsSolved x perGroup.
+    const groupSolvedTotal = groupsSolved * POINTS.perGroup
+    assert.equal(groupSolvedTotal, scored.accrual, `(${groupsSolved}, ${mistakes}, ${terminalReason}): group_solved rows must sum to scoreBoard().accrual`)
+    // board_complete: exactly one row, carrying mistakeCost + bonus + floor.
+    const boardCompleteTotal = scored.mistakeCost + scored.bonus + scored.floor
+    assert.equal(
+      groupSolvedTotal + boardCompleteTotal,
+      scored.net,
+      `(${groupsSolved}, ${mistakes}, ${terminalReason}): group_solved + board_complete must sum to scoreBoard().net exactly`
+    )
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -239,4 +320,42 @@ test('connections source never references resolveLever, BOARD_TIME_BASE, or conf
     assert.ok(!src.includes('BOARD_TIME_BASE'), `${rel} must not read BOARD_TIME_BASE`)
     assert.ok(!/config\.lever/.test(src), `${rel} must not branch on config.lever`)
   }
+})
+
+// --- deriveTerminalReason -------------------------------------------------
+// The terminal reason gates floorPenalty, which makes it a scoring input. It
+// is therefore derived from server-known state and never read from the
+// request body: a client that had spent the whole mistake budget could
+// otherwise claim 'abandoned' and dodge the floor. These tests pin that
+// derivation, because the failure is silent — a wrong reason still writes a
+// valid row and still passes db/011's CHECK.
+
+test('deriveTerminalReason: all four groups is solved, even on the last permitted mistake', () => {
+  assert.equal(deriveTerminalReason(4, POINTS.maxMistakes, POINTS), 'solved')
+  assert.equal(deriveTerminalReason(4, 0, POINTS), 'solved')
+})
+
+test('deriveTerminalReason: a spent mistake budget is budget, not abandoned', () => {
+  assert.equal(deriveTerminalReason(0, POINTS.maxMistakes, POINTS), 'budget')
+  assert.equal(deriveTerminalReason(2, POINTS.maxMistakes, POINTS), 'budget')
+})
+
+test('deriveTerminalReason: an unfinished board with budget left is abandoned', () => {
+  assert.equal(deriveTerminalReason(0, 0, POINTS), 'abandoned')
+  assert.equal(deriveTerminalReason(2, POINTS.maxMistakes - 1, POINTS), 'abandoned')
+})
+
+test('claiming abandoned after busting the budget cannot dodge the floor penalty', () => {
+  // The exploit this derivation closes: the client asserts 'abandoned', but
+  // the server derives from its own counts and still applies the floor.
+  const derived = deriveTerminalReason(0, POINTS.maxMistakes, POINTS)
+  const honest = scoreBoard(0, POINTS.maxMistakes, POINTS, derived)
+  const dodged = scoreBoard(0, POINTS.maxMistakes, POINTS, 'abandoned')
+
+  assert.equal(derived, 'budget')
+  assert.equal(honest.floor, POINTS.floorPenalty)
+  assert.ok(
+    honest.net < dodged.net,
+    'the floor must actually cost something, or this test proves nothing'
+  )
 })

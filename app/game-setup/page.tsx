@@ -4,7 +4,7 @@ import { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ChevronLeft, Zap, Brain, Timer } from 'lucide-react'
 import { useGame } from '@/lib/game/game-context'
-import { FIXED_DIFFICULTY, POINTS_CORRECT, PENALTY_WRONG, roundLength, type Lever, type Mode } from '@/lib/game/engine'
+import { FIXED_DIFFICULTY, POINTS_CORRECT, PENALTY_WRONG, roundLength, QUIZ_OWNER_ID, type Lever, type Mode } from '@/lib/game/engine'
 
 function SetupInner() {
   const router = useRouter()
@@ -17,7 +17,7 @@ function SetupInner() {
   const questionsCount = roundLength(mode)
 
   const start = () => {
-    setConfig({ mode, lever, fixedDifficulty: FIXED_DIFFICULTY })
+    setConfig({ mode, lever, fixedDifficulty: FIXED_DIFFICULTY, ownerGameId: QUIZ_OWNER_ID })
     router.push('/quiz')
   }
 

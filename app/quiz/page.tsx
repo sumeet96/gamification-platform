@@ -6,7 +6,7 @@ import { ChevronLeft, Check, X, Clock, Brain } from 'lucide-react'
 import { useGame } from '@/lib/game/game-context'
 import { QUESTIONS, pickQuestion, type Question } from '@/lib/game/questions'
 import {
-  roundLength, quizGameId,
+  roundLength, quizGameId, QUIZ_OWNER_ID,
   initialLeverState, resolveLever, advanceLeverState, type LeverState,
   START_DIFFICULTY, TIME_BASE,
 } from '@/lib/game/engine'
@@ -19,7 +19,13 @@ interface RoundTally {
 
 export default function Quiz() {
   const router = useRouter()
-  const { config, session, sessionId, studentId, recordRound, emit, abandonRound } = useGame()
+  const { getConfig, session, sessionId, studentId, recordRound, emit, abandonRound } = useGame()
+  // FIX 5 (A5 review): getConfig(QUIZ_OWNER_ID) returns null unless the
+  // persisted config was actually set by this game's own setup screen
+  // (app/game-setup/page.tsx) -- a browser-back from a lever-less game like
+  // Connections must not hand the quiz that game's config. Every `config`
+  // read below is unchanged; only how it's obtained changed.
+  const config = getConfig(QUIZ_OWNER_ID)
 
   const [pool, setPool] = useState<Question[]>(QUESTIONS)
   const [q, setQ] = useState<Question | null>(null)

@@ -45,9 +45,13 @@ interface RoundTotals {
 export default function WordGame() {
   const router = useRouter()
   const {
-    config, session, sessionId, studentId, setConfig,
+    getConfig, session, sessionId, studentId, setConfig,
     recordRound, registerContinue, announceRoundOffer, emit, abandonRound,
   } = useGame()
+  // FIX 5 (A5 review): only a config this game's own setup screen set,
+  // tagged WORD_GAME_ID, is ever handed back -- see lib/game/engine.ts's
+  // configBelongsTo.
+  const config = getConfig(WORD_GAME_ID)
 
   const [phase, setPhase] = useState<Phase>('setup')
   const [leverChoice, setLeverChoice] = useState<Lever>('adaptive')
@@ -181,7 +185,7 @@ export default function WordGame() {
   }
 
   function startRound() {
-    const cfg: GameConfig = { mode: modeChoice, lever: leverChoice, fixedDifficulty: FIXED_DIFFICULTY }
+    const cfg: GameConfig = { mode: modeChoice, lever: leverChoice, fixedDifficulty: FIXED_DIFFICULTY, ownerGameId: WORD_GAME_ID }
     setConfig(cfg)
     beginRound(cfg)
   }

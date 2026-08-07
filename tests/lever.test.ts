@@ -16,6 +16,7 @@ import {
   BOARD_TIME_BASE,
   BOARD_TIME_MIN,
   BOARD_TIME_STEP,
+  configBelongsTo,
   type GameConfig,
 } from '../lib/game/engine.ts'
 
@@ -28,7 +29,7 @@ const ANSWERS = [
 ]
 
 test('adaptive lever: timeLimit never varies', () => {
-  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3 }
+  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3, ownerGameId: 'test' }
   let state = initialLeverState(config)
   const { timeLimit: first } = resolveLever(config, state)
   for (const correct of ANSWERS) {
@@ -39,7 +40,7 @@ test('adaptive lever: timeLimit never varies', () => {
 })
 
 test('time lever: difficulty never varies', () => {
-  const config: GameConfig = { mode: 'normal', lever: 'time', fixedDifficulty: 3 }
+  const config: GameConfig = { mode: 'normal', lever: 'time', fixedDifficulty: 3, ownerGameId: 'test' }
   let state = initialLeverState(config)
   const { difficulty: first } = resolveLever(config, state)
   assert.equal(first, config.fixedDifficulty)
@@ -51,7 +52,7 @@ test('time lever: difficulty never varies', () => {
 })
 
 test('adaptive lever: difficulty actually changes at least once', () => {
-  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3 }
+  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3, ownerGameId: 'test' }
   let state = initialLeverState(config)
   const seen = new Set<number>()
   for (const correct of ANSWERS) {
@@ -62,7 +63,7 @@ test('adaptive lever: difficulty actually changes at least once', () => {
 })
 
 test('time lever: timeLimit actually changes at least once', () => {
-  const config: GameConfig = { mode: 'normal', lever: 'time', fixedDifficulty: 3 }
+  const config: GameConfig = { mode: 'normal', lever: 'time', fixedDifficulty: 3, ownerGameId: 'test' }
   let state = initialLeverState(config)
   const seen = new Set<number>()
   for (const correct of ANSWERS) {
@@ -76,7 +77,7 @@ test('time lever: timeLimit actually changes at least once', () => {
 // same-direction answers, so a lone correct right after a wrong (or vice
 // versa) must not move the level.
 test('adaptive lever: one correct after a wrong does not move the level (two-consecutive rule)', () => {
-  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3 }
+  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3, ownerGameId: 'test' }
   let state = initialLeverState(config)
   // Two consecutive correct answers -> one bump, from START_DIFFICULTY.
   state = advanceLeverState(config, state, true)
@@ -99,7 +100,7 @@ test('adaptive lever: one correct after a wrong does not move the level (two-con
 // streak without themselves being a second consecutive wrong) is still below
 // the ceiling partway through a 10-question rapid round.
 test('adaptive lever: difficulty no longer saturates mid-round for a strong player', () => {
-  const config: GameConfig = { mode: 'rapid', lever: 'adaptive', fixedDifficulty: 3 }
+  const config: GameConfig = { mode: 'rapid', lever: 'adaptive', fixedDifficulty: 3, ownerGameId: 'test' }
   const total = roundLength(config.mode)
   const STRONG = [true, true, true, true, false, true, true, true, true, true]
   assert.equal(STRONG.length, total, 'fixture must cover a full rapid round')
@@ -119,7 +120,7 @@ test('adaptive lever: difficulty no longer saturates mid-round for a strong play
 // completely unchanged -- the quiz's call sites never pass a profile, so a
 // regression here would silently retime every MCQ.
 test('resolveLever with no profile behaves exactly as before (item timing)', () => {
-  const config: GameConfig = { mode: 'normal', lever: 'time', fixedDifficulty: 3 }
+  const config: GameConfig = { mode: 'normal', lever: 'time', fixedDifficulty: 3, ownerGameId: 'test' }
   let state = initialLeverState(config)
   assert.equal(resolveLever(config, state).timeLimit, TIME_BASE)
   state = advanceLeverState(config, state, true)
@@ -131,7 +132,7 @@ test('resolveLever with no profile behaves exactly as before (item timing)', () 
 // BOARD_TIME_* constants instead, for BOTH branches of the lever switch
 // (adaptive pins the base, time ramps it down).
 test('resolveLever board profile: adaptive lever pins the BOARD base, not the item base', () => {
-  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3 }
+  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3, ownerGameId: 'test' }
   const state = initialLeverState(config)
   const { timeLimit } = resolveLever(config, state, 'board')
   assert.equal(timeLimit, BOARD_TIME_BASE)
@@ -139,7 +140,7 @@ test('resolveLever board profile: adaptive lever pins the BOARD base, not the it
 })
 
 test('resolveLever board profile: time lever ramps down using the BOARD step/min, never below BOARD_TIME_MIN', () => {
-  const config: GameConfig = { mode: 'normal', lever: 'time', fixedDifficulty: 3 }
+  const config: GameConfig = { mode: 'normal', lever: 'time', fixedDifficulty: 3, ownerGameId: 'test' }
   let state = initialLeverState(config)
   assert.equal(resolveLever(config, state, 'board').timeLimit, BOARD_TIME_BASE)
   // Enough consecutive correct boards to hit the floor.
@@ -154,7 +155,7 @@ test('resolveLever board profile: time lever ramps down using the BOARD step/min
 })
 
 test('resolveLever board profile: difficulty is unaffected by profile (only timing differs)', () => {
-  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3 }
+  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3, ownerGameId: 'test' }
   let state = initialLeverState(config)
   state = advanceLeverState(config, state, true)
   state = advanceLeverState(config, state, true)
@@ -167,7 +168,7 @@ test('resolveLever board profile: difficulty is unaffected by profile (only timi
 // neither difficulty nor timeLimit may vary, under either timing profile, no
 // matter what answers come in.
 test('none lever: neither difficulty nor timeLimit ever varies (item profile)', () => {
-  const config: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: 3 }
+  const config: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: 3, ownerGameId: 'test' }
   let state = initialLeverState(config)
   const first = resolveLever(config, state)
   for (const correct of ANSWERS) {
@@ -179,7 +180,7 @@ test('none lever: neither difficulty nor timeLimit ever varies (item profile)', 
 })
 
 test('none lever: neither difficulty nor timeLimit ever varies (board profile)', () => {
-  const config: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: 3 }
+  const config: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: 3, ownerGameId: 'test' }
   let state = initialLeverState(config)
   const first = resolveLever(config, state, 'board')
   for (const correct of ANSWERS) {
@@ -191,7 +192,7 @@ test('none lever: neither difficulty nor timeLimit ever varies (board profile)',
 })
 
 test('none lever: advanceLeverState never changes state, correct or wrong', () => {
-  const config: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: 3 }
+  const config: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: 3, ownerGameId: 'test' }
   const start = initialLeverState(config)
   let state = start
   for (const correct of ANSWERS) state = advanceLeverState(config, state, correct)
@@ -199,8 +200,36 @@ test('none lever: advanceLeverState never changes state, correct or wrong', () =
 })
 
 test('none lever: fixedDifficulty pins both initialLeverState and resolveLever', () => {
-  const config: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: 4 }
+  const config: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: 4, ownerGameId: 'test' }
   const state = initialLeverState(config)
   assert.equal(state.difficulty, 4)
   assert.equal(resolveLever(config, state).difficulty, 4)
+})
+
+// ---------------------------------------------------------------------------
+// configBelongsTo (A5 adversarial review, FIX 5): a game must never read
+// another game's persisted config. Package A5 (Connections) is the game that
+// exposed this -- CONNECTIONS_CONFIG carries lever: 'none', mode: 'none',
+// and game-context.tsx persists the last-set config across the whole app in
+// sessionStorage, so a browser-back from Connections into the quiz used to
+// hand the quiz a lever-less config it never chose (game_type: 'quiz-normal'
+// logged with mode:'none', lever:'none' -- a silent corruption of the
+// research log). configBelongsTo is the single chokepoint game-context.tsx's
+// getConfig() calls to prevent this for every game, not just the quiz.
+// ---------------------------------------------------------------------------
+
+test('configBelongsTo: a config set by one game is never handed to a different game (cross-game leak)', () => {
+  const connectionsConfig: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: 3, ownerGameId: 'connections' }
+  assert.equal(configBelongsTo(connectionsConfig, 'quiz'), null)
+  assert.equal(configBelongsTo(connectionsConfig, 'match'), null)
+  assert.equal(configBelongsTo(connectionsConfig, 'choose-word'), null)
+})
+
+test('configBelongsTo: a config belonging to the calling game round-trips unchanged', () => {
+  const quizConfig: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3, ownerGameId: 'quiz' }
+  assert.equal(configBelongsTo(quizConfig, 'quiz'), quizConfig)
+})
+
+test('configBelongsTo: no persisted config at all is null regardless of who asks', () => {
+  assert.equal(configBelongsTo(null, 'quiz'), null)
 })
