@@ -73,7 +73,7 @@ function pointsBlurb(entry: GameEntry): string {
     case 'partition':
       return `+${p.perGroup} per group, +${p.perfectBonus} for zero mistakes`
     case 'grid':
-      return `+${p.perEntry} per word, +${p.perfectBonus} for a clean grid`
+      return `+${p.perEntry} / ${p.perWrong} per word, +${p.perfectBonus} for a clean grid`
     default: {
       const exhaustive: never = p
       throw new Error(`pointsBlurb: unhandled points kind ${JSON.stringify(exhaustive)}`)

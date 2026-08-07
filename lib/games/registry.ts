@@ -98,32 +98,52 @@ export interface PartitionBoardPoints {
 
 /**
  * Board-grained scoring for crossword: per-entry (word) accrual paid once at
- * grid completion, plus a clean-grid bonus and a floor penalty. Shares the
- * accrual+bonus+floor SHAPE with BoardPoints/PartitionBoardPoints, but reuse
- * of either was rejected: BoardPoints' floor is derived from match's specific
- * permutation-fixed-point argument (a random bijection has exactly 1 expected
- * fixed point), which does not describe a crossword grid at all, and
- * `perPair` is the wrong noun for "correct word entries". PartitionBoardPoints
- * is shaped around a mistake BUDGET, which crossword has no equivalent of yet.
+ * grid completion, plus a clean-grid bonus and a consumable check budget.
+ * DESIGNED 7 Aug 2026 (explicit user design session) — this is no longer the
+ * placeholder shape from earlier the same day; game4-rfc-prompt.md section 5
+ * ("cover partial completion, hints, revision, and whether guessing must be
+ * negative-EV") is now answered. Full reasoning:
+ * docs/architecture/games-and-content-findings.md.
  *
- * PLACEHOLDER SHAPE, not just placeholder numbers — scoring economics for
- * crossword were never answered. game4-rfc-prompt.md section 5 asked
- * explicitly ("cover partial completion, hints, revision, and whether
- * guessing must be negative-EV") and the RFC picked Connections before any
- * model answered it. In particular: crossword crossings create the same kind
- * of coupling match's and Connections' floors exist to handle — a wrong
- * letter at a shared intersection can invalidate more than one entry — but
- * nobody has derived the reachable-score set for a real grid's intersection
- * graph the way match's "6,4,3,2,1,0, never 5" was derived. Treat
- * `floorAtOrBelow`/`floorPenalty` here as unverified until that design pass
- * happens, not as confirmed negative-EV the way match's and Connections' are.
+ * Deliberately its own shape, not reused from BoardPoints or
+ * PartitionBoardPoints: neither's floor-penalty proof transfers to a
+ * crossword grid (BoardPoints' floor comes from match's permutation
+ * fixed-point argument; PartitionBoardPoints is shaped around a mistake
+ * BUDGET that gates further play, which crossword doesn't have). Crossword
+ * doesn't need a floor at all — `perWrong < 0 = notAttempted's implicit 0 <
+ * perEntry` already makes blind guessing strictly worse than leaving a blank,
+ * the same negative-EV-for-guessing property match's and Connections' floors
+ * exist to create, for free from the per-entry rate alone.
+ *
+ * `perWrong` only applies to a FULLY FILLED, incorrect entry — see
+ * lib/games/crossword.ts's `gradeEntry`. A down entry left partially filled
+ * as spillover from crossing across answers is 'not_attempted' (contributes
+ * 0), never billed as wrong. Residual, ACCEPTED not fixed: two crossing
+ * entries that are BOTH fully filled and share a wrong letter at the
+ * intersection can both grade wrong off that one mistake — a real
+ * double-bill, deliberately left as-is (see crossword.ts's `gradeEntry`
+ * docstring) rather than solved with a second rule.
+ *
+ * `perfectBonus` requires zero wrong AND zero not-attempted — a board with
+ * unattempted entries never qualifies even with nothing wrong submitted; the
+ * bonus is for a FULLY solved board, not merely a mistake-free partial one.
+ *
+ * The check budget (`checkBudgetDivisor`) is a consumable per-board hint
+ * allowance of `floor(entryCount / checkBudgetDivisor)` — e.g. 3 on a
+ * 10-entry board at the decided divisor of 3. Spending a check reveals
+ * whether one entry's current fill is correct; it costs nothing directly and
+ * does not lock the entry from further edits. The only cost is forgone
+ * `perUnusedCheck` reward on whatever was spent, linear per unused check
+ * (using 1 of 3 still pays for the other 2) — see lib/games/crossword.ts's
+ * `checkBudget`/`scoreBoard`.
  */
 export interface GridPoints {
   kind: 'grid'
   perEntry: number
+  perWrong: number // zero or negative — a positive value here would reward a wrong answer
   perfectBonus: number
-  floorAtOrBelow: number
-  floorPenalty: number
+  checkBudgetDivisor: number // budget = floor(entryCount / this)
+  perUnusedCheck: number
 }
 
 export type Points = FlatPoints | GuessCountPoints | BoardPoints | PartitionBoardPoints | GridPoints
@@ -259,22 +279,27 @@ export const GAME_REGISTRY: readonly GameEntry[] = [
     // the same class of defect as a client-supplied score.
     lever: 'both',
     adaptGranularity: 'board',
-    // PLACEHOLDER shape and numbers — see GridPoints' docstring above.
-    // Scoring economics for crossword are undesigned (game4-rfc-prompt.md
-    // section 5), not just unsigned-off-on like every other row's numbers.
-    points: { kind: 'grid', perEntry: 15, perfectBonus: 25, floorAtOrBelow: 1, floorPenalty: -15 },
+    // Numbers are the file's usual PLACEHOLDER-pending-sign-off (see the file
+    // header) — but the SHAPE is decided (7 Aug 2026, user design session):
+    // +10 per correct entry, -5 per wrong (fully-filled-but-incorrect) entry,
+    // +25 clean-board bonus (zero wrong AND zero not-attempted), a 3-entry
+    // check budget with +2 per unused check. See GridPoints' docstring above
+    // and lib/games/crossword.ts for the grading/scoring implementation.
+    points: { kind: 'grid', perEntry: 10, perWrong: -5, perfectBonus: 25, checkBudgetDivisor: 3, perUnusedCheck: 2 },
     // Kept false deliberately, not because nothing works yet. The
     // crossing-density objection that killed crossword on 6 Aug is
     // spike-resolved (scripts/spike-crossword-density.mjs: 46.5% fill on the
     // full live bank, 43.5%/44.6% at realistic single-deck board scale,
-    // against the RFC's own cited <25% freeform-generator floor) — see
+    // against the RFC's own cited <25% freeform-generator floor), and scoring
+    // economics are now designed (lib/games/crossword.ts) — see
     // games-and-content-findings.md, 7 Aug 2026. What remains open and
-    // genuinely blocks enabling this: no board/grid data model is wired up
-    // yet (db/013_add_crossword.sql, not yet applied), no routes or page
-    // exist, the mobile pan-and-zoom viewport is unbuilt, and the
-    // lever/difficulty mechanic this entry's `lever: 'both'` promises does
-    // not exist. Do not flip true piecemeal — see the comment on `lever`
-    // above for why a half-wired lever is worse than no lever.
+    // genuinely blocks enabling this: no board/grid data model is APPLIED to
+    // Neon yet (db/013_add_crossword.sql exists but is not applied), no
+    // routes, page, or submit API exist to call crossword.ts's scoreBoard(),
+    // the mobile pan-and-zoom viewport is unbuilt, and the lever/difficulty
+    // mechanic this entry's `lever: 'both'` promises does not exist. Do not
+    // flip true piecemeal — see the comment on `lever` above for why a
+    // half-wired lever is worse than no lever.
     enabled: false,
   },
 ]

@@ -112,6 +112,21 @@ consumes `resolveLever()`** — declaring `'both'` without acting on it would lo
 lever was active when nothing enforced it, the same class of defect as a client-supplied score.
 Full reasoning: `docs/architecture/games-and-content-findings.md`.
 
+**Crossword's scoring economics, 7 Aug 2026: DESIGNED, not just placeholder numbers** — closes
+`game4-rfc-prompt.md` §5, open since the RFC picked Connections before any model answered it for
+crossword. User's explicit design, implemented in `lib/games/crossword.ts` / `GridPoints` in
+`lib/games/registry.ts`: +10 per correct entry, -5 per wrong (fully-filled-but-incorrect) entry, 0
+for not-attempted, +25 clean-board bonus gated on zero wrong AND zero not-attempted (not just zero
+wrong), a consumable check budget of `floor(entryCount / 3)` that costs nothing to spend and pays
++2 per unused check, linear (spending 1 of 3 still pays for the other 2). No floor penalty needed —
+`perWrong < 0 = notAttempted's 0 < perEntry` already makes blind guessing strictly worse than a
+blank, for free. An entry grades only when **every** cell is filled — a down entry left partially
+filled as spillover from crossing across answers is `not_attempted`, never `wrong`, closing the
+coupling concern for that case. **Accepted, not fixed:** two crossing entries that are both fully
+filled and share a wrong letter at the intersection can both grade wrong off one mistake — a real
+double-bill, deliberately left as-is (see `gradeEntry`'s docstring in `lib/games/crossword.ts`).
+This is scoring/economics only — no routes, API, or UI exist yet to call it.
+
 **Wordle, Strands and the NYT Mini are dead, not deferred.** The corpus has a measured 9-cell floor
 in canonical form (136 domain strings, none ≤8 cells) and short terms cannot be prompted into
 existence. Independently corroborated by the supervisor on 4 Aug from domain knowledge.

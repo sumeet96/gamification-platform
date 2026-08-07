@@ -143,6 +143,23 @@ record of what was concluded.
         to single-`source_id` grain — the real board unit, ranging 9-33 terms live, producing grids
         in the 20x10 to 32x12 range rather than the RFC's 38-column worst case. Buildable with CSS
         transforms and React state; no new dependency needed.
+      - **Scoring economics DESIGNED, 7 Aug 2026 — closes §5, open since the RFC picked Connections
+        before any model answered it for crossword.** User's explicit design session, implemented
+        in `lib/games/crossword.ts` (pure grading/scoring, no DB/routes/UI) and `GridPoints` in
+        `lib/games/registry.ts`: +10 per correct entry, -5 per wrong (fully-filled-but-incorrect)
+        entry, 0 for not-attempted, +25 clean-board bonus gated on zero wrong AND zero
+        not-attempted, a consumable check budget of `floor(entryCount / 3)` (free to spend, doesn't
+        lock the entry) paying +2 per unused check, linear. No floor penalty needed — `perWrong < 0
+        = notAttempted's 0 < perEntry` already makes blind guessing strictly worse than a blank.
+        **The coupling question from GridPoints' original placeholder docstring is now partially
+        answered**: an entry grades only when every cell is filled, so a down entry left partially
+        filled as spillover from crossing across answers is `not_attempted`, never `wrong` — closes
+        the coupling concern for the common case. Left deliberately unresolved: two crossing
+        entries that are both FULLY filled and share a wrong letter at the intersection can both
+        grade wrong off one mistake, a real double-bill — accepted, not fixed (see `gradeEntry`'s
+        docstring). 14 new tests in `tests/crossword.test.ts`, including both of the user's worked
+        examples verified exactly (5 correct/2 wrong/3 not-attempted nets 40; 10/10 with all checks
+        retained nets 131).
     - _RFC answered 6 Aug 2026 — five model families (ChatGPT via API and Playground, Claude, Gemini,
       DeepSeek, Grok) ALL chose Connections._ Weigh that against a real caveat: the brief was written
       with §7.1 (crossword) as a list of open problems and §7.2 (Connections) as a list of settled

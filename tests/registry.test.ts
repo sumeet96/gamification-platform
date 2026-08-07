@@ -86,14 +86,20 @@ test('every wrong/miss/floor payout is zero or negative', () => {
         )
         break
       case 'grid':
-        // Sign invariants only — NOT a negative-EV check like 'board'/'partition' above.
-        // GridPoints' own docstring is explicit that the reachable-score set for a real
-        // grid's intersection graph has never been derived, unlike match's proven
-        // "never 5" or Connections' proven mistake-budget floor. Asserting a negative-EV
-        // claim here would assert something this project has not actually verified.
         assert.ok(g.points.perEntry > 0, `${g.id} must reward a correct entry`)
+        assert.ok(g.points.perWrong <= 0, `${g.id} wrong-entry penalty must be <= 0`)
         assert.ok(g.points.perfectBonus >= 0, `${g.id} clean-grid bonus must not be a punishment`)
-        assert.ok(g.points.floorPenalty <= 0, `${g.id} floor penalty must be <= 0`)
+        assert.ok(g.points.checkBudgetDivisor > 0, `${g.id} check budget divisor must be positive`)
+        assert.ok(g.points.perUnusedCheck >= 0, `${g.id} unused-check reward must not be a punishment`)
+        // Unlike match/Connections, no separate floor is needed: perWrong < 0 and
+        // an unattempted entry contributes exactly 0, so blind guessing is already
+        // strictly worse than leaving a blank -- the same negative-EV-for-guessing
+        // property those games' floors exist to create, here for free from the
+        // per-entry rate alone. See GridPoints' docstring.
+        assert.ok(
+          g.points.perWrong < 0,
+          `${g.id} a wrong guess must net worse than leaving an entry blank (which nets 0)`
+        )
         break
       default: {
         const exhaustive: never = g.points
