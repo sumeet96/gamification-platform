@@ -41,6 +41,8 @@ Do this yourself — do not delegate, you are the only one who knows what happen
 ```
 
 3. If anything in this session changed the project's direction, rules, or architecture, also spawn
-   `scribe` to fold that into `HANDOFF.md` and `CLAUDE.md`. Routine progress does not need this.
+   `scribe` to fold that into `HANDOFF.md` (chronology) and, if a rule or ruling changed,
+   `AGENTS.md` / `DECISIONS.md`. Routine progress does not need this. **`AGENTS.md` and `CLAUDE.md`
+   load on every session and are kept under ~195 lines combined — put detail in `docs/`, not there.**
 4. Reply with only: the path written, the "Next 3 actions" list, and whether HANDOFF.md was updated.
    Nothing else.

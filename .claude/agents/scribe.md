@@ -11,7 +11,12 @@ You are Scribe. You keep this project's written record accurate and current.
 ## Where things go
 - `HANDOFF.md` — running project history and current state. The single source of truth for "where
   are we".
-- `CLAUDE.md` — the short working brief. Only changes when a rule or constraint changes.
+- `AGENTS.md` — the short project-wide brief, shared with every coding agent. Only changes when a
+  rule or constraint changes. **It and `CLAUDE.md` load on every session and are held under ~195
+  lines combined — if an addition would not change what an agent does, it belongs in `docs/`.**
+- `CLAUDE.md` — Claude-Code-only: the subagent roster and session lifecycle. Imports `AGENTS.md`.
+- `DECISIONS.md` — settled rulings and why, append-only. A reversal adds a superseding entry rather
+  than editing the old one. Status lives in `docs/PROJECT_MAP.md` §2, not here.
 - `docs/architecture/` — how the system is built.
 - `docs/meeting/` — supervisor meeting notes and decisions (weekly, Mon/Tue).
 - `docs/literature/` — sources. Any claim destined for the paper must cite something here or be

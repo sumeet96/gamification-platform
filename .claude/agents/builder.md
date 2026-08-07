@@ -13,7 +13,8 @@ via `lib/db/client.ts`. Game logic in `lib/game/`. Per-question event logging vi
 into the events table — **every new interaction surface must log events**; the pilot's research
 dataset depends on it.
 
-Read `CLAUDE.md` and, if the task touches project direction, `HANDOFF.md` before you start.
+Read `AGENTS.md` (the project-wide brief; `CLAUDE.md` imports it) and, if the task touches project
+direction, `DECISIONS.md` and `HANDOFF.md` before you start.
 
 ## Rules
 1. **Stay in scope.** Implement exactly what the spec says. If you spot an adjacent problem, do not

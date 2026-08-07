@@ -1004,7 +1004,8 @@ on `gemma2:9b`, 3/3 on `gpt-4.1-mini` and `gpt-5-nano`. The defensible claim is 
 grouping is *harder* to do cold than recall is, not that it requires the deck. Do not put
 "Connections requires the material's structure" in the paper without human data.
 
-**Two near-miss false signals, now standing conventions in CLAUDE.md.** `llama3.2` 3B returned a
+**Two near-miss false signals, now standing conventions** (in `AGENTS.md`, with the detail in
+`docs/architecture/generator-spec.md` since the 7 Aug split). `llama3.2` 3B returned a
 clean-looking 0.10/4, then scored **0.00/4** on a control board of Colours/Animals/Countries/Fruits —
 it cannot do the task at all, so the result measured the instrument. And the screen pooled one
 verdict across boards, hiding a 40% board beside a 0% one. A rejection gate now requires a
