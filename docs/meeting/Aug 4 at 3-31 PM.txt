@@ -1,0 +1,174 @@
+Better now.
+
+Okay, so, yeah.
+
+[Speaker 1]
+There are three games that got.
+
+[Speaker 2]
+So,
+
+[Speaker 1]
+This is quiz, uh, is flipped in two right now. I, I have not really done much on this. Like, any changes in this, so there is a normal quiz, which has adaptive difficulty and blind pressure. So, adaptive difficulty, we I have shelved for now, but there is some kind of evidence by using and iterating on those local models.
+
+[Speaker 1]
+That it is able to behave as students who may not know all the answers. Um, there is match the following, and then there is choose the right word two more. I was looking at cylinder plants and one something that was closer to warden, but those had their own issues, so I have not built that I am still working on those skins.
+
+[Speaker 1]
+Okay.
+
+[Speaker 2]
+All right, okay, show me. Apart from who is any other ones, maybe, yeah, yeah, sure. So match the following.
+
+[Speaker 1]
+Rapid, because 10 questions are there in this.
+
+[Speaker 1]
+No, no, no. Okay, so there will be three boards that is shown and sort of a definition here, and we have to click here and choose, so challenges faced by companies when local linguistic features linguistic features is. Language complexity. Oh, right?
+
+[Speaker 1]
+Uh, then there is the process through which company progresses the extended, its operational Services across multiple countries. Over time, this is actually is, uh, International Management questions.
+
+[Speaker 2]
+Yeah.
+
+[Speaker 1]
+Yeah, it can do that. Let's, uh, yeah,
+
+[Speaker 2]
+I
+
+[Speaker 1]
+Am putting it in random, so it will tell you. So? One board is. It gives you points if you complete one mode, then only you get points. So, the limits are set, like, if more than two, like three or more are correct, then you get a bonus or. Towards that.
+
+[Speaker 1]
+With two, you will get a penalty or even lesser. You will get a penalty because guess becomes easier to do on this.
+
+[Speaker 1]
+And then you can move to a next board. And again, you can just work with any
+
+[Speaker 2]
+Of it is.
+
+[Speaker 2]
+Uh, I, I didn't get you. Right, which? Penalty and and bonus points,
+
+[Speaker 1]
+Right,
+
+[Speaker 2]
+Right? So, so maybe there could be a pain before the game starts or something like pop-up, which tells the rules. Every guy would sit there because you are going to play one of the following. These are the rules. If you do this, this is.
+
+[Speaker 2]
+Um.
+
+[Speaker 1]
+So it, it has shown something like this, but after you have answered it, uh, goes away, so I'll make sure that once we click this. Along with this, there is a better one. This is not the one I think. Let's look at match the following, so each correct pair is plus 15 clean bond bonuses plus 30 two or fewer characters minus 20.
+
+[Speaker 1]
+I don't think that. Is working. Let me check. Oh, it is working. I have given it one and half minutes. But it is too long. It can be done pretty easily.
+
+[Speaker 3]
+I wanted it to be more easier to do.
+
+[Speaker 1]
+No, I think this is looking good. Good, actually. Speaking, yeah, okay.
+
+[Speaker 2]
+Uh, maybe you can come and work for whatever your wildlings are there. Once you complete it fully, just post it somewhere with the person off from there and then. Yeah,
+
+[Speaker 1]
+Okay, so I have other websites that I was looking into. I think you might have. Now visited those websites. There is one explorable.es. Have you looked at? No, so that is a very interesting thing I was looking at, and obviously it is. Very different from what we are doing.
+
+[Speaker 1]
+But they have small games, which are. Uh, very Target specific, like what they want to do this. This is a wider game, but I was playing one game, which was. Probability based. So, if University, there is? Uh, an accident, and someone predict says the truth, 80 percent of times that this color car did the accident.
+
+[Speaker 1]
+Then, what is the probability that they didn't, they are lying? Or something like that, and that was visualized very well.
+
+[Speaker 4]
+I understand. See, there are two types of gamification. Okay, there are multiple ways to categorize zero equation, right? One of the one of the ways based on, uh?
+
+[Speaker 2]
+Of what's what you are trying to do? So see what we are doing is called structural gamification. Okay, and what you are describing is called control. You will be written. The difference is
+
+[Speaker 1]
+That
+
+[Speaker 2]
+Is maximum gamification. What what you do is you create the gamified environment in such a way that the structure of the? Of the. That thing is gamified, irrespective the content can be everything, until the, uh, the the gamify can be applied. Like, we are trying to right what we are describing.
+
+[Speaker 2]
+I don't for sure, but just little bit like content unification where basically developed. For that kind of content. Okay, so, so it may not work exactly for other times because developed specifically for a probability life scenario, like your strength, right? But it may not work in another, so that's why what we would want probably is to go in content gamification with our structural application, because, uh, content has challenged that.
+
+[Speaker 2]
+I mean, content is better impact the research so that it's better, but it cannot be generalized, which, because specifically develop a particular scenarios, cannot be general. Yes, that's what's. Uh, for each of the games or each of the outcomes that we need.
+
+[Speaker 1]
+Uh, the game developed would be very particular to that. Yes,
+
+[Speaker 2]
+Yes, yes. So, that's why content gamification for a more generalized project we cannot do. I mean analysis specifically. Next time we were doing it for 10 standards to get geography or biology or management right, then
+
+[Speaker 1]
+We can
+
+[Speaker 2]
+Do something like that, but I think for our project, I mean, that also, it's not that we cannot do that, but let's keep a little broader so that it can be applied even let's headphone by experiment across every day.
+
+[Speaker 1]
+We are anywhere, taking in a document and then framing everything. So it's just the way the game will be created at the front end. That would change. Obviously, the thinking behind it would change. But if the ingestion and conversion to questions or whatever learning we want to acquire from that stays the same.
+
+[Speaker 1]
+The front end can be modified. So, yes, we can keep it broad for now. Yeah, that mean by this one, but it looks interesting. Can you? I mean, what was the name?
+
+[Speaker 2]
+The name of this. Okay, so
+
+[Speaker 1]
+The website is explorable.exo. Different game developers have post are posting here the different games made by different people. And very interesting games. Are there?
+
+[Speaker 1]
+I will also explore this particularly sometimes give you good ideas. Yes. We can keep it little more.
+
+[Speaker 2]
+Yeah, I. I was using Wordle Wordle. One of the issues that came up because in?
+
+[Speaker 1]
+Like MBA curriculum or business context. Usually, phrases are used instead of five to eight letter words, just words. So that was becoming. So, yeah,
+
+[Speaker 2]
+So that's why, I told, you know, crossword, explore cost for crossover.
+
+[Speaker 1]
+Yes, crossword is something I'm working on. I'm still devising a plan how to make it nice, not very. Like, very cognitively heavy. When someone looks at a crossword directly, it should be something a little bit more rewarding, so that is something I'm exploring as a separate thing completely so that it does not meddle with the way this one works.
+
+[Speaker 1]
+Oh, that makes sense. All right, uh, I'll this this week. I think in two, three days, I will be able to work on the cross word and tell you about it, because that is the only thing I would be working on now. This looks okay in okay shape right now.
+
+[Speaker 2]
+Yes,
+
+[Speaker 1]
+Yes, I'll reach out to you on message, maybe on Friday.
+
+[Speaker 2]
+Step Saturday and Sunday as available every day. Okay, classrooms. I'm fighting for next few videos like this. Check once more for till 18th impact except Saturday and Sunday. I have only I have planned on Saturdays and just know he day of the week.
+
+[Speaker 2]
+Is it bmhrm students that you have classes for?
+
+[Speaker 1]
+All right, so I'll I'll work on this. I'll figure out the thing and I'll reach out to you on Friday with whatever progress I have made of questions that I have. Because it was proving a little bit, uh confusing, at times.
+
+[Speaker 2]
+Perfect! Thanks a lot, sir.
+
+[Speaker 2]
+Fun!
+
+[Speaker 3]
+But this one has. Social science.
+
+[Speaker 1]
+So again.

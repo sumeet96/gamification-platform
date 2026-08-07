@@ -26,6 +26,17 @@ event logging is the research dataset.
   quiz is one part of it... start with the dashboard" (`docs/meeting/Jul 27 at 3-39 PM.txt`). This was
   the professor's first instruction; **shipped 31 Jul 2026** as package D1 — see `docs/PROJECT_MAP.md`
   §3.
+- **Structural gamification, not content gamification (decided 4 Aug 2026,
+  `docs/meeting/Aug 4 at 3-31 PM.txt`).** The distinction was drawn explicitly: content gamification
+  builds the game around one specific scenario — the transcript's example is a probability puzzle on
+  explorable.es — and has "better impact the research", but "cannot be generalized… specifically
+  develop[ed for] particular scenarios". Structural gamification gamifies the *frame* and stays
+  content-agnostic. Ruling: **"for our project… let's keep a little broader so that it can be
+  applied."** This is a deliberate trade of research impact for generalizability and it belongs in
+  the paper's framing, not just the build. Operationally it is why ingestion → `content_items` →
+  game stays one pipeline and only the front end differs per game: "the ingestion and conversion to
+  questions… stays the same. The front end can be modified." Any proposal for a game that only works
+  for one topic is out of scope by this rule.
 - **Points: fixed within a game, varying across games and difficulty.** Corrected 30 Jul 2026 against
   the transcript — "Fixed point economy: +20/−10 everywhere" was a misreading. A hard game pays more
   than an easy one; that variability is the mechanic the professor asked for, resolved by a published,
@@ -33,16 +44,27 @@ event logging is the research dataset.
 - **SUPERSEDED 1 Aug 2026 — one adaptivity lever per student:** adaptive difficulty (ramps) or time
   pressure (clock). Not both. Clean experimental design. Kept here, marked superseded rather than
   deleted, because it is the rule that made the levers a two-arm experiment in the first place.
-  - _Superseded by, reported 1 Aug 2026, NOT YET TRANSCRIBED:_ per the user, Prof. Singh has said to
-    drop the adaptive-difficulty lever — difficulty tagging is proving difficult — and stick with time
-    pressure for everyone. The project rule that professor decisions cite a transcript in
-    `docs/meeting/` (five drifts were found on 30 Jul 2026 by re-reading one) applies here: there is no
-    transcript or recording for this yet. Treat as reported, not settled, until one exists.
+  - _Superseded by, reported 1 Aug 2026:_ per the user, Prof. Singh has said to drop the
+    adaptive-difficulty lever — difficulty tagging is proving difficult — and stick with time
+    pressure for everyone.
+    - _Transcript status upgraded 7 Aug 2026, but only partway._ The 4 Aug transcript
+      (`docs/meeting/Aug 4 at 3-31 PM.txt`) now exists and carries "adaptive difficulty… I have
+      shelved for now, but there is some kind of evidence by using and iterating on those local
+      models". That is **the user reporting the shelving and the supervisor not objecting** — weaker
+      than an explicit ruling, and it does not say the lever is dropped permanently. Treat as
+      reported-and-unopposed; do not upgrade it to a decision. The standing rule that professor
+      decisions cite a transcript in `docs/meeting/` (five drifts were found on 30 Jul 2026 by
+      re-reading one) is what this distinction exists to serve.
   - **OPEN AND URGENT: this removes the between-arm contrast.** The difficulty-vs-time split WAS the
     independent variable. If everyone gets time pressure, nothing is established to vary between
     conditions — time-on vs time-off? rapid vs normal? something else? Without a contrast there is no
-    experiment, only an instrumented app. This is the top item for the 4 Aug meeting, ahead of any
-    further build work that assumes a design.
+    experiment, only an instrumented app.
+    - _Status, 7 Aug 2026 — RAISED BUT NOT DISCUSSED, now overdue._ This was the top item for the
+      4 Aug meeting. The transcript (`docs/meeting/Aug 4 at 3-31 PM.txt`) is now in the repo and
+      **contains no mention of arms, independent variables, or the difficulty-vs-time split at all**.
+      It was in the pre-meeting brief and did not come up. Two packages have shipped since
+      (A5 on 7 Aug, deliberately `lever: 'none'`), so build work that assumes a design has now
+      overtaken the design. This is still the single most consequential open item in this file.
   - **Difficulty moves from item-selection INPUT to analysis COVARIATE, not out of the project.** Even
     under random or least-recently-served item assignment, item difficulty is still needed to say
     anything credible about a time-pressure effect — otherwise a student who drew harder items merely
@@ -165,7 +187,7 @@ event logging is the research dataset.
     rounds, which had been corrupting this same measure, was fixed in the same pass.
 - Log all events (session, round, per-question interactions, score, adaptivity feedback) for DSR dataset. Do not train on student data.
 
-## Stack & constraints (28 Jul 2026 rebuild — details in HANDOFF.md §4)
+## Stack & constraints (28 Jul 2026 rebuild — details in HANDOFF.md §5)
 - **G1 rebuilt three-stage, 6 Aug 2026 (`9030316`, `7aeb603`) — and one defect it does NOT fix.**
   `scripts/generate-questions.mjs` had kept the single-call-per-window flow under a `--per-window`
   quota, which is exactly what manufactured chart captions in G2. It shows in the bank it produced:
@@ -191,9 +213,10 @@ event logging is the research dataset.
     gets, so it is using knowledge rather than the cue; r between score and length margin = 0.161,
     n=44, CI straddles zero. **Assessment-validity problem, not a measurement one — the n=120
     calibration run is unblocked.** One simulator only (`llama3.2` 3B).
-- **Six packages shipped: G1 (generator, 31 Jul), G2 (term/definition generator, 1 Aug), D1
+- **Seven packages shipped: G1 (generator, 31 Jul), G2 (term/definition generator, 1 Aug), D1
   (dashboard, 31 Jul), Q1 (quiz hardening, 31 Jul), A1 (match-the-following, 1 Aug), A3
-  (choose-the-right-word, 1 Aug).** `app/dashboard/page.tsx` drives its tiles from
+  (choose-the-right-word, 1 Aug), A5 (Connections, 7 Aug — full record in `HANDOFF.md` §20).**
+  `app/dashboard/page.tsx` drives its tiles from
   `GAME_REGISTRY`; `scripts/generate-questions.mjs` writes `content_items` plus `source_excerpt`;
   `scripts/generate-terms.mjs` + `scripts/lib/terms-validate.mjs` extract `term_definition`
   primitives, unblocking match-the-following, fill-in-the-blanks, choose-the-right-word, and Wordle
@@ -223,6 +246,11 @@ event logging is the research dataset.
       cannot be prompted into existence — the material does not contain them. Wordle, Strands and
       the NYT Mini are dead on canonical forms and stay dead; they cannot use the fragment escape
       below, because their whole answer must be one short word.
+      - _Independently corroborated by the supervisor, 4 Aug 2026_
+        (`docs/meeting/Aug 4 at 3-31 PM.txt`): "in MBA curriculum or business context, usually
+        phrases are used instead of five to eight letter words". Same conclusion reached from
+        domain knowledge that the 136-string measurement reached from data — which is the strongest
+        form this finding can take, and it is also where the "explore crossword" steer came from.
   - **Game families: letter-constrained vs semantics-constrained (5 Aug 2026).** A game is
     letter-constrained when the answer is a letter string and geometry decides validity (Wordle,
     Spelling Bee, Letter Boxed, Strands, the Mini, crossword); semantics-constrained when the answer
@@ -246,17 +274,22 @@ event logging is the research dataset.
     collisions** (CAGE claimed by 3 terms, ANALYSIS by 5, STORY/MAP/AGILE by 3 each), which is a
     board-selection constraint of the same shape as match's "a board never spans two subjects" rule,
     not a content defect. Full detail and the collision table: `docs/architecture/game4-rfc-prompt.md`.
-  - **Game 4 is undecided: crossword vs Connections (5 Aug 2026).** RFC prompt for multi-model
-    deliberation is written (`docs/architecture/game4-rfc-prompt.md`); send to five model families
-    and synthesise. Connections is length-irrelevant by construction, reuses the whole board-game
-    machinery (tokens, board dedupe, board selection, board scoring, board timing), tests taxonomy
-    rather than recall — which attacks the standing memorisation confound, since public vocabulary
-    like `Agile Manifesto` scores ~1.00 ungrounded — and turns the 102 `distractors` into trap
-    material instead of discarding them. Its hard part is trap-category generation: a board with
-    more than one valid partition is broken. **Do not start building either until §5.2 of the RFC
-    (the between-arm contrast) is settled** — a crossword is slow and non-linear and probably cannot
-    carry the 90s board clock, so under a time-pressure-only design it would produce engagement but
-    no experimental data.
+  - **Game 4 was Connections. DECIDED 6 Aug, SHIPPED 7 Aug as package A5** (`HANDOFF.md` §20). The
+    RFC (`docs/architecture/game4-rfc-prompt.md`) went to five model families and all five chose it;
+    it is length-irrelevant by construction, reuses the whole board-game machinery (tokens, board
+    dedupe, board selection, board scoring, board timing), and tests taxonomy rather than recall —
+    which attacks the standing memorisation confound, since public vocabulary like `Agile Manifesto`
+    scores ~1.00 ungrounded. Its hard part is trap-category generation: a board with more than one
+    valid partition is broken.
+    - _Superseded caution, kept because its reasoning still binds:_ this bullet used to say "do not
+      start building either until §5.2 of the RFC (the between-arm contrast) is settled". A5 shipped
+      **without** that being settled, which is exactly why it carries `lever: 'none'` and produces no
+      experimental data. The caution was not wrong — it was accepted as a cost. A crossword remains
+      the harder case for a clock, being slow and non-linear.
+    - **UNREPORTED DIVERGENCE, 7 Aug:** the 4 Aug transcript has the supervisor saying "crossword,
+      explore crossword" and the user answering "that is the only thing I would be working on now".
+      The RFC then chose Connections and A5 shipped it. The choice is well-evidenced; the change of
+      direction has not been communicated. See `HANDOFF.md` §20.
     - _RFC answered 6 Aug 2026 — five model families (ChatGPT via API and Playground, Claude, Gemini,
       DeepSeek, Grok) ALL chose Connections._ Weigh that against a real caveat: the brief was written
       with §7.1 (crossword) as a list of open problems and §7.2 (Connections) as a list of settled
@@ -490,9 +523,15 @@ event logging is the research dataset.
 - Total budget ~400–450 hours over 6 months and near-zero cash (~$0–15/mo dev, <$10/mo runtime during pilot). One artifact. Resist scope creep.
 
 ## Cadence
-Weekly supervisor meetings Mon/Tue afternoons. Next: **Tue 4 Aug 2026 (confirm)** — the transcript has
-him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3-39 PM.txt`);
-`CLAUDE.md` previously said Monday in error.
+Weekly supervisor meetings Mon/Tue afternoons. **The 4 Aug meeting happened** —
+`docs/meeting/Aug 4 at 3-31 PM.txt` (+ `.m4a`), summarised in `HANDOFF.md` §20.
+
+**Next contact: a Friday 7 Aug check-in the user committed to in that meeting** ("I'll reach out to
+you on Friday with whatever progress I have made"). Availability from the same transcript: he is
+teaching until the 18th and is free Saturdays and Sundays, so a weekday slot before then is
+unlikely. **Two things are owed at that check-in and neither has been sent:** that game 4 became
+Connections rather than the crossword he steered toward, and the between-arm contrast, which was in
+the pre-meeting brief and never came up.
 
 ## Conventions for Claude Code
 - Ask before adding dependencies or paid services.
@@ -645,6 +684,28 @@ him travelling Monday and proposing Tuesday same time (`docs/meeting/Jul 27 at 3
     reason, and would have stayed hidden even after the term rows get calibrated. Cross-agent seams
     — one route computing a value, another consuming it — are exactly where static review looks
     away from, because each side individually looks correct.
+  - _Third instance, A5, 7 Aug 2026 — and it generalises the rule:_ **API-level verification is
+    structurally blind to UI failure.** Eleven end-to-end checks were run against live Neon — payload
+    leakage, budget enforcement, points reconciliation, a 12-way concurrency salvo — and all passed
+    while the board was **unplayable**, rendering as 16 stacked full-width rows instead of a 4×4
+    grid. HTTP-level passing is not evidence the game can be played. Exercise it in a browser.
+- **Scoring inputs are derived server-side, never read from the request body.** A5, 7 Aug 2026:
+  gating `floorPenalty` on `terminal_reason` quietly turned that field into a scoring input while it
+  still arrived from the client, so a student who exhausted the mistake budget could claim
+  `'abandoned'` and dodge the penalty. `deriveTerminalReason()` in `lib/games/connections.ts` now
+  decides it from `groupsSolved`/`mistakes`, both recomputed from committed events, and the client's
+  claim is kept only as a logged discrepancy. **General form: when a fix makes a field load-bearing,
+  re-ask where that field comes from.** The fix for one hole opened another of the same shape.
+- **`'none'` is an inert case INSIDE `resolveLever()`, never a branch around it.** A5, 7 Aug 2026.
+  The standing rule above is that games consume `resolveLever()` and never branch on `config.lever`
+  themselves; a lever-less game is the tempting exception and must not become one. `'none'` is a
+  third case within `initialLeverState`/`resolveLever`/`advanceLeverState` in `lib/game/engine.ts`,
+  varying nothing at either grain. `Mode` had to widen too — the alternative was writing a bogus
+  `'normal'` into the research log. Related: a persisted `GameConfig` now carries `ownerGameId` and
+  is read through `getConfig()`/`configBelongsTo()` in `lib/game/game-context.tsx`, because
+  `lever:'none'` leaked through sessionStorage into the quiz's log. **That guard is central, not
+  per-game** — a per-game guard is the shape that let match reintroduce the abandoned-round bug two
+  days after the quiz fixed it.
 - **`EventType` is derived from `CLIENT_EMITTABLE_EVENT_TYPES`, not maintained in parallel with it**
   (`lib/log/logEvent.ts`). `/api/events` used to be a denylist checked against a separately-written
   type; the two could drift. Now the runtime allowlist and the compile-time type come from the same

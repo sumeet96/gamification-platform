@@ -1,202 +1,145 @@
-# Current state — 6 August 2026
-
-## READ THIS FIRST (added at session close)
-
-**The next session builds the game. Read `docs/NEXT_SESSION_BUILD_BRIEF.md`, not the analysis
-history.** The game-selection work is DONE; repeating it costs a week that is not available — there
-is a Friday deadline. **Confirmed by the user: the game is Connections, and it ships with NO time
-pressure and NO difficulty** — both deferred to a later package, so register it `lever: 'none'` and
-leave difficulty null. That is a decision, not an oversight; it also means the game produces no
-experimental data until a lever is added.
-
-**The ungrounded arm COMPLETED. The grounded arm did NOT — it must be re-run.**
-
-170 items from 7 management strategy decks (TCE, PESTEL, Porter's Five Forces, Industry Analysis,
-Dynamic Capabilities, RBV, Culture), generated under `--subject "Competitive Strategy"`, rendered to
-`spike-data/cs-mcq.json` + `spike-data/excerpts-cs.json`. **Nothing is imported from them.**
-
-**RESULT (ungrounded, `spike-data/cs-ungrounded.json`): mean 0.773, IQR 0.37, 28% at ceiling, 23
-items below 0.40, full range 0.00–1.00.** Bimodal, as the term list predicted. Compare 0.57
-(management prose) and 0.837 (technical decks).
-
-**The conclusion, which does not depend on the missing grounded arm: filter by UNGROUNDED SCORE, not
-by subject.** Pooled across both banks (260 items), 51 fall below 0.60 ungrounded and 83 below 0.80.
-Only those can carry an exposure-gated difficulty gradient — everything above the cut is answerable
-without the deck by construction. Running the n=120 stability study on all 260 would flatten the tier
-gradient and make the method look broken when the item selection was at fault.
-
-**TO RE-RUN (the grounded arm, the quality gate before import):**
-```bash
-node scripts/spike-simulate-difficulty.mjs spike-data/cs-mcq.json --model llama3.2 --n 30   --concurrency 4 --source spike-data/excerpts-cs.json --out spike-data/cs-grounded.json   --label cs-grounded
-```
-**Restart Ollama first, or run it on the Mac.** It was killed three times in a row, reaching items
-155, then 53, then 14 — progressively sooner, which is memory pressure, not a timeout: 87.4% RAM
-used with `llama-server` resident at 8.4 GB after hours of running. The Mac does this arm in ~36 min
-against ~2 h here, and needs only `cs-mcq.json` and `excerpts-cs.json` copied over (both gitignored).
-
-After it lands: `analyse-item-gap.mjs` for the verdict, then import with `--additive` and
-`--subject "Competitive Strategy"` — the `sources` rows for those 7 decks **do not exist yet** and
-must be created first (`import-terms.mjs` looks them up, never creates them; see the 6 Aug INSERT
-for the id formula `sha256(subject::filename::byteLength).slice(0,24)`).
-
-**Mixed subjects in the bank are intentional.** The user's requirement is a subject-agnostic
-pipeline, not a Digital Transformation-only one; the whole DB will be wiped before real
-implementation, so current content is scaffolding for testing the algorithm.
-
-**Adaptive difficulty is BACK** (user decision, 6 Aug, relayed verbally — **no transcript**, same gap
-as the lever-drop). Condition: the simulator must behave like MBA students across exposure conditions
-at **70–90% accuracy**. Note that 70–90% is achievable as *reliability* (band stability on resample,
-which `--seed-offset` + `analyse-band-stability.mjs` measure) but **not** as *validity* against real
-students — published expectation for management prose is r ≈ 0.5, and only the pilot settles it.
-
+# Current state — 7 August 2026
 
 ## Where we are
 
-**No `app/` or `lib/` code has changed for three sessions.** 188 tests, `tsc --noEmit` clean, the
-database is untouched since the 4 Aug cohort swap. All work since has been content pipeline and
-research-design: choosing game 4, screening a new item bank, and rebuilding the MCQ generator.
-
-Built and working: **88 of 90 new term items are screened and ready to import** (would take the term
-bank 34 → 122), and `scripts/generate-questions.mjs` is rebuilt into a three-stage flow that
-eliminated the data-point questions the old quota-driven flow produced.
-
-Half-built: the new MCQ bank **cannot ship** — a solver that knows nothing scores **88.6%** by always
-picking the longest option. Three attempts to fix that at generation failed. And the **between-arm
-experimental contrast is still undecided**, four days after the 4 Aug meeting, so every design
-decision below rests on an experiment that does not yet exist.
+Package A5, the Connections game, is **built, verified against live Neon, and pushed** — the
+dashboard's fifth tile and second board-grained game. `db/011` is applied, one hand-authored board
+(`b1-data-ai`, 4 groups × 4 tiles) is loaded, and the registry row is `enabled: true`. An adversarial
+review found seven defects in the first cut and fixing one opened an eighth; all eight are closed and
+covered by tests. What is *not* finished is content: only one board exists, so a second round
+re-serves the same 16 tiles, and boards 2 and 3 are blocked on source decks that were never
+registered in `sources`. One real defect is knowingly shipped and documented — the mistake budget is
+not enforced under concurrency.
 
 ## Working tree
 
-Branch `main`, **clean**, nothing uncommitted, **0 commits ahead of `origin/main`** (all pushed).
-
-- `7aeb603` Blind the option writer to the answer; it does not fix the giveaway
-- `9030316` Rebuild the MCQ generator two-stage, and find the giveaway it does not fix
-- `9b87905` Report band stability from two calibration runs, and refuse a fake 100%
-- `ccc9332` Add --seed-offset, without which a reproducibility run measures nothing
-- `3d2ffeb` Retract the rank-order claim; the screen's verdict is instrument-determined
-- `17c5ece` Choose Connections, then measure its main argument down
-
-`spike-data/` is gitignored; everything below lives only on this Windows machine. Eight course PDFs
-were added to the repo root and are gitignored — **never stage with a broad `git add`.**
+- Branch `main`, clean, fully pushed (`## main...origin/main`, nothing ahead).
+- Last commit: `8665a6d` — "Hand off: Connections is shipped, content is now the constraint".
+- Also this session: `feef69a` (UI playability), `cc14fe7` (eight defect fixes + board load +
+  enable), `d4fee8c` (in-progress snapshot committed by a *parallel session*, not by this one).
+- Nothing uncommitted.
+- **`d4fee8c` carries a git note marking it known-defective** (its board serve is solvable by
+  decoding its own token). The note is pushed to `refs/notes/commits`; a fresh clone must run
+  `git fetch origin refs/notes/*:refs/notes/*` to see it. It was NOT amended — it was already
+  pushed and a parallel session was active, so force-pushing was rejected as too risky.
+- `spike-data/` is gitignored; `spike-data/connections-mint-candidates.json` (22 tiles, 12 approved)
+  exists locally only.
 
 ## In progress right now
 
-**Nothing is mid-flight. No background jobs are running.** The last one (`mcq6-ungrounded.json`)
-completed and was analysed.
+Nothing is mid-edit. The session ended at a clean stopping point: everything committed, dev server
+stopped, browser tab closed.
 
-The interrupted decision is the **length giveaway on MCQ options**, and the immediately next concrete
-step is to import the screened term items, which is not blocked by it:
+The next task is **`db/012`**, which has not been started. It must close a concurrency race in
+`app/api/connections/submit/route.ts`: the function `boardProgress(sql, nonce)` does a SELECT and
+then the route INSERTs, and there are no transactions on the Neon HTTP driver, so simultaneous
+guesses all read the same stale prior-mistake count. **Measured: 12 concurrent wrong guesses recorded
+7 mistakes, not the 4 the budget allows.** Serial play is correct and was verified end to end.
 
-```bash
-node scripts/import-terms.mjs --help   # confirm flags before running
-```
-Import source: `spike-data/gen4-mcq.json` (90 rendered items) minus the 2 that failed the gate.
-Screen verdict: `spike-data/gen4-gap.json`.
+Start from `db/007_add_board_dedupe.sql` and `db/008_add_answer_dedupe.sql` — this is the identical
+check-then-insert race they each closed at their own grain, and the fix shape is the same: make the
+INSERT itself the lock. A count cap ("at most 4 wrong rows per serve") is not directly expressible as
+a unique index, so the likely design is a per-serve guess ordinal plus a unique index on
+`(question_id, guess_ordinal) where event_type = 'guess_submitted'`, with a losing concurrent insert
+returning 409 and retrying against a re-read count. `isMistakeBudgetExhausted()` in
+`lib/games/connections.ts` is the existing predicate; it is correct and is not the problem.
+
+**Do not fix this at the application level — that is exactly what is there now and what fails.**
 
 ## Decisions made this session
 
-- **Game 4 is Connections, not crossword** — all five model families agreed (RFC:
-  `docs/architecture/game4-rfc-prompt.md`). Recorded with the caveat that the brief was not neutral.
-- **Retire the 17 pitch-deck MCQs as `superseded`, but only after replacements exist** — user's
-  choice among three options. They are the *only* mcq rows, so retiring now would leave both quiz
-  tiles with zero items, and `superseded` only becomes an honest label once replacements exist.
-  Allowlist is `chart-title-term | superseded | under-determined | trivia`; no `off-curriculum` value
-  exists and adding one needs a db/011 DROP + re-ADD of the named CHECK.
-- **`generate-questions.mjs` rebuilt three-stage** — glossary (no quota, empty valid) → blind option
-  writing (schema has **no `answer` field**) → cold answer marking (`ANSWER_SCHEMA`, can report
-  `unanswerable`). `--per-window` deleted, not defaulted lower; passing it now exits with an error.
-- **Default model `gpt-5-mini` for that script only** — nano took >10 min on an 11-page deck and lost
-  two of six windows to `fetch failed`. `llm-client.mjs` omits `temperature` for `gpt-5*`, which
-  reject any value but their default of 1.
-- **`--seed-offset` added to `calibrate-difficulty.mjs`** — without it two runs at the same `--n` are
-  byte-identical and a band-stability check returns 100% by construction.
-- **Mac mini M4/16GB set up and benchmarked** — 0.42 s/item-trial vs Windows' 1.485, i.e. **3.5×
-  faster**. The "15-hour" calibration job is ~4 hours there.
-
-## Measured results (all reproducible from `spike-data/`)
-
-**Term screen, 90 items, `llama3.2`, n=30** (`gen4-gap.json`): grounded mean **0.964**, IQR 0.00,
-68/90 at ceiling. **2 broken** — `Blockchain Process` (0.40) and `Cloud Computing` (0.43). Prior
-banks: original 50 → 5 broken/0.90; gen2 29 → 1/0.96; gen3 37 → 0/0.98. **37 of 90 are fully
-answerable with no deck** (ungrounded mean 0.837) — public-vocabulary finding, not a defect.
-
-**MCQ length giveaway** — correct option is longest: **65%** (live bank, gpt-4.1-mini single-stage) →
-**81%** (two-stage + emphatic length-parity instruction, gpt-5-nano) → **89%** (blind schema,
-gpt-5-mini). Chance is 25%. Always-pick-longest scores **88.6%**. Mean correct option 106.5 chars vs
-81.6 for distractors.
-
-**The giveaway does NOT contaminate difficulty calibration** (`mcq6-ungrounded.json`, 44 items):
-the simulator scores **0.744** ungrounded, *below* the **0.886** a pure length-picker would get — so
-it is using its own knowledge, not the cue. Pearson r between score and length margin = **0.161**,
-n=44, CI straddles zero. **Assessment-validity problem, not a measurement problem. The n=120
-calibration run is unblocked.**
-
-**Connections no-source screen** — verdict is entirely instrument-determined: boards rejected 0/3
-(`gpt-4.1-nano`), 1/3 (`gemma2:9b`), 3/3 (`gpt-4.1-mini` and `gpt-5-nano`). Capability control
-(`connections-control-v1.json`) is mandatory before trusting any of it: `llama3.2` 3B scores
-**0.00/4** on Colours/Animals/Countries/Fruits and is ineligible; `gemma2:2b` 1.90/4 also ineligible.
+- **Connections ships with `lever: 'none'` and no difficulty** — confirmed by the user. The 90s
+  `BOARD_TIME_BASE` was sized for a 6-pair match board and would produce a floor effect on a 16-tile
+  search that *looks like working data*; and no `term_definition` row has a difficulty value, so a
+  tiebreak would have nothing to sort on.
+- **A future lever for this game may not be a clock at all** — user's position, 7 Aug. The natural
+  manipulations for a partition game are tile count, mistake budget, or whether one-away feedback is
+  given. Consequence: `terminal_reason`'s CHECK deliberately **excludes `'timeout'`**, because adding
+  it would bake in a mechanic nobody has chosen. Widening it later is a drop-and-re-add of the named
+  CHECK, per `db/010`.
+- **Boards are hand-authored, not generated** — three of five model families recommended it; removes
+  the largest work block and the largest correctness risk.
+- **`connection_boards` has NO `board_token` column** — the original brief specified one; it was
+  wrong. A board token is a per-serve nonce from `lib/auth/board-token.ts`; persisting it would make
+  it a static reused secret and let one student replay another's submission.
+- **Guess dedupe is keyed on the board token nonce, not `board_id`** — `(question_id, guess_hash)`.
+  Least-recently-served reorders and never excludes, so one session legitimately replays a board; a
+  `board_id`-keyed index would have rejected the replay's guesses as duplicates. Verified empirically.
+- **`terminal_reason` is derived server-side, never read from the request body**
+  (`deriveTerminalReason()` in `lib/games/connections.ts`). Gating `floorPenalty` on it had quietly
+  made it a scoring input, so a client could claim `'abandoned'` after busting the budget and dodge
+  the floor.
+- **`'none'` is a first-class inert value inside `resolveLever()`**, not a branch around it — the
+  both-levers-never-active-at-once guarantee stays one tested chokepoint. `Mode` had to be widened
+  too; the alternative was writing a bogus `'normal'` into the research log.
+- **Config carries `ownerGameId`** and the guard lives in `lib/game/game-context.tsx`, not per-game —
+  `lever:'none'` was leaking through sessionStorage into the quiz. A per-game guard is the shape that
+  let match reintroduce the abandoned-round bug two days after the quiz fixed it.
+- **Loosened the clue bar for Connections tiles only**, tagged `recipe = 'connections-tile-v1'` and
+  excluded from `app/api/word/question/route.ts` and `app/api/match/board/route.ts`. The clue is never
+  rendered in Connections; it *is* rendered by those two games, where an under-specified clue produces
+  the unanswerable item that scored 0.10 grounded. Grounding in the deck was **not** loosened.
+- **Ship one board and say so plainly** rather than padding with two medium-confidence groups (one
+  substituted Big data for a Cybersecurity term absent from the bank; another put two "agile" terms in
+  one group).
+- **Fix forward rather than rewrite history** on the already-pushed defective commit.
 
 ## Open questions / blocked on
 
-- **The between-arm experimental contrast (§5.2 of the RFC) is still blank.** Top blocker, four days
-  old. Unblocked only by Prof. Singh. Two of five models said a difficulty-only resolution flips
-  game 4 away from Connections toward **fill-in-the-blanks** (item-grained, already renders as an MCQ
-  so it inherits the existing calibrator).
-- **The lever-drop decision still has no transcript in `docs/meeting/`.**
-- **How to fix the length giveaway.** Three generation-side attempts failed. Remaining options: (1) a
-  length-normalisation rewrite pass; (2) distractors drawn from sibling concepts' true statements
-  (note: glossary-sourced distractors failed for *term* items, but those were near-synonym names, a
-  different risk); (3) disclose it as a limitation. User was deciding.
-- **Is `ANSWER_SCHEMA`'s cold reader trustworthy?** It flagged **0 of 44** items as `unanswerable`
-  and the validator rejected 0 (against 9 on an earlier nano run). Untested against a deliberately
-  ambiguous item.
-- Carried forward: rapid/normal exact seconds, points-table numbers, r ≈ 0.5 expectation for prose.
+- **Board 2 needs `Session 6,7.pdf`** (design thinking, Six Thinking Hats) registered in `sources`
+  and extracted. Eight tiles cannot be minted without it. `Session 6.pdf`'s 37 pages stop before that
+  content, so they are not the same file. **Unblocked by: the user supplying the PDF.** This is the
+  single highest-value unblock available.
+- **Board 3 needs `B_5_Agentic_AI_Presentation`** registered, same problem.
+- **Is `session.roundsPlayed` genuinely shared across games?** A private counter was removed and
+  `ownerGameId` added; both are unit-tested, but the real check is React state and was unreachable
+  from the HTTP-level pass. **Unblocked by: playing Connections then the quiz in one browser tab and
+  confirming round numbers do not collide and `round_offer` is not suppressed.**
+- **Six of the twelve minted clues are placeholders**, not definitions (e.g. "One of the items the
+  source lists under Dimensions of big data"). Harmless in Connections; must be rewritten before any
+  clue-rendering game uses those rows.
+- **`checkSourceLeak`'s `\blisted in\b` pattern over-rejects** legitimate provenance phrasing — it
+  refused "Generate quick wins". Fourth over-rejecting validator in this project; needs its own review.
+- **Still unresolved from the game-4 RFC:** two of five model families argued a difficulty-led design
+  points away from Connections (a board carries one difficulty for all 16 tiles, so it adapts
+  coarsely) toward **fill-in-the-blanks**, which is item-grained and already renders as an MCQ so it
+  inherits the calibrator unchanged. Deferred with the lever, not settled by deferring it.
+- **Connections produces no experimental data.** With `lever: 'none'` it is an engagement tile and
+  instrumented content, not a study arm. The research claim rests on quiz, match and choose-word. If
+  it is still lever-less at pilot start, that belongs in the methods section explicitly.
 
 ## Next 3 actions
 
-1. **Import the 88 screened term items.** Read `scripts/import-terms.mjs` first for its flags, then
-   import from `spike-data/gen4-mcq.json`, excluding the two ids whose `p_grounded < 0.60` in
-   `spike-data/gen4-gap.json`. `--subject "Digital Transformation"` must be explicit — it is part of
-   the `sha256(subject::term)` id.
-2. **Settle the between-arm contrast with Prof. Singh** and get the lever-drop recorded in
-   `docs/meeting/`. Brief already written: `docs/meeting/2026-08-04_pre-meeting-brief.md`.
-3. **Decide the length-giveaway fix**, then regenerate MCQs for the five session decks:
-   `node scripts/generate-questions.mjs "Session 2 - Cloud.pdf" --subject "Digital Transformation" --window 3 --dry-run --out spike-data/mcq7-cloud.json`
-   Only after replacement MCQs exist can the 17 pitch-deck rows be retired as `superseded`.
+1. **Write `db/012` to close the mistake-budget concurrency race.** Start by reading
+   `db/008_add_answer_dedupe.sql`, then `boardProgress()` and the `'guess'` branch of
+   `app/api/connections/submit/route.ts`. Do not apply it to Neon without asking the user.
+   Reproduce first: fire ≥5 distinct wrong guesses simultaneously at `/api/connections/submit` on a
+   fresh board and confirm more than 4 mistakes land.
+2. **Play Connections then the quiz in one browser tab** and confirm round numbers do not collide.
+   `npm run dev`, then `/games/connections` → play a round → `/quiz`. Check `events` for duplicated
+   `(session_id, round)` across `game_type` and for a missing `round_offer`.
+3. **Ask the user for the design-thinking deck**, register it in `sources`, extract it, then
+   `node scripts/mint-connections-tiles.mjs` for the 8 blocked tiles and
+   `node scripts/author-connections-boards.mjs --boards b2-change-process --mint-file spike-data/connections-mint-candidates.json --dry-run`
+   before `--commit`.
 
 ## Do not redo
 
-- **Do not re-run a multi-hour Ollama job without restarting Ollama first.** Three consecutive kills
-  on 6-7 Aug reached items 155, 53 and 14 of 170 — progressively sooner. That is memory pressure
-  (87.4% RAM, `llama-server` resident at 8.4 GB after hours of use), not a timeout; two of the three
-  were relaunched on a timeout theory that was wrong.
-- **`spike-simulate-difficulty.mjs` writes its output ONLY at the end.** The first kill discarded
-  ~4,650 completed simulations at item 155/170. Any interruption costs the whole run. It needs
-  incremental append or a `--resume` flag before it is trusted with another multi-hour job.
-
-
-All prior "do not redo" items stand. Added this session:
-
-- **Do not run any rejection gate without a capability control first.** `llama3.2` 3B returned a
-  clean-looking 0.10/4 on the Connections screen and scores **0.00/4** on a trivial control — it
-  cannot do the task. Third instrument in which "a weak simulator's low score can mean the simulator
-  is ignorant" has bitten. Pattern to copy: `spike-data/connections-control-v1.json`.
-- **Do not add a sixth instrument to the Connections screen.** The instrument-dependence is the
-  finding, not sampling noise to average away.
-- **Do not try to fix the MCQ length giveaway with a prompt instruction.** Tried, emphatic, moved
-  86% → 81% while dropping validator rejections 9 → 0 — the model equalised spread and kept the
-  answer marginally longest.
-- **Do not expect blinding to fix it either.** Removing the `answer` field made it *worse* (89%).
-  The cause is semantic: a true statement needs more qualification than a false one, and a stronger
-  model qualifies more carefully.
-- **Do not use `distractors` as Connections board tiles.** They are generated inventions; a tile
-  asserts its string is a real concept.
-- **Do not run two calibration passes without different `--seed-offset`.** Byte-identical otherwise;
-  `analyse-band-stability.mjs` now refuses rather than printing a fake 100%.
-- **Do not add a name-length clause to the glossary prompt.** It surfaced no short terms, made terms
-  longer, and re-broke the chart-caption guard.
-- **Do not launch a long run with a bare `&`.** Same failure as `nohup` — the harness tracks the
-  launcher, not the job, and no completion notification fires.
-- **Do not guess JSON field names when writing analysis scripts.** Cost two wrong readings this
-  session (`simulated_p` vs `p`; `grounded` vs `p_grounded`), one of which nearly reported a working
-  fix as broken. Inspect the structure first.
+- **Do not rebuild Connections, and do not re-run the game-selection analysis or the
+  crossword-vs-Connections RFC.** Both settled; repeating either costs a week.
+- **Do not assemble a second board from the existing 113-row bank.** Already checked: only two groups
+  are both fully live and cleanly coherent. A mushy board is worse than one good board.
+- **Do not "fix" the board layout markup if it renders as one column in dev.** Tailwind had never
+  scanned `app/games/connections/page.tsx`, so `grid-cols-4` and `aspect-square` were absent from the
+  dev stylesheet while `grid-cols-2`/`grid-cols-3` from older pages were present. The production
+  build was correct the whole time. **Kill the dev server, `rm -rf .next/dev .next/cache`, restart.**
+- **Do not trust API-level verification for UI.** Everything passed over HTTP while the board was
+  unplayable. Exercise it in a browser.
+- **Do not add `'timeout'` to the `terminal_reason` allowlist** as a convenience. See the decision
+  above — it presumes a mechanic that has not been chosen.
+- **Do not render `distractors` as board tiles.** They are generated strings; a student who correctly
+  sorts a fabricated term learns it as real. Use them offline as a confusability signal only.
+- **Do not add a sixth Connections screening instrument.** The instrument-dependence *is* the finding.
+- **Do not force-push over `d4fee8c`.** It is pushed, a parallel session was active, and the git note
+  already records the defect.
+- **Do not `git add -A`** — course-material PDFs are in the working tree. Stage by name.

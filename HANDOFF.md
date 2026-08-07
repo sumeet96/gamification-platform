@@ -1029,3 +1029,111 @@ contaminate difficulty calibration.
 
 **Unchanged and still the top blocker: the between-arm experimental contrast is undecided**, now
 four days after the 4 Aug meeting, and the lever-drop still has no transcript in `docs/meeting/`.
+
+## 20. Package A5 (Connections) ships, and the 4 Aug transcript lands (7 Aug 2026)
+
+**Connections is built, played against live Neon, and pushed.** The dashboard's fifth tile and
+second board-grained game: 16 tiles, partition into 4 groups of 4, 4 mistakes allowed. Commits
+oldest first: `d4fee8c` (in-progress snapshot, committed by a parallel session) → `cc14fe7` (eight
+defect fixes, board load, tile enabled) → `feef69a` (UI playability) → `8665a6d` (handoff brief).
+Tests **188 → 253**, `tsc --noEmit` clean, `npx next build` succeeds. §19 chose the game; this
+section builds it.
+
+**`d4fee8c` carries a git note marking it a known-defective snapshot.** It was pushed before review.
+Fetch notes with `git fetch origin refs/notes/*:refs/notes/*`; the note lists the defects so nobody
+cherry-picks or demos from that SHA. History was not rewritten — the commit was already public and a
+parallel session was active, so a force-push risked destroying its work.
+
+**`db/011` is applied** to Neon `ancient-brook-62806105`: four tables (`connection_groups`,
+`connection_group_members`, `connection_boards`, `connection_board_groups`), eleven nullable `events`
+columns, and `events_guess_submitted_uidx`. Three corrections to the build brief were made during
+the migration: no `board_token` column (a board token is a per-serve nonce; persisting it makes it a
+static reused secret), guess dedupe keyed on that nonce rather than `board_id` (least-recently-served
+replays a board within a session, and a `board_id` key would reject the replay's guesses as
+duplicates), and the brief's `lib/games/board-token.ts` path does not exist — it is `lib/auth/`.
+
+**An adversarial review found seven defects; fixing one opened an eighth.** The one that mattered:
+the shuffle seed was `sha256(nonce)`, the nonce sits in plaintext inside the board token, and the
+pre-shuffle rows were ordered grouped 4/4/4/4 — so a client could replay the PRNG and read off every
+tile's group. Verified broken and verified fixed: the old exploit now matches the served order **0 of
+5 times**. Also closed: `maxMistakes` unenforced server-side (busting the budget scored +10 against
+an honest −50); accrual written on two event types so the lifetime score both missed Connections and
+would have double-counted; `floorPenalty` charged on abandoned boards; `lever:'none'` leaking through
+sessionStorage into the quiz's research log. The eighth was self-inflicted — gating `floorPenalty` on
+`terminal_reason` made that field a scoring input while it still arrived in the request body, so a
+client could claim `'abandoned'` and dodge the floor. `deriveTerminalReason()` now decides it from
+server state.
+
+**Three architecture changes bind future code.** `'none'` is a first-class inert value *inside*
+`resolveLever()`/`advanceLeverState()` — a third case within the chokepoint, never a licence for a
+game to branch around it; `Mode` had to widen too, since the alternative was writing a bogus
+`'normal'` into the research log. `GameConfig.ownerGameId` plus `getConfig()`/`configBelongsTo()`
+guards config in `lib/game/game-context.tsx` centrally, not per-game — a per-game guard is exactly
+the shape that let match reintroduce the abandoned-round bug two days after the quiz fixed it.
+
+**Shipped knowingly: the mistake budget is not enforced under concurrency.** `boardProgress()`
+SELECTs then INSERTs, and there are no transactions on the Neon HTTP driver, so simultaneous guesses
+read the same stale count — **12 concurrent wrong guesses recorded 7 mistakes, not 4**. Serial play
+is correct. This is the same check-then-insert race `db/007` and `db/008` each closed at their own
+grain, now at a third; it needs `db/012` and a unique-index-as-lock, not an application check.
+
+**Content is the constraint, not the engine.** One board is loaded (`b1-data-ai`, 4 groups / 16
+tiles) and 12 `content_items` were minted, tagged `recipe='connections-tile-v1'` and excluded from
+`app/api/word/question/route.ts` and `app/api/match/board/route.ts` — those two render the clue, and
+six of the twelve clues are provenance placeholders ("One of the items the source lists under
+Dimensions of big data"), not definitions. Boards 2 and 3 are blocked on source decks never
+registered in `sources`. Least-recently-served works; it has one board to choose from, so round 2
+re-serves the same tiles.
+
+**Four lessons, the first two worth generalising.** A stale dev server can make correct markup render
+wrong *in dev only* — Tailwind had never scanned the new page, so `grid-cols-4` and `aspect-square`
+were absent while `grid-cols-2`/`-3` from older pages were present, and the production build was
+correct throughout; the board rendered as one column. Kill the server, clear `.next/dev`, restart —
+before editing working markup. And **API-level verification is structurally blind to UI failure**:
+eleven HTTP checks passed against live Neon while the board was unplayable. That is the third
+instance after A1's 8-board lockout and A3's unsent badge, so it is a rule now, not an anecdote.
+Smaller: a raw NUL byte used as a hash separator made git treat the game's *scoring* file as binary —
+no diff, no reviewer pass, invisible to ripgrep.
+
+**Connections ships `lever: 'none'` and therefore produces no experimental data.** It is an
+engagement tile with instrumented content, not a study arm. If it is still lever-less at pilot start,
+that belongs in the methods section explicitly rather than being assumed in. Per the user on 7 Aug, a
+future lever for a partition game may not be a clock at all — tile count, mistake budget, and
+one-away feedback are the live candidates — which is why `terminal_reason`'s CHECK deliberately
+excludes `'timeout'`.
+
+### The 4 Aug transcript arrived 7 Aug
+
+`docs/meeting/Aug 4 at 3-31 PM.txt` (+ `.m4a`) is now in `docs/meeting/`, discharging the missing-
+transcript flag §19 closed on. **Speaker labels are unreliable** — they swap mid-thought (`:135–138`
+splits one sentence across two speakers), so per-line attribution must be checked against the audio
+before anything reaches the paper.
+
+**The between-arm contrast was not raised.** There is no mention of arms, independent variables, or
+the difficulty-vs-time split anywhere in the transcript. It stays the top blocker — raised in the
+pre-meeting brief, not discussed, and now overdue.
+
+**New ruling, and the first of its kind with a citation: structural gamification, not content
+gamification.** Content gamification has "better impact the research" but "cannot be generalized…
+specifically develop[ed for] particular scenarios"; the ruling is to *"keep a little broader so that
+it can be applied."* A deliberate trade of research impact for generalizability, and it belongs in
+the paper's framing.
+
+**Wordle's death now has support from both sides.** The measured 9-cell floor across 136 domain
+strings is matched by the supervisor's own reasoning — "in MBA curriculum or business context,
+usually phrases are used instead of five to eight letter words".
+
+**Adaptive-difficulty shelving is transcript-backed, but only as reported-and-unopposed** — "adaptive
+difficulty… I have shelved for now, but there is some kind of evidence by using and iterating on
+those local models". That is the user reporting it and the supervisor not objecting, which is weaker
+than an explicit ruling. Do not upgrade it to one.
+
+**Two build-relevant remarks.** The 90s match board is too long by the user's own assessment in the
+meeting ("I have given it one and half minutes. But it is too long") — the first live evidence on the
+`BOARD_TIME_BASE` question A5 deferred. And the rules panel must persist before play rather than
+vanishing after the first answer; Connections' setup screen already satisfies this, match may not.
+
+**Open and unreported: the supervisor expects a crossword.** The transcript has "that's why I told
+you, crossword, explore crossword" and the user's "that is the only thing I would be working on now",
+with a Friday check-in promised. The RFC on 5–6 Aug then chose Connections and A5 shipped it. The
+choice is well-evidenced; the divergence has not been communicated.

@@ -482,12 +482,25 @@ The prof named eight games. He said *what*, not *how*; §1 is the design pass.
 quiz (normal + rapid), match-the-following, fill-in-the-blanks, choose-the-right-word, Wordle.
 Four of the five read `term_definition`; all but Wordle carry a lever.
 
+**Revised 5–7 Aug 2026.** Wordle is **dead**, not deferred — the corpus has a measured 9-cell floor
+in canonical form (136 domain strings, none ≤8 cells) and short terms cannot be prompted into
+existence; the supervisor reached the same conclusion independently on 4 Aug from domain knowledge.
+**Connections replaced it** as game 4: decided 6 Aug by five-model RFC, **shipped 7 Aug as package
+A5** (`HANDOFF.md` §20). Fill-in-the-blanks remains specced and unbuilt.
+
 **Named by the prof, deferred past the pilot:** crossword, word search (both need grid generation
 and layout — the most expensive work in the project), article-then-answer, video-then-answer (both
 need a `passage` primitive and, for video, a media source we do not have).
 
 Deferring crossword and word search is a scope decision, not a rejection — the prof described them
 most vividly and shared his screen to show a word search. They come back after the pilot.
+
+**Crossword is live again as an expectation, and this is unreconciled.** On 4 Aug the supervisor
+steered explicitly toward it ("that's why I told you, crossword, explore crossword") and the user
+answered "that is the only thing I would be working on now". The 5–6 Aug RFC then chose Connections,
+which shipped instead. Crossword is not blocked on entry length any more — the fragment and
+constituent-expansion insight (§1) solved that — it was set aside on crossing density, the 90s board
+clock, and build cost. **The divergence has not been communicated to the supervisor.**
 
 ### 2.4 Explicitly deferred by the prof
 
@@ -584,6 +597,25 @@ transcript, or is marked as our inference. The summaries are lossy; the transcri
   answer discards the misconception data (§1.7). Fix in K-3.
 - Generated questions are almost entirely recall, which is why difficulty labels cannot
   discriminate (§1.6).
+
+**Added 7 Aug 2026 (package A5):**
+
+- **Connections' mistake budget is not enforced under concurrency.** `boardProgress()` in
+  `app/api/connections/submit/route.ts` SELECTs then INSERTs, and there are no transactions on the
+  Neon HTTP driver, so simultaneous guesses all read the same stale count — measured: **12 concurrent
+  wrong guesses recorded 7 mistakes, not 4**. Serial play is correct. Same check-then-insert race
+  `db/007` and `db/008` each closed at their own grain. **Remedy: `db/012`, a unique-index-as-lock —
+  an application-level check is what is already there and what fails.**
+- Connections board rotation is content-blocked: one board is authored, so round 2 re-serves the same
+  16 tiles. Boards 2 and 3 need source decks that were never registered in `sources`.
+- Six of the twelve `content_items` minted for A5 carry provenance-placeholder clues, not
+  definitions. They are tagged `recipe='connections-tile-v1'` and excluded from the two games that
+  render a clue, so this is contained — but those rows are not reusable until rewritten.
+
+> ⚠️ **This list is itself partly stale and needs an audit pass.** Several entries above were fixed
+> by packages Q1, A1, A3 and A5 — the answer key no longer ships to the browser, abandoned rounds no
+> longer reuse a round number, and "zero automated tests" is now 253. Do not read an entry here as
+> currently true without checking; do not delete one without confirming the fix.
 
 ### 2.9 Out of scope
 
@@ -707,8 +739,19 @@ Read first:     docs/PROJECT_MAP.md §1 and §2.7, docs/CURRENT_STATE.md
 
 ## 4. Decisions needed, and from whom
 
-**From Prof. Singh (Tue 4 Aug):**
+**From Prof. Singh (asked for Tue 4 Aug — status updated 7 Aug 2026 against the transcript,
+`docs/meeting/Aug 4 at 3-31 PM.txt`; items 1–6 were NOT covered):**
 1. **The research variable for multi-game** — he owns it and said he would plan it. Highest value.
+   **STILL OPEN. It did not come up on 4 Aug** — the transcript contains no mention of arms,
+   independent variables, or the difficulty-vs-time split. Two packages have shipped since, so build
+   work has now overtaken the design.
+1a. **New, follow-on: does a lever-less game belong in the study at all?** A5 (Connections) ships
+   `lever: 'none'` and produces no experimental data — an engagement tile with instrumented content.
+   Either it gains a lever, or the methods section states plainly that the research claim rests on
+   the quiz, match and choose-word only. Note the lever for a partition game may not be a clock:
+   tile count, mistake budget, and one-away feedback are the live candidates.
+1b. **Unreported: game 4 became Connections, not the crossword he steered toward on 4 Aug.** Owed at
+   the next check-in.
 2. Sign-off on the points table (§1) and the high/low spread.
 3. Paid Gemini Tier 1 — reframed: the whole corpus costs ~$1.42, so it is a consent decision about
    his unpublished material, not a budget one.
