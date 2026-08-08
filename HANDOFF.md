@@ -1195,3 +1195,81 @@ not touched this session.
 
 Full reasoning for all of the above: `DECISIONS.md` ("Crossword reopened as a sixth tile, 7 Aug
 2026" and "Crossword's lever, 7 Aug 2026") and `docs/architecture/games-and-content-findings.md`.
+
+## 22. Crossword built out and live-verified, still deliberately disabled (8 Aug 2026)
+
+**Same day as §21, running past midnight.** Where §21 left crossword scaffolded — registry entry,
+migration written but not applied, no routes, no page, no board — this session built it the rest
+of the way to a fully playable, live-verified sixth tile, per an approved four-phase plan: (A)
+`db-engineer` wrote the `db/013` amendment and `db/014_add_crossword_events.sql`; (B) `db-engineer`
+wrote the board-authoring pipeline (`scripts/author-crossword-boards.mjs` +
+`scripts/lib/crossword-plan.mjs`); (C) a `builder` wrote the API routes
+(`app/api/crossword/{board,submit}/route.ts`); (D) a `builder` wrote the page
+(`app/games/crossword/page.tsx`), with a `reviewer` and `codex-review` pass on the routes running
+in parallel with the page build. `enabled: false` was left unchanged throughout — deliberate, not
+an oversight; see below.
+
+**A schema defect was caught before commit.** The db-engineer's first draft added the new
+`check_spent` event type to `CLIENT_EMITTABLE_EVENT_TYPES` in `lib/log/logEvent.ts` with a comment
+warning not to actually let the client emit it that way — which defeats the entire purpose of that
+array, whose job is to make "the client cannot emit a scored event" a compile-time error, not a
+comment-enforced convention. Corrected to follow `question_answered`/`board_complete`'s existing
+exclusion pattern.
+
+**Two independent review passes on the API routes (`reviewer` + `codex-review`) earned their keep.**
+One HIGH finding: an empty-string grid cell — the natural default for an untouched controlled
+`<input>` — was being graded `wrong` instead of `not_attempted`, which would have broken the core
+scoring design (0-for-blank, strictly better than a wrong guess) the moment the page posted every
+rendered cell rather than only the touched ones. Several MED findings, all fixed: checking an
+already-completed board was allowed; checking a blank entry wasted a budget unit for no
+information; a partially-retired board would have silently served a truncated grid instead of
+failing closed, the way Connections does (Codex's independent catch, not the primary reviewer's).
+Two limitations were found and deliberately left as documented, accepted gaps rather than fixed: a
+check-budget concurrency race with the same shape and status as the still-open `db/012`, and a
+narrow reveal-replay edge case with confirmed zero scoring impact.
+
+**Authoring one real board surfaced real problems, not just the mechanism to fix them.** The user
+resolved 12 fragment collisions on the live board by hand, dropped 6 fragments as not worth
+remembering for the coursework, and dropped one entry (VERACITY) after two genuine LLM retries
+both failed against a pre-existing thin/placeholder source clue — the same provenance-placeholder
+gap already on record from the Connections build, not a new one. That review round needed a
+mechanism that didn't exist yet, so the authoring script gained a `"drop": true` review-file
+option (for both collisions and a solo entry whose clue mint keeps failing) that records a reason
+rather than silently removing anything. Separately, the authoring script's own post-write
+verification query had two real bugs — an ambiguous column reference and a reference to columns
+its own CTE never selected — caught on the first real `--commit` against live Neon and fixed in
+both the script and `db/013`'s own documented copy of the same query.
+
+**The most important finding of the session came from opening a browser, not from any static
+check.** `tsc`, the test suite, and the build all passed throughout. Actually playing the built
+board in `app/games/crossword/page.tsx` surfaced a real stale-closure bug: clicking a clue whose
+first cell coincided with a lower-ordinal crossing entry's start cell silently reselected the wrong
+entry, because `clickCell`'s `onFocus` handler read `selectedEntryId` from React state before the
+re-render that the just-fired `setSelectedEntryId` call would produce — so everything typed
+afterward landed in the wrong grid cells. Fixed with `selectedEntryRef`, a ref kept synchronously
+in sync with the selection state and read by `clickCell`/`changeCell`/`keyDownCell` in place of the
+stale closure; re-verified against the exact same crossing scenario via a live `board_complete`
+event row. This is a fresh, concrete instance of `AGENTS.md`'s standing rule that API-level and
+unit-test verification are structurally blind to UI failure — worth naming plainly, since it is
+exactly the case that rule exists for.
+
+**End state.** One board (22 entries, live on Neon) is fully playable at `/games/crossword`.
+`GAME_REGISTRY`'s `enabled: false` is unchanged on purpose — the lever mechanic is the one thing
+genuinely blocking it, and this build deliberately does not implement one. Research this session
+(recorded in `games-and-content-findings.md`) found no existing `lib/game/engine.ts` machinery fits
+a crossword's shape: match's board clock assumes many short, repeatable boards with a whole-board
+pass/fail streak, and crossword is one long, non-linear task. A real fix needs new engine
+machinery, not new constants, and is likely the single largest remaining piece of this feature.
+Three commits landed this same day: `0510bbd` (scaffold checkpoint) and `b4f0796` (scoring
+economics) before this session's work, then `2d6f0cf` ("Build crossword end to end: routes, page,
+board content, live-verified") for it.
+
+**Unchanged and still open.** `db/012` (Connections' mistake-budget concurrency race) remains
+unwritten. The supervisor has still not been told about the 4 Aug "explore crossword" transcript
+divergence (§20) — a working, playable crossword makes that conversation more overdue, not less,
+and it stays a human conversation no future session can close by writing code. The mobile viewport
+is the simple scrollable-grid version, not the polished pan-and-zoom one, by the user's explicit
+choice this session, not an oversight.
+
+Full detail, exact file:line specifics, and the next-actions list: `docs/CURRENT_STATE.md`
+(rewritten this session) and `DECISIONS.md`'s crossword entries.
