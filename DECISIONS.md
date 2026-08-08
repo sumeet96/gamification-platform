@@ -127,6 +127,38 @@ filled and share a wrong letter at the intersection can both grade wrong off one
 double-bill, deliberately left as-is (see `gradeEntry`'s docstring in `lib/games/crossword.ts`).
 This is scoring/economics only — no routes, API, or UI exist yet to call it.
 
+**Crossword's lever, 8 Aug 2026 — SUPERSEDES the 7 Aug entry above: `lever: 'time'`, not `'both'`.**
+The difficulty half of `'both'` is dropped, not deferred: a pre-authored fixed grid has no
+difficulty knob to turn without *asserting* a difficulty level, and `AGENTS.md` states "Difficulty
+is empirical, never asserted." The user's own framing: we cannot reliably calibrate difficulty even
+for MCQs — the term-item calibration experiment (`docs/experiments/2026-08-02_term-item-
+calibration.md`) exists precisely because that is hard — so asserting it for a crossword grid is
+worse, not better. Two alternatives were considered and rejected before landing on time-only: (a)
+modulating the **check budget** as an adaptive-scaffolding lever — rejected because it is a
+different construct from the quiz's item-difficulty ramp, so pooling both under one "adaptive" arm
+would mean the arm no longer names a single manipulation, a construct-validity problem, not just an
+implementation inconvenience; (b) authoring difficulty-tiered boards — blocked, only one board
+exists and boards carry no difficulty attribute to tier by. In-repo precedent: Wordle was refused a
+lever on purely structural grounds (one board/day means the lever would fire 24h apart, not
+adaptivity) — this is the same discipline applied to crossword's difficulty half, not a new rule.
+`LeverSupport` (`lib/games/registry.ts`) was widened from `'both' | 'none'` to admit `'time'`,
+since the type previously had no way to express "eligible for the time arm only."
+
+Time lever design: a count-up clock that never terminates the board (`terminal_reason` still needs
+no `'timeout'`, consistent with the entry below), and a time bonus that pays in full inside a
+window then decays linearly to zero. Elapsed time is server-authoritative, derived from the oldest
+uncompleted `board_served` row within the token TTL, never from the client-reported
+`time_taken_ms` (kept, logged separately, for research comparison only — never scored). The
+full-bonus window is snapshotted onto the `board_token_issued` row at serve time so the displayed
+and scored windows cannot drift apart. Lever state is reconstructed server-side from the student's
+last 10 crossword `board_complete` rows, so adaptation survives across sessions with no new state
+table. Both `checkBonus` and `timeBonus` are now scaled by fraction-correct — closes a scoring
+exploit a review pass found, where an instant empty submission previously paid +34 (14 unused-check
+points plus a full 20 time bonus) and was farmable every few seconds; it now scores 0. Two additive
+migrations applied live to Neon this session: `db/015_add_crossword_time_lever.sql` (adds
+`events.server_time_taken_ms`) and `db/016_add_events_question_id_index.sql` (adds
+`events_question_id_idx`). Crossword's `GAME_REGISTRY` entry is now `enabled: true`.
+
 **Wordle, Strands and the NYT Mini are dead, not deferred.** The corpus has a measured 9-cell floor
 in canonical form (136 domain strings, none ≤8 cells) and short terms cannot be prompted into
 existence. Independently corroborated by the supervisor on 4 Aug from domain knowledge.

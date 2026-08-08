@@ -141,13 +141,19 @@ if `events` is ever queried before a genuine student cohort exists.
   side task** — both are known, documented, deliberately deferred (same posture as `db/012`), not
   bugs someone forgot about.
 - **Do not trust a browser-automation click/type action without verifying it actually produced an
-  effect.** This session hit real, repeated tool flakiness (screenshot API errors, clicks not
-  registering, a `computer`-tool `type` action silently dropping most of a word) that had nothing
-  to do with the app — confirmed by driving the exact same interactions through
-  `document.querySelector(...).click()` and manual DOM value-setting instead, which worked
-  reliably. If a browser check ever "fails" strangely, rule out the tooling before concluding the
-  app is broken — but do NOT skip the browser check itself; it is exactly what caught the real
-  `selectedEntryRef` bug this session (API-level and unit-test checks were both blind to it).
+  effect** — but also do not default to blaming the tooling. This session hit real tool flakiness
+  (screenshot API errors, clicks not registering), confirmed by driving the same interactions
+  through `document.querySelector(...).click()` and manual DOM value-setting instead, which worked
+  reliably. But one symptom recorded here as tooling flakiness — a `computer`-tool `type` action
+  "silently dropping most of a word" — was very likely a real app bug, not tooling: the 8 Aug
+  session found `maxLength={1}` on the crossword grid cell `<input>` silently swallowing keystrokes
+  once typing reached a cell already filled by a crossing entry (fixed to `maxLength={2}`,
+  `HANDOFF.md` §23). That is a plausible, arguably more likely, explanation for "dropped" keystrokes
+  than automation flakiness, and this note previously reassured readers the app was fine when that
+  was never actually confirmed. Any other single-character controlled `<input>` in the codebase may
+  carry the same defect and has not been checked. Do NOT skip the browser check itself either way —
+  it is exactly what caught the `selectedEntryRef` bug in §22 and the `maxLength` bug in §23; both
+  were invisible to API-level and unit-test checks.
 - *(Carried forward, unchanged)* Do not assemble a second Connections board from the existing
   bank. Do not "fix" board layout markup without killing the dev cache first
   (`rm -rf .next/dev .next/cache`). Do not add `'timeout'` to `terminal_reason`. Do not render

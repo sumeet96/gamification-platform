@@ -1,0 +1,62 @@
+-- Migration 015: one additive column for crossword's time-lever slice
+-- (server + pure-logic half, 8 Aug 2026). db/013 (board/grid authoring) and
+-- db/014 (crossword events columns + check_spent) are both already applied
+-- live -- this migration is scoped to exactly the one new field that slice
+-- needs and db/014 didn't anticipate (crossword's lever was undesigned when
+-- db/014 was written).
+--
+-- Preflight run 8 Aug 2026 against Neon project ancient-brook-62806105
+-- (read-only, via a throwaway node script, connection string never printed):
+--
+--   select column_name from information_schema.columns
+--     where table_name = 'events'
+--       and column_name in ('server_time_taken_ms', 'time_limit', 'time_taken_ms');
+--     --> ['time_limit', 'time_taken_ms'] -- confirms server_time_taken_ms is
+--         genuinely new (no collision) and that time_limit/time_taken_ms
+--         (both reused below, no new column needed for either) already exist.
+--   select count(*) from events;                              --> 450
+--   select count(*) from events where game_type = 'crossword'; --> 21
+--
+-- ---------------------------------------------------------------------------
+-- WHY A NEW COLUMN, not another reused generic one (the pattern this file's
+-- siblings all prefer): `time_taken_ms` already holds the CLIENT-reported
+-- duration (from app/games/crossword/page.tsx's boardStartRef, via
+-- body.time_taken_ms) and must keep doing exactly that, unmodified -- it is
+-- the "separate field for research comparison" the build spec requires
+-- alongside the new server value, not a slot to overwrite. No other existing
+-- nullable numeric column has a name that wouldn't actively mislead a
+-- researcher reading `events` cold (difficulty_level, boards_completed,
+-- mistakes_made, groups_solved, deselect_count, shuffle_count, group_ordinal
+-- all carry a specific, already-documented, DIFFERENT meaning for other
+-- game_types). Every other migration in this file reuses a generic column
+-- where one genuinely fits (board_id, question_id-as-nonce, content_item_id,
+-- is_correct); this is the one place in the crossword lever slice where
+-- nothing does, so a new column is the accurate choice, not the lazy one.
+--
+-- `time_limit` (existing, base events table) is NOT new here -- crossword's
+-- board_complete insert starts writing it in this same slice, but the column
+-- itself already exists and already means exactly what crossword needs
+-- ("seconds allowed, time mode"): the server-resolved full-bonus window for
+-- that board. No migration needed for that half.
+-- ---------------------------------------------------------------------------
+
+alter table events
+  -- Server-authoritative elapsed time for a crossword board_complete row,
+  -- milliseconds, computed in app/api/crossword/submit/route.ts from the
+  -- board_served event's own `created_at` (never from anything the client
+  -- posts) -- this is the value GridPoints.maxTimeBonus's decay curve
+  -- (lib/games/crossword.ts's timeBonusFor) actually scores against.
+  -- `time_taken_ms` (existing) remains the CLIENT-reported duration, kept
+  -- unmodified for research comparison, never used for scoring. Nullable:
+  -- null on the (should-never-happen) case where this board serve's own
+  -- board_served row cannot be found, in which case no time bonus is
+  -- awarded either (see timeBonusFor's null-elapsed handling).
+  add column if not exists server_time_taken_ms int;
+
+-- Verification, read-only, safe to run any time after applying:
+--   select column_name from information_schema.columns
+--     where table_name = 'events' and column_name = 'server_time_taken_ms';
+--     -- expect 1 row
+--   select count(*) from events where game_type = 'crossword' and server_time_taken_ms is not null;
+--     -- expect 0 until this slice's routes are deployed and a board is
+--     -- actually completed (crossword itself stays enabled: false regardless)

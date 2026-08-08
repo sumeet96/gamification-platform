@@ -1272,4 +1272,53 @@ is the simple scrollable-grid version, not the polished pan-and-zoom one, by the
 choice this session, not an oversight.
 
 Full detail, exact file:line specifics, and the next-actions list: `docs/CURRENT_STATE.md`
+
+## 23. Crossword's lever designed and built: time only, not `'both'`, and the game is enabled (8 Aug 2026)
+
+**Same day as §22.** §22 left crossword fully built but disabled, blocked on the lever mechanic.
+This session designed and built that lever, and it is time-only, not the `'both'` declared in §21
+— see the superseding `DECISIONS.md` entry for the full rationale (asserting a difficulty level on
+a fixed pre-authored grid conflicts with `AGENTS.md`'s "difficulty is empirical, never asserted";
+the check-budget and difficulty-tiered-boards alternatives were both considered and rejected).
+`LeverSupport` in `lib/games/registry.ts` was widened from `'both' | 'none'` to admit `'time'`.
+
+The mechanic: a count-up clock that never terminates the board, and a time bonus paying in full
+inside a window then decaying linearly to zero. Elapsed time is server-authoritative — derived from
+the oldest uncompleted `board_served` row within the token TTL, never the client's reported
+`time_taken_ms`, which is kept and logged separately for research comparison but never scored. The
+full-bonus window is snapshotted onto the `board_token_issued` row at serve time so the displayed
+and scored windows cannot drift. Lever state reconstructs server-side from the student's last 10
+crossword `board_complete` rows, so adaptation persists across sessions with no new state table.
+Two additive migrations went live on Neon this session: `db/015_add_crossword_time_lever.sql`
+(adds `events.server_time_taken_ms`) and `db/016_add_events_question_id_index.sql` (adds
+`events_question_id_idx`).
+
+**Two independent review passes (`reviewer`, `codex-review`) ran on the diff and found three HIGH
+findings, all fixed.** (1) The scoring exploit named above: an instant empty submission previously
+paid +34 (14 unused-check points plus a full 20 time bonus) and was farmable every few seconds —
+fixed by scaling both `checkBonus` and `timeBonus` by fraction-correct, so an empty submission now
+scores 0. (2) A client-resettable clock: re-requesting the board wrote a fresh `board_served` row,
+which reset both the elapsed-time clock and the check budget — a student could refresh their way to
+a full check budget and a full time bonus indefinitely. (3) Codex's independent finding that
+`enabled: false` never actually blocked play: `proxy.ts` gates on auth only, and the registry flag
+only controls whether the dashboard tile is clickable — a student who knew or guessed the URL could
+play crossword the entire time it was "disabled." None of these were caught by the earlier §22
+review round, which ran before the lever existed to exploit.
+
+**Browser verification then caught a fourth bug that review missed.** Actually playing the board
+surfaced `maxLength={1}` on the grid cell `<input>`: once typing reached a cell already filled by a
+crossing entry, further keystrokes were silently swallowed rather than replacing the letter. Fixed
+to `maxLength={2}`, which `changeCell`'s existing `raw.slice(-1)` logic already anticipated (it was
+written to handle a two-character buffer that the input's own `maxLength` had never actually
+allowed through). This is the fourth instance in this project of static checks and the test suite
+passing clean while the game was unplayable in a real browser — `AGENTS.md`'s standing rule about
+opening a browser exists precisely for this pattern, and it is worth naming as a pattern rather than
+a one-off each time it recurs. It is also very likely the true explanation for a `computer`-tool
+"dropped keystrokes" symptom §22 attributed to browser-automation flakiness — see the correction in
+`docs/CURRENT_STATE.md`.
+
+**End state.** Crossword's `GAME_REGISTRY` entry is now `enabled: true` — the sixth live tile, and
+the first to carry a genuinely consumed lever since Connections shipped `lever: 'none'`. Full
+file:line detail and the next-actions list: `docs/CURRENT_STATE.md` (updated separately via
+`/checkpoint`).
 (rewritten this session) and `DECISIONS.md`'s crossword entries.

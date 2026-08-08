@@ -72,6 +72,25 @@ export const BOARD_TIME_BASE = 90 // seconds, first board in time mode
 export const BOARD_TIME_MIN = 45
 export const BOARD_TIME_STEP = 15 // seconds shaved per consecutive correct board
 
+// Grid-grained timing (crossword's time lever, 8 Aug 2026 -- package A6's
+// server + pure-logic slice). A crossword grid is one long, non-linear task,
+// not a sequence of short repeatable boards like match's -- BOARD_TIME_BASE
+// (90s, sized for a 6-pair board) would time out the live 22-entry board
+// almost immediately. GRID_TIME_BASE scales BOARD_TIME_BASE's own implied
+// rate (90s / 6 pairs = 15s/unit) up to crossword's live board size
+// (22 entries x ~15-16s -> ~5.5min), rounded to a clean 6 minutes.
+// GRID_TIME_MIN/GRID_TIME_STEP mirror BOARD_TIME_MIN/STEP's PROPORTIONS
+// (floor at half of base; step at ~1/12 of base per consecutive success)
+// rather than reusing their absolute seconds, which were sized for a board
+// an order of magnitude smaller. PLACEHOLDERS pending Prof. Singh's sign-off,
+// same status as every other constant in this file -- and, unlike the other
+// TIME_*/BOARD_TIME_* constants, this one is sized against exactly ONE live
+// board (22 entries); a second board of very different size would need this
+// revisited, not silently reused.
+export const GRID_TIME_BASE = 360 // seconds, first grid in time mode (~6 min for a 22-entry board)
+export const GRID_TIME_MIN = 180 // seconds, floor after repeated fast, successful grids
+export const GRID_TIME_STEP = 30 // seconds shaved per consecutive successful grid
+
 export function roundLength(mode: Mode): number {
   return mode === 'rapid' ? 10 : 20
 }
@@ -118,19 +137,35 @@ export function nextDifficulty(current: number, correct: boolean, consecutive: n
 
 // Which per-round clock a game is on. Not a second lever -- both branches of
 // resolveLever below still decide difficulty vs time; this only picks WHICH
-// pair of constants ('item' MCQ timing vs 'board' whole-board timing) the time
-// branch reads. Lives here, not as a parallel resolver, so the single-lever
-// chokepoint (see resolveLever) still holds for every granularity.
-export type TimingProfile = 'item' | 'board'
+// pair of constants ('item' MCQ timing, 'board' whole-board timing, or 'grid'
+// whole-grid timing) the time branch reads. Lives here, not as a parallel
+// resolver, so the single-lever chokepoint (see resolveLever) still holds for
+// every granularity. 'grid' added 8 Aug 2026 for crossword's time lever --
+// see GRID_TIME_BASE's comment for why it needed its own constants rather
+// than reusing 'board's.
+export type TimingProfile = 'item' | 'board' | 'grid'
 
-/** Time allowed for the NEXT question (profile 'item') or NEXT board (profile
- *  'board'), given the current correct streak. Defaults to 'item' so every
- *  existing call site (the quiz) is unaffected. */
+/** Time allowed for the NEXT question (profile 'item'), NEXT board (profile
+ *  'board'), or NEXT grid (profile 'grid'), given the current correct streak.
+ *  Defaults to 'item' so every existing call site (the quiz) is unaffected. */
 export function timeForStreak(consecutiveCorrect: number, profile: TimingProfile = 'item'): number {
   if (profile === 'board') {
     return Math.max(BOARD_TIME_MIN, BOARD_TIME_BASE - BOARD_TIME_STEP * consecutiveCorrect)
   }
+  if (profile === 'grid') {
+    return Math.max(GRID_TIME_MIN, GRID_TIME_BASE - GRID_TIME_STEP * consecutiveCorrect)
+  }
   return Math.max(TIME_MIN, TIME_BASE - TIME_STEP * consecutiveCorrect)
+}
+
+/** The pinned time base for a profile -- what 'adaptive' and 'none' lever
+ *  branches of resolveLever hand back for `timeLimit` (their difficulty is
+ *  the field that moves; timeLimit just needs SOME stable base per profile).
+ *  Pulled out so adding 'grid' didn't mean tripling a ternary in two places. */
+function pinnedTimeBase(profile: TimingProfile): number {
+  if (profile === 'board') return BOARD_TIME_BASE
+  if (profile === 'grid') return GRID_TIME_BASE
+  return TIME_BASE
 }
 
 // --- Lever resolver ---------------------------------------------------
@@ -184,7 +219,7 @@ export function resolveLever(
 ): { difficulty: number; timeLimit: number } {
   switch (config.lever) {
     case 'adaptive':
-      return { difficulty: state.difficulty, timeLimit: profile === 'board' ? BOARD_TIME_BASE : TIME_BASE }
+      return { difficulty: state.difficulty, timeLimit: pinnedTimeBase(profile) }
     case 'time':
       return { difficulty: config.fixedDifficulty, timeLimit: timeForStreak(state.streak, profile) }
     case 'none':
@@ -193,7 +228,7 @@ export function resolveLever(
       // lever starts from -- neither field moves regardless of `state` or
       // `profile`. tests/lever.test.ts asserts both stay constant across a
       // full mixed sequence of answers.
-      return { difficulty: config.fixedDifficulty, timeLimit: profile === 'board' ? BOARD_TIME_BASE : TIME_BASE }
+      return { difficulty: config.fixedDifficulty, timeLimit: pinnedTimeBase(profile) }
     default: {
       const exhaustive: never = config.lever
       throw new Error(`resolveLever: unhandled lever ${exhaustive}`)
@@ -227,6 +262,29 @@ export function advanceLeverState(config: GameConfig, state: LeverState, correct
       throw new Error(`advanceLeverState: unhandled lever ${exhaustive}`)
     }
   }
+}
+
+/**
+ * Replay a bounded history of past board/grid outcomes through
+ * initialLeverState/advanceLeverState to reconstruct a SERVER-SIDE
+ * LeverState with no persisted client state at all. Added 8 Aug 2026 for
+ * crossword's time lever: unlike the quiz/match/word pages, which hold a
+ * LeverState in React state for the lifetime of one round (never persisted
+ * between rounds or sessions), crossword's submit route has no client-held
+ * state to trust at all -- see lib/games/crossword-lever.ts, which folds a
+ * student's own recent `board_complete` history through this function.
+ *
+ * `history` must be given OLDEST-FIRST (the order actually played):
+ * advanceLeverState is order-sensitive (adaptive's two-consecutive rule,
+ * time's streak-resets-on-wrong rule), so reversing this would silently
+ * reconstruct the wrong state.
+ */
+export function reconstructLeverState(config: GameConfig, history: readonly boolean[]): LeverState {
+  let state = initialLeverState(config)
+  for (const correct of history) {
+    state = advanceLeverState(config, state, correct)
+  }
+  return state
 }
 
 export interface RoundSummary {

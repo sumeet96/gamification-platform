@@ -9,6 +9,7 @@ import {
   initialLeverState,
   resolveLever,
   advanceLeverState,
+  reconstructLeverState,
   roundLength,
   DIFFICULTY_MAX,
   START_DIFFICULTY,
@@ -16,6 +17,9 @@ import {
   BOARD_TIME_BASE,
   BOARD_TIME_MIN,
   BOARD_TIME_STEP,
+  GRID_TIME_BASE,
+  GRID_TIME_MIN,
+  GRID_TIME_STEP,
   configBelongsTo,
   type GameConfig,
 } from '../lib/game/engine.ts'
@@ -160,6 +164,70 @@ test('resolveLever board profile: difficulty is unaffected by profile (only timi
   state = advanceLeverState(config, state, true)
   state = advanceLeverState(config, state, true)
   assert.equal(resolveLever(config, state).difficulty, resolveLever(config, state, 'board').difficulty)
+})
+
+// Added 8 Aug 2026 for crossword's time lever (package A6 slice): 'grid' is a
+// THIRD timing profile, alongside 'item' and 'board' -- same wiring pattern
+// FIX 4 established for 'board', restated for GRID_TIME_*.
+test("resolveLever grid profile: adaptive lever pins the GRID base, not item's or board's", () => {
+  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3, ownerGameId: 'test' }
+  const state = initialLeverState(config)
+  const { timeLimit } = resolveLever(config, state, 'grid')
+  assert.equal(timeLimit, GRID_TIME_BASE)
+  assert.notEqual(timeLimit, TIME_BASE)
+  assert.notEqual(timeLimit, BOARD_TIME_BASE)
+})
+
+test('resolveLever grid profile: time lever ramps down using the GRID step/min, never below GRID_TIME_MIN', () => {
+  const config: GameConfig = { mode: 'normal', lever: 'time', fixedDifficulty: 3, ownerGameId: 'test' }
+  let state = initialLeverState(config)
+  assert.equal(resolveLever(config, state, 'grid').timeLimit, GRID_TIME_BASE)
+  // Enough consecutive correct grids to hit the floor.
+  for (let i = 0; i < 10; i++) state = advanceLeverState(config, state, true)
+  const { timeLimit } = resolveLever(config, state, 'grid')
+  assert.equal(timeLimit, GRID_TIME_MIN)
+  assert.ok(timeLimit >= GRID_TIME_MIN)
+  // One correct answer in is one GRID_TIME_STEP off the base, not item's or board's step.
+  let one = initialLeverState(config)
+  one = advanceLeverState(config, one, true)
+  assert.equal(resolveLever(config, one, 'grid').timeLimit, GRID_TIME_BASE - GRID_TIME_STEP)
+})
+
+test('resolveLever grid profile: difficulty is unaffected by profile (only timing differs)', () => {
+  const config: GameConfig = { mode: 'normal', lever: 'adaptive', fixedDifficulty: 3, ownerGameId: 'test' }
+  let state = initialLeverState(config)
+  state = advanceLeverState(config, state, true)
+  state = advanceLeverState(config, state, true)
+  assert.equal(resolveLever(config, state).difficulty, resolveLever(config, state, 'grid').difficulty)
+})
+
+// ---------------------------------------------------------------------------
+// reconstructLeverState (8 Aug 2026, crossword's time lever): the pure fold
+// that lets a server rebuild a LeverState from event history alone, with no
+// persisted client state at all.
+// ---------------------------------------------------------------------------
+
+test('reconstructLeverState: empty history is identical to a fresh initialLeverState', () => {
+  const config: GameConfig = { mode: 'none', lever: 'time', fixedDifficulty: 3, ownerGameId: 'crossword' }
+  assert.deepEqual(reconstructLeverState(config, []), initialLeverState(config))
+})
+
+test('reconstructLeverState: matches manually folding advanceLeverState in the same order', () => {
+  const config: GameConfig = { mode: 'none', lever: 'time', fixedDifficulty: 3, ownerGameId: 'crossword' }
+  const history = [true, true, false, true, true, true]
+  let manual = initialLeverState(config)
+  for (const correct of history) manual = advanceLeverState(config, manual, correct)
+  assert.deepEqual(reconstructLeverState(config, history), manual)
+})
+
+test('reconstructLeverState: order matters -- reversing history changes the reconstructed streak', () => {
+  const config: GameConfig = { mode: 'none', lever: 'time', fixedDifficulty: 3, ownerGameId: 'crossword' }
+  const forward = reconstructLeverState(config, [false, true, true])
+  const backward = reconstructLeverState(config, [true, true, false])
+  // forward ends on two correct in a row -> streak 2; backward ends on a
+  // wrong answer -> streak reset to 0. Different histories, different state.
+  assert.notDeepEqual(forward, backward)
+  assert.equal(backward.streak, 0, 'a history ending in a wrong answer must reset the streak')
 })
 
 // Added 7 Aug 2026 for Connections (package A5's round-collision fix): 'none'

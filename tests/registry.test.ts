@@ -23,14 +23,20 @@ test('ids are unique', () => {
   assert.equal(new Set(ids).size, ids.length, 'duplicate id found in registry')
 })
 
-test('wordle and connections are unlevered; every other game honours both levers', () => {
+test('wordle and connections are unlevered; crossword is time-only; every other game honours both levers', () => {
   // wordle: one board/day, the lever would fire 24h apart, not adaptivity.
   // connections: deliberate for this build (docs/NEXT_SESSION_BUILD_BRIEF.md
   // §6, confirmed by the user 6 Aug 2026) — no clock, no difficulty tiebreak.
+  // crossword (8 Aug 2026): the grid is pre-authored and fixed, so there is
+  // no per-item difficulty to ramp — only the time lever is structurally
+  // possible. See lib/games/registry.ts's crossword entry.
   const unlevered = new Set(['wordle', 'connections'])
+  const timeOnly = new Set(['crossword'])
   for (const g of GAME_REGISTRY) {
     if (unlevered.has(g.id)) {
       assert.equal(g.lever, 'none')
+    } else if (timeOnly.has(g.id)) {
+      assert.equal(g.lever, 'time', `${g.id} should be time-only`)
     } else {
       assert.equal(g.lever, 'both', `${g.id} should honour both levers`)
     }
@@ -91,6 +97,7 @@ test('every wrong/miss/floor payout is zero or negative', () => {
         assert.ok(g.points.perfectBonus >= 0, `${g.id} clean-grid bonus must not be a punishment`)
         assert.ok(g.points.checkBudgetDivisor > 0, `${g.id} check budget divisor must be positive`)
         assert.ok(g.points.perUnusedCheck >= 0, `${g.id} unused-check reward must not be a punishment`)
+        assert.ok(g.points.maxTimeBonus >= 0, `${g.id} time bonus must not be a punishment`)
         // Unlike match/Connections, no separate floor is needed: perWrong < 0 and
         // an unattempted entry contributes exactly 0, so blind guessing is already
         // strictly worse than leaving a blank -- the same negative-EV-for-guessing

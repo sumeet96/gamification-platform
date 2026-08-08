@@ -1,0 +1,48 @@
+-- Migration 016: one additive index on events(question_id) (LOW 5, 8 Aug 2026
+-- adversarial review of the crossword time-lever diff). db/015 (this same
+-- session) is already APPLIED live, so this ships as its own migration
+-- rather than an amendment to it.
+--
+-- APPLIED 8 Aug 2026 to Neon project ancient-brook-62806105, same session,
+-- immediately after this preflight (via a throwaway node script under
+-- `node --env-file=.env.local`, connection string never printed). Verified
+-- live: `select indexname from pg_indexes where tablename = 'events' and
+-- indexname = 'events_question_id_idx'` returns 1 row.
+--
+-- WHY: several crossword queries filter on `question_id` with NO supporting
+-- index -- `events_board_nonce_uidx` (db/007) and `events_guess_submitted_uidx`
+-- (db/011) are both PARTIAL indexes on question_id, scoped to
+-- event_type = 'board_complete' and 'guess_submitted' respectively, and
+-- neither covers a plain `where question_id = ? and event_type = 'board_served'`
+-- lookup (app/api/crossword/board/route.ts's least-recently-served path,
+-- lib/games/crossword-serve-anchor.ts's board_served/check_spent lookups
+-- added this same session, and the pre-existing check_spent counting query).
+-- At 120 students x 20 sessions x several crossword boards each, these are
+-- unbounded, growing scans over the whole `events` partition on every board
+-- serve and completion. A single non-partial btree index on `question_id`
+-- covers all of them, the same way `events_type_idx`/`events_student_idx`
+-- already cover their own columns.
+--
+-- Preflight run 8 Aug 2026 against Neon project ancient-brook-62806105
+-- (read-only, via a throwaway node script under
+-- `node --env-file=.env.local`, connection string never printed):
+--
+--   select indexname, indexdef from pg_indexes
+--     where tablename = 'events' and indexdef ilike '%question_id%';
+--     --> events_board_nonce_uidx (partial, event_type = 'board_complete')
+--         events_guess_submitted_uidx (partial, event_type = 'guess_submitted')
+--         -- confirms no existing index actually covers a plain
+--         -- question_id lookup; the new index below does not collide with
+--         -- either.
+--   select count(*) from events;                                            --> 450
+--   select count(*) from events where event_type = 'board_served'
+--     and game_type = 'crossword';                                          --> 5
+--
+-- Additive only, `if not exists`, no data changes -- safe to run any time.
+
+create index if not exists events_question_id_idx on events (question_id);
+
+-- Verification, read-only, safe to run any time after applying:
+--   select indexname from pg_indexes
+--     where tablename = 'events' and indexname = 'events_question_id_idx';
+--     -- expect 1 row

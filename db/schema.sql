@@ -653,3 +653,26 @@ alter table events
   add column if not exists entries_correct int,          -- board_complete only
   add column if not exists entries_wrong int,             -- board_complete only
   add column if not exists entries_not_attempted int;    -- board_complete only
+
+-- db/015_add_crossword_time_lever.sql: APPLIED 8 Aug 2026 to Neon project
+-- ancient-brook-62806105. crossword's time-lever slice: server-authoritative
+-- elapsed time for a board_complete row, milliseconds, computed from the
+-- board_served event's own created_at, never from anything client-supplied.
+-- `time_taken_ms` (above) stays the CLIENT-reported duration, unmodified, for
+-- research comparison -- never used for scoring. `time_limit` (above, base
+-- events table, no migration needed) starts carrying crossword's resolved
+-- full-bonus window (seconds) in this same slice; only this one column was
+-- genuinely new. See db/015 for the full "why a new column" reasoning.
+alter table events
+  add column if not exists server_time_taken_ms int;    -- board_complete only, crossword
+
+-- db/016_add_events_question_id_index.sql: APPLIED 8 Aug 2026 to Neon project
+-- ancient-brook-62806105, same session, adversarial-review hardening pass
+-- (LOW 5). A plain, non-partial index on question_id -- neither of the two
+-- existing question_id indexes above (events_board_nonce_uidx,
+-- events_guess_submitted_uidx) covers a lookup that isn't scoped to their own
+-- specific event_type, and crossword's board_served/check_spent lookups
+-- (lib/games/crossword-serve-anchor.ts, added this same session) are exactly
+-- that: an unindexed, unbounded scan of a growing partition on every board
+-- serve and completion at pilot scale (120 students x 20 sessions).
+create index if not exists events_question_id_idx on events (question_id);

@@ -3,25 +3,36 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ChevronLeft, Trophy, Sparkles, AlertTriangle, Grid3x3, CheckCircle2, XCircle, HelpCircle, Eye, Zap, ArrowRight,
+  ChevronLeft, Trophy, Sparkles, AlertTriangle, Grid3x3, CheckCircle2, XCircle, HelpCircle, Eye, Zap, ArrowRight, Clock,
 } from 'lucide-react'
 import { useGame } from '@/lib/game/game-context'
 import { FIXED_DIFFICULTY, type GameConfig, type RoundSummary } from '@/lib/game/engine'
 import { getGame, type GridPoints } from '@/lib/games/registry'
-import { checkBudget, type EntryStatus } from '@/lib/games/crossword'
+import { checkBudget, gridSucceeded, timeBonusFor, type EntryStatus } from '@/lib/games/crossword'
 
 // Package A6: Crossword. Structural template is app/games/connections/page.tsx
 // (setup -> loading -> playing -> boardResult -> roundResult, useGame()'s
 // setConfig/recordRound/registerContinue/announceRoundOffer/abandonRound/emit).
-// This game is lever: 'none' IN PRACTICE, by explicit user decision recorded
-// in the build plan (reactive-wiggling-puddle.md, "The page spec (Task D)"):
-// no resolveLever() call anywhere in this file, no lever-choice setup screen,
-// no countdown/clock, no LeverState. `GAME_REGISTRY`'s crossword entry still
-// declares `lever: 'both'` (what it's ELIGIBLE for once a real lever mechanic
-// is designed) -- CROSSWORD_CONFIG.lever below is 'none' (what this file
-// actually consumes), and the two are deliberately different things. Do not
-// import resolveLever from lib/game/engine.ts here, ever, until that lever
-// mechanic is actually built.
+//
+// TIME-LEVER-ONLY (8 Aug 2026, client slice -- supersedes the lever:'none'-
+// in-practice design this comment used to describe). `GAME_REGISTRY`'s
+// crossword entry declares `lever: 'time'`, and the server half (this file's
+// two API routes, lib/games/crossword-lever.ts) was already resolving and
+// scoring that lever before this page caught up -- two reviews flagged that
+// gap as "the same class of defect as a client-supplied score, just
+// inverted" (a lever the student never sees, never reacts to).
+// CROSSWORD_CONFIG.lever below now matches the registry. Still no
+// resolveLever() call here, though: unlike quiz/match/word, crossword has no
+// client-held LeverState at all -- lib/games/crossword-lever.ts's header
+// explains why the server reconstructs it from history on every request.
+// This page only DISPLAYS the already-resolved `timeLimitSeconds`
+// board/route.ts returns, and shows a DISPLAY-ONLY decaying time-bonus number
+// computed via `timeBonusFor` (imported from lib/games/crossword.ts, the same
+// pure function the server scores with) -- never sent back, never trusted;
+// the server re-derives and re-scores everything off its own clock. The
+// on-page clock counts UP and never force-terminates the board:
+// DECISIONS.md's "terminal_reason excludes 'timeout'" ruling forbids a
+// timeout ending a board the way match's countdown does.
 //
 // JUDGMENT CALL (not specified in the plan, flagged in the build report):
 // unlike Connections/match, this page treats one crossword board as one
@@ -33,7 +44,7 @@ import { checkBudget, type EntryStatus } from '@/lib/games/crossword'
 
 const CROSSWORD_GAME_ID = 'crossword'
 const CROSSWORD_POINTS = getGame(CROSSWORD_GAME_ID).points as GridPoints
-const CROSSWORD_CONFIG: GameConfig = { mode: 'none', lever: 'none', fixedDifficulty: FIXED_DIFFICULTY, ownerGameId: CROSSWORD_GAME_ID }
+const CROSSWORD_CONFIG: GameConfig = { mode: 'none', lever: 'time', fixedDifficulty: FIXED_DIFFICULTY, ownerGameId: CROSSWORD_GAME_ID }
 
 type Direction = 'H' | 'V'
 
@@ -46,7 +57,10 @@ interface EntryData {
   length: number
   ordinal: number
 }
-interface BoardData { boardId: string; width: number; height: number; entries: EntryData[]; boardToken: string }
+interface BoardData {
+  boardId: string; width: number; height: number; entries: EntryData[]; boardToken: string
+  timeLimitSeconds: number // full-bonus window, server-resolved (board/route.ts) -- display only, see header
+}
 
 // Cell-keyed fill state, "x,y" -- matches lib/games/crossword.ts's cellKey and
 // app/api/crossword/submit/route.ts's parseGrid (a plain object, never an
@@ -69,6 +83,7 @@ interface CompleteResponse {
   accrual?: number
   bonus?: number
   checkBonus?: number
+  timeBonus?: number
   net?: number
   potential?: number
   perfect?: boolean
@@ -82,6 +97,16 @@ type Phase = 'setup' | 'loading' | 'playing' | 'boardResult' | 'roundResult'
 
 function cellKey(x: number, y: number): string {
   return `${x},${y}`
+}
+
+// mm:ss, floored to the second -- matches the once-a-second tick the
+// elapsedMs effect drives, so the displayed clock and its own update
+// cadence never disagree.
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const m = Math.floor(totalSeconds / 60)
+  const s = totalSeconds % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
 }
 
 // Same cell-span math lib/games/crossword.ts's entryCells uses, adapted to
@@ -98,13 +123,15 @@ function entryCellKeys(entry: EntryData): string[] {
 }
 
 interface RoundTotals {
-  net: number; potential: number; accrual: number; bonus: number; checkBonus: number
+  net: number; potential: number; accrual: number; bonus: number; checkBonus: number; timeBonus: number
   entriesCorrect: number; entriesWrong: number; entriesNotAttempted: number; checksUsed: number
   perfect: boolean
+  bestTimeMs: number | null // this round's board completion time, client-tracked -- display/telemetry only
 }
 const EMPTY_TOTALS: RoundTotals = {
-  net: 0, potential: 0, accrual: 0, bonus: 0, checkBonus: 0,
+  net: 0, potential: 0, accrual: 0, bonus: 0, checkBonus: 0, timeBonus: 0,
   entriesCorrect: 0, entriesWrong: 0, entriesNotAttempted: 0, checksUsed: 0, perfect: false,
+  bestTimeMs: null,
 }
 
 // ---- Clue list, hoisted so it isn't recreated every render ------------------
@@ -170,6 +197,13 @@ export default function CrosswordGame() {
   const [roundTotals, setRoundTotals] = useState<RoundTotals>(EMPTY_TOTALS)
   const [roundNo, setRoundNo] = useState(0)
   const [boardError, setBoardError] = useState<string | null>(null)
+  // Count-up display clock (time-lever slice, 8 Aug 2026): elapsed ms since
+  // boardStartRef, ticked once a second while phase === 'playing' by the
+  // effect below. DISPLAY ONLY -- never sent to the server (submit/route.ts
+  // measures elapsed itself, entirely inside Postgres, off the anchored
+  // board_served row; see that route's header) and never used to end the
+  // board -- see this file's header on why a timeout can't terminate here.
+  const [elapsedMs, setElapsedMs] = useState(0)
 
   const boardStartRef = useRef(0)
   const checkGuardRef = useRef(false) // guards a double check-submit
@@ -256,7 +290,10 @@ export default function CrosswordGame() {
         return
       }
       const entries: EntryData[] = data.entries
-      setBoard({ boardId: data.boardId, width: data.width, height: data.height, entries, boardToken: data.boardToken })
+      setBoard({
+        boardId: data.boardId, width: data.width, height: data.height, entries, boardToken: data.boardToken,
+        timeLimitSeconds: typeof data.timeLimitSeconds === 'number' ? data.timeLimitSeconds : 0,
+      })
       setGrid({})
       setSelectedEntryId(entries[0]?.contentItemId ?? null)
       setEntryFeedback({})
@@ -268,6 +305,7 @@ export default function CrosswordGame() {
       setCompleteError(null)
       inputRefs.current = new Map()
       boardStartRef.current = Date.now()
+      setElapsedMs(0)
       setPhase('playing')
     } catch (err) {
       console.error('crossword: board fetch failed', err)
@@ -276,6 +314,16 @@ export default function CrosswordGame() {
       setPhase('setup')
     }
   }
+
+  // Ticks elapsedMs once a second while actually playing -- stops (and stops
+  // re-arming) the instant phase leaves 'playing', so the display clock never
+  // keeps running once a board is solved/abandoned. Never terminates the
+  // board itself; see this file's header.
+  useEffect(() => {
+    if (phase !== 'playing') return
+    const iv = setInterval(() => setElapsedMs(Date.now() - boardStartRef.current), 1000)
+    return () => clearInterval(iv)
+  }, [phase])
 
   // ---- Round lifecycle --------------------------------------------------------
 
@@ -330,10 +378,15 @@ export default function CrosswordGame() {
       correct: roundTotals.entriesCorrect,
       wrong: roundTotals.entriesWrong,
       answered: roundTotals.entriesCorrect + roundTotals.entriesWrong,
-      // No adaptive difficulty concept here (lever-free by design) -- pinned
-      // to the constant config carries, same placeholder Connections uses.
+      // No adaptive difficulty concept here (crossword never ranks/ramps a
+      // per-entry difficulty, see registry.ts's crossword entry) -- pinned to
+      // the constant config carries, same placeholder Connections uses.
       peakDifficulty: CROSSWORD_CONFIG.fixedDifficulty,
-      bestTimeMs: null, // no time lever, nothing to race
+      // Set from the board's completion time (time-lever slice, 8 Aug 2026) --
+      // see applyCompleteResult, which sets roundTotals.bestTimeMs only on a
+      // successful board (gridSucceeded), same "only a real success can set a
+      // race time" gate match's/word's own bestTimeMs tracking uses.
+      bestTimeMs: roundTotals.bestTimeMs,
       lever: CROSSWORD_CONFIG.lever,
       mode: CROSSWORD_CONFIG.mode,
       round: roundNo,
@@ -461,17 +514,21 @@ export default function CrosswordGame() {
 
   // ---- Complete -----------------------------------------------------------------
 
-  function applyCompleteResult(data: CompleteResponse) {
+  function applyCompleteResult(data: CompleteResponse, elapsedMsAtSubmit: number) {
     const revealList = data.reveal ?? []
+    const entriesCorrect = revealList.filter((r) => r.status === 'correct').length
+    const entriesWrong = revealList.filter((r) => r.status === 'wrong').length
+    const entriesNotAttempted = revealList.filter((r) => r.status === 'not_attempted').length
     setRoundTotals({
       net: data.net ?? 0,
       potential: data.potential ?? 0,
       accrual: data.accrual ?? 0,
       bonus: data.bonus ?? 0,
       checkBonus: data.checkBonus ?? 0,
-      entriesCorrect: revealList.filter((r) => r.status === 'correct').length,
-      entriesWrong: revealList.filter((r) => r.status === 'wrong').length,
-      entriesNotAttempted: revealList.filter((r) => r.status === 'not_attempted').length,
+      timeBonus: data.timeBonus ?? 0,
+      entriesCorrect,
+      entriesWrong,
+      entriesNotAttempted,
       // Read from the server's own authoritative count, never reconstructed
       // from the client's locally-tracked checksRemaining -- that local
       // value is only as fresh as the last 'check' response this tab saw
@@ -479,6 +536,15 @@ export default function CrosswordGame() {
       // concurrency edge cases documented in the submit route.
       checksUsed: data.checksUsed ?? 0,
       perfect: data.perfect ?? false,
+      // Client-tracked completion time (telemetry/display only, same posture
+      // as match's/word's own bestTimeMs -- never the value the server
+      // actually scored the time bonus against). Only set on a genuine
+      // success (gridSucceeded, the same threshold the server folds into this
+      // student's own lever history) -- an abandoned or mostly-empty board
+      // never gets to claim a race time.
+      bestTimeMs: gridSucceeded(entriesCorrect, entriesCorrect + entriesWrong + entriesNotAttempted)
+        ? elapsedMsAtSubmit
+        : null,
     })
     if (revealList.length > 0) {
       const revealMap = new Map(revealList.map((r) => [r.contentItemId, r]))
@@ -534,14 +600,14 @@ export default function CrosswordGame() {
           // suspend) but the server already scored it -- reconcile from the
           // read-back instead of dead-ending here, same FIX 7 pattern
           // Connections' completeBoard uses.
-          applyCompleteResult(data)
+          applyCompleteResult(data, elapsed)
           return
         }
         console.error('crossword: submit complete failed', data)
         setCompleteError('Could not finalise this board -- your score may not be saved. Try again.')
         return
       }
-      applyCompleteResult(data)
+      applyCompleteResult(data, elapsed)
     } catch (err) {
       if (reason === 'abandoned') return
       console.error('crossword: submit complete request failed', err)
@@ -609,6 +675,10 @@ export default function CrosswordGame() {
                 <div className="rounded-full bg-sky-500/20 p-2 flex-shrink-0"><div className="w-2 h-2 bg-sky-400 rounded-full" /></div>
                 <p className="text-slate-300 text-sm font-semibold">Each unused check: <span className="text-sky-300">+{CROSSWORD_POINTS.perUnusedCheck}</span></p>
               </div>
+              <div className="flex items-center gap-3">
+                <div className="rounded-full bg-amber-500/20 p-2 flex-shrink-0"><div className="w-2 h-2 bg-amber-400 rounded-full" /></div>
+                <p className="text-slate-300 text-sm font-semibold">Finish fast: up to <span className="text-amber-300">+{CROSSWORD_POINTS.maxTimeBonus}</span> time bonus, decaying the longer you take</p>
+              </div>
             </div>
           </div>
 
@@ -672,6 +742,10 @@ export default function CrosswordGame() {
                 <span className="text-slate-300 font-medium">Unused-check bonus</span>
                 <span className="text-sky-300 font-black text-xl">+{roundTotals.checkBonus}</span>
               </div>
+              <div className="rounded-lg bg-slate-800/50 border border-slate-700/50 p-4 flex items-center justify-between">
+                <span className="text-slate-300 font-medium">Time bonus</span>
+                <span className="text-sky-300 font-black text-xl">+{roundTotals.timeBonus}</span>
+              </div>
               <div className="rounded-lg bg-slate-800/70 border border-violet-500/30 p-4 flex items-center justify-between">
                 <span className="text-white font-black">Net this round</span>
                 <span className={`font-black text-xl ${roundTotals.net < 0 ? 'text-red-300' : 'text-violet-300'}`}>{roundTotals.net}</span>
@@ -706,6 +780,15 @@ export default function CrosswordGame() {
   // 'playing' or 'boardResult'
   const locked = phase === 'boardResult'
 
+  // Display-only decay curve, mirroring lib/games/crossword.ts's timeBonusFor
+  // exactly (imported, not reimplemented) so what the student watches tick
+  // down during play is the same curve the server actually scores against --
+  // it is never sent back, and the server never reads windowMs/liveTimeBonus
+  // from anything client-supplied; see this file's header.
+  const windowMs = board.timeLimitSeconds * 1000
+  const liveTimeBonus = timeBonusFor(elapsedMs, windowMs, CROSSWORD_POINTS.maxTimeBonus)
+  const decaying = windowMs > 0 && elapsedMs > windowMs
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-8">
       <div className="mx-auto max-w-3xl">
@@ -715,9 +798,24 @@ export default function CrosswordGame() {
             <ChevronLeft className="w-5 h-5" />
             <span className="text-sm font-semibold">Exit</span>
           </button>
-          <div className="text-center">
-            <p className="text-slate-400 text-xs uppercase font-semibold">Checks Left</p>
-            <p className="text-2xl font-black text-violet-300">{checksRemaining}</p>
+          <div className="flex items-center gap-4">
+            {phase === 'playing' && (
+              <div className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
+                decaying ? 'bg-amber-500/20 border border-amber-500/40' : 'bg-slate-800/50 border border-slate-700/50'
+              }`}>
+                <Clock className={`w-4 h-4 ${decaying ? 'text-amber-400' : 'text-slate-400'}`} />
+                <div className="text-right">
+                  <p className={`font-black text-sm leading-tight ${decaying ? 'text-amber-300' : 'text-slate-200'}`}>
+                    {formatElapsed(elapsedMs)}
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-semibold leading-tight">+{liveTimeBonus} time bonus</p>
+                </div>
+              </div>
+            )}
+            <div className="text-center">
+              <p className="text-slate-400 text-xs uppercase font-semibold">Checks Left</p>
+              <p className="text-2xl font-black text-violet-300">{checksRemaining}</p>
+            </div>
           </div>
         </div>
 
@@ -763,7 +861,7 @@ export default function CrosswordGame() {
                           onChange={(e) => changeCell(key, e.target.value)}
                           onKeyDown={(e) => keyDownCell(key, e)}
                           onFocus={() => clickCell(key)}
-                          maxLength={1}
+                          maxLength={2}
                           disabled={locked}
                           className={`w-full h-full text-center text-sm sm:text-base font-black uppercase rounded-sm border outline-none transition-colors ${
                             status === 'correct'
@@ -893,6 +991,10 @@ export default function CrosswordGame() {
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-slate-400">Unused-check bonus ({roundTotals.checksUsed} used)</span>
                       <span className="text-sky-300 font-bold">+{lastScored.checkBonus}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-400">Time bonus</span>
+                      <span className="text-sky-300 font-bold">+{lastScored.timeBonus ?? 0}</span>
                     </div>
                     <div className="flex items-center justify-between border-t border-slate-700/50 pt-2 mt-2">
                       <span className="text-white font-black">Net</span>

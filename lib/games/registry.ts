@@ -19,8 +19,17 @@ export type AdaptGranularity = 'item' | 'board'
  * meanings, in sibling directories that differ by one letter (`lib/game/` vs
  * `lib/games/`), is how someone imports the wrong one and TypeScript says
  * nothing useful.
+ *
+ * `'time'` added 8 Aug 2026 for crossword: a THIRD case, distinct from
+ * `'both'` (student picks either lever) and `'none'` (neither lever applies
+ * at all). A game declares `'time'` when time pressure is meaningful but
+ * difficulty structurally is not — crossword's grid is pre-authored and
+ * fixed, so there is nothing for an adaptive-difficulty ranking to act on,
+ * but a full-board completion clock is still a real, gameable signal. See
+ * the crossword entry below and Wordle's `'none'` entry for the sibling
+ * refusal-on-structural-grounds case this generalises from.
  */
-export type LeverSupport = 'both' | 'none'
+export type LeverSupport = 'both' | 'none' | 'time'
 
 /** Flat per-answer scoring: the shape every item game except Wordle uses. */
 export interface FlatPoints {
@@ -136,6 +145,16 @@ export interface PartitionBoardPoints {
  * `perUnusedCheck` reward on whatever was spent, linear per unused check
  * (using 1 of 3 still pays for the other 2) — see lib/games/crossword.ts's
  * `checkBudget`/`scoreBoard`.
+ *
+ * `maxTimeBonus` (added 8 Aug 2026, crossword's time-lever slice): full
+ * payout while the board is completed within the server-resolved time-lever
+ * window, decaying LINEARLY to zero over a further window's worth of time —
+ * see lib/games/crossword.ts's `timeBonusFor`. The window itself is NOT a
+ * points constant and does not live here — it comes from
+ * lib/game/engine.ts's `resolveLever(config, state, 'grid')`, reconstructed
+ * server-side per student from recent play history
+ * (lib/games/crossword-lever.ts), never authored as a fixed value the way
+ * `perEntry`/`perfectBonus`/etc. are.
  */
 export interface GridPoints {
   kind: 'grid'
@@ -144,6 +163,7 @@ export interface GridPoints {
   perfectBonus: number
   checkBudgetDivisor: number // budget = floor(entryCount / this)
   perUnusedCheck: number
+  maxTimeBonus: number // full time-bonus payout inside the resolved window — see docstring above
 }
 
 export type Points = FlatPoints | GuessCountPoints | BoardPoints | PartitionBoardPoints | GridPoints
@@ -264,43 +284,62 @@ export const GAME_REGISTRY: readonly GameEntry[] = [
     id: 'crossword',
     displayName: 'Crossword',
     primitive: 'term_definition',
-    // Declared 'both', deliberately NOT consumed yet — decided by the user
-    // 7 Aug 2026 specifically to keep crossword eligible as a future study
-    // arm once the between-arm contrast (AGENTS.md's standing top blocker) is
-    // resolved, unlike Connections' lever:'none' (which forecloses that
-    // permanently). See docs/architecture/games-and-content-findings.md and
-    // DECISIONS.md, "Crossword's lever, 7 Aug 2026".
+    // TIME-LEVER-ONLY, decided 8 Aug 2026. Crossword never manipulates
+    // difficulty: the grid is pre-authored and fixed at authoring time, so
+    // there is no per-item difficulty to rank or ramp — the whole grid is
+    // the unit, not any one entry, and inventing a per-board difficulty
+    // score would mean ASSERTING difficulty rather than measuring it, which
+    // AGENTS.md's "difficulty is empirical, never asserted" rule forbids.
+    // Wordle's `lever: 'none'` below is the in-repo precedent for refusing a
+    // lever on structural grounds; crossword differs only in which half of
+    // the pair is refused — Wordle forecloses both time and difficulty (one
+    // board/day), crossword forecloses difficulty only and keeps time.
     //
-    // HARD CONSTRAINT tied to `enabled` below: do not flip this game live
-    // while `lever: 'both'` is declared but unread. resolveLever() (lib/
-    // game/engine.ts) is the one chokepoint every game is supposed to consume
-    // — an enabled game that never reads its resolved (difficulty, timeLimit)
-    // would log events claiming a lever was active when nothing enforced it,
-    // the same class of defect as a client-supplied score.
-    lever: 'both',
+    // Server side: app/api/crossword/submit/route.ts reconstructs a
+    // LeverState from this student's own recent crossword `board_complete`
+    // history (bounded lookback — lib/games/crossword.ts's
+    // CROSSWORD_LEVER_LOOKBACK) via lib/game/engine.ts's
+    // `reconstructLeverState`, resolves it through
+    // `resolveLever(config, state, 'grid')`, and uses the returned
+    // `timeLimit` as the full-bonus window for `points.maxTimeBonus` below.
+    // Client side: app/games/crossword/page.tsx shows a count-up clock and a
+    // decaying bonus against that same window — this was the condition that
+    // blocked enabling, and it is now built and browser-verified against
+    // live Neon (docs/CURRENT_STATE.md).
+    lever: 'time',
     adaptGranularity: 'board',
     // Numbers are the file's usual PLACEHOLDER-pending-sign-off (see the file
-    // header) — but the SHAPE is decided (7 Aug 2026, user design session):
-    // +10 per correct entry, -5 per wrong (fully-filled-but-incorrect) entry,
-    // +25 clean-board bonus (zero wrong AND zero not-attempted), a 3-entry
-    // check budget with +2 per unused check. See GridPoints' docstring above
-    // and lib/games/crossword.ts for the grading/scoring implementation.
-    points: { kind: 'grid', perEntry: 10, perWrong: -5, perfectBonus: 25, checkBudgetDivisor: 3, perUnusedCheck: 2 },
-    // Kept false deliberately, not because nothing works yet. The
-    // crossing-density objection that killed crossword on 6 Aug is
-    // spike-resolved (scripts/spike-crossword-density.mjs: 46.5% fill on the
-    // full live bank, 43.5%/44.6% at realistic single-deck board scale,
-    // against the RFC's own cited <25% freeform-generator floor), and scoring
-    // economics are now designed (lib/games/crossword.ts) — see
-    // games-and-content-findings.md, 7 Aug 2026. What remains open and
-    // genuinely blocks enabling this: no board/grid data model is APPLIED to
-    // Neon yet (db/013_add_crossword.sql exists but is not applied), no
-    // routes, page, or submit API exist to call crossword.ts's scoreBoard(),
-    // the mobile pan-and-zoom viewport is unbuilt, and the lever/difficulty
-    // mechanic this entry's `lever: 'both'` promises does not exist. Do not
-    // flip true piecemeal — see the comment on `lever` above for why a
-    // half-wired lever is worse than no lever.
-    enabled: false,
+    // header) — but the SHAPE is decided: +10 per correct entry, -5 per wrong
+    // (fully-filled-but-incorrect) entry, +25 clean-board bonus (zero wrong
+    // AND zero not-attempted), a 3-entry check budget with +2 per unused
+    // check (7 Aug 2026 design session), plus (8 Aug 2026, this slice) up to
+    // +20 for finishing inside the resolved time window, decaying linearly
+    // to 0 over a further window's worth of time. +20 is sized against the
+    // live 22-entry board's ~220-point full-grid accrual (22 x perEntry) —
+    // comparable to perfectBonus (25) and to the max checkBonus
+    // (floor(22/3) x 2 = 14), not dominant over either. See GridPoints'
+    // docstring above and lib/games/crossword.ts for the grading/scoring
+    // implementation.
+    points: {
+      kind: 'grid',
+      perEntry: 10,
+      perWrong: -5,
+      perfectBonus: 25,
+      checkBudgetDivisor: 3,
+      perUnusedCheck: 2,
+      maxTimeBonus: 20,
+    },
+    // Enabled 8 Aug 2026. The crossing-density objection that killed
+    // crossword on 6 Aug is spike-resolved (scripts/spike-crossword-density.mjs:
+    // 46.5% fill on the full live bank, 43.5%/44.6% at realistic
+    // single-deck board scale, against the RFC's own cited <25%
+    // freeform-generator floor); board/grid data model (db/013), crossword's
+    // events columns (db/014) and the lever's column (db/015) are applied
+    // live; routes, page, one authored board (22 entries), scoring, the
+    // server-side lever, and the client countdown are all built, reviewed in
+    // two independent passes, and browser-verified against live Neon
+    // (docs/CURRENT_STATE.md).
+    enabled: true,
   },
 ]
 

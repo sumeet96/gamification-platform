@@ -1,12 +1,21 @@
 // Package A6: pure grid-grading + scoring logic for crossword. Framework-free
 // and DB-free, same reason as lib/games/connections.ts and lib/games/match.ts
-// -- testable in isolation and reusable by the (not-yet-built) submit route.
+// -- testable in isolation and reusable by app/api/crossword/submit/route.ts.
 //
 // Scope note: pure logic ONLY. No routes, no React, no @neondatabase/serverless
-// import. Must never import resolveLever() or branch on config.lever --
-// crossword declares `lever: 'both'` in ./registry.ts but deliberately does
-// NOT consume it yet (see GridPoints' docstring there); this file staying
-// lever-free is correct, not a gap, until that mechanic is designed.
+// import. This file still never imports resolveLever()/reconstructLeverState
+// or branches on config.lever directly -- but as of 8 Aug 2026 (the time-lever
+// slice) it IS lever-aware in a narrow, one-directional sense: gridSucceeded
+// and CROSSWORD_LEVER_LOOKBACK below exist specifically to feed
+// lib/games/crossword-lever.ts (the DB-touching glue file that actually calls
+// lib/game/engine.ts's reconstructLeverState/resolveLever, kept OUT of this
+// file so this one stays unit-testable without a database). gradeEntry/
+// gradeBoard/scoreBoard themselves remain fully lever-independent --
+// scoreBoard below takes an already-computed `timeBonus` number, never a
+// GameConfig/LeverState, and never resolves a window itself. crossword
+// declares `lever: 'time'` in ./registry.ts (superseding the earlier,
+// provisional `'both'`) -- difficulty stays structurally unconsumable (see
+// that entry's comments); only the time half is real.
 //
 // A board is a fixed grid of entries (db/013_add_crossword.sql), each entry
 // mapping to exactly one content_items row. Boards are authored offline and
@@ -119,12 +128,62 @@ export function checkBudget(entryCount: number, points: GridPoints): number {
   return Math.floor(entryCount / points.checkBudgetDivisor)
 }
 
+/** Did this GRID count as a success for the time lever? Mirrors
+ *  lib/games/match.ts's `boardSucceeded` exactly (same "strictly more than
+ *  half" threshold) -- the board-grained analogue of one correct answer,
+ *  restated for crossword's entry-count grain instead of match's pair-count
+ *  grain. Used only to fold a student's crossword history into a LeverState
+ *  server-side (lib/games/crossword-lever.ts's resolveCrosswordTimeWindowSeconds)
+ *  -- gradeEntry/gradeBoard/scoreBoard never call this; GRADING itself stays
+ *  fully lever-independent. */
+export function gridSucceeded(correct: number, total: number): boolean {
+  return total > 0 && correct * 2 > total
+}
+
+/** Bounded lookback for server-side lever-state reconstruction
+ *  (lib/games/crossword-lever.ts): the most recent N `board_complete` rows
+ *  for a student, never their entire crossword history. 10 mirrors quiz's/
+ *  match's own round lengths in order of magnitude -- enough boards to smooth
+ *  single-board noise out of the streak (the same smoothing INTENT as
+ *  adaptive difficulty's two-consecutive rule, lib/game/engine.ts's
+ *  nextDifficulty, applied here to board count rather than answer count)
+ *  without letting a whole pilot's worth of play permanently pin today's
+ *  window, and it caps the lookback query to a small fixed row count no
+ *  matter how long a student has been playing crossword. */
+export const CROSSWORD_LEVER_LOOKBACK = 10
+
+/**
+ * The time-bonus component of a board's score (8 Aug 2026, time-lever
+ * slice): full `maxBonus` while `elapsedMs` is within `windowMs` (the
+ * resolved full-bonus window from lib/game/engine.ts's
+ * `resolveLever(..., 'grid')`), decaying LINEARLY to zero over a FURTHER
+ * window's worth of time, floored at zero -- same "never negative" posture
+ * as `scoreBoard`'s `checkBonus` (an unused-check floor of 0, never a
+ * punishment). `elapsedMs` must always be the SERVER-authoritative value
+ * (derived from the `board_served` event's own timestamp,
+ * app/api/crossword/submit/route.ts), never the client-reported
+ * `time_taken_ms` -- see that route's header.
+ *
+ * Boundary, exact: `elapsedMs === windowMs` still pays the FULL bonus (`<=`,
+ * not `<`); `elapsedMs === 2 * windowMs` pays exactly zero, not a rounding
+ * sliver either side. `elapsedMs` past `2 * windowMs` also pays exactly
+ * zero -- decay never goes negative and is never extrapolated past the floor.
+ */
+export function timeBonusFor(elapsedMs: number, windowMs: number, maxBonus: number): number {
+  if (maxBonus <= 0 || windowMs <= 0) return 0
+  if (elapsedMs <= windowMs) return maxBonus
+  const over = elapsedMs - windowMs
+  if (over >= windowMs) return 0
+  return Math.max(0, Math.round(maxBonus * (1 - over / windowMs)))
+}
+
 export interface ScoredCrosswordBoard {
   accrual: number // perEntry x correct, PLUS perWrong x wrong (perWrong is <= 0)
   bonus: number // perfectBonus, or 0
   checkBonus: number // perUnusedCheck x unused checks -- always >= 0, spending a check costs nothing directly
+  timeBonus: number // timeBonusFor's output -- always >= 0, see that function's docstring
   net: number
-  potential: number // no-mistake-cost view: correct-only accrual + bonus + checkBonus, mirrors match's/Connections' `potential`
+  potential: number // no-mistake-cost view: correct-only accrual + bonus + checkBonus + timeBonus, mirrors match's/Connections' `potential`
   perfect: boolean
 }
 
@@ -142,25 +201,58 @@ export interface ScoredCrosswordBoard {
  * Spending a check costs nothing directly -- it does not touch `accrual` or
  * any entry's own grade. The entire cost of using checks is the forgone
  * `checkBonus` on whatever was spent, computed here from `checksUsed` alone.
+ *
+ * `timeBonus` (added 8 Aug 2026, time-lever slice) is the ONE component this
+ * function does not compute itself -- it is handed in already-resolved
+ * (`timeBonusFor` above, fed by lib/games/crossword-lever.ts's server-side
+ * window resolution), because computing it here would require this file to
+ * import lib/game/engine.ts and take a GameConfig/LeverState, breaking the
+ * DB-free-pure-logic contract this file's header describes. Defaults to 0 so
+ * every pre-existing call site (and every pre-existing test) is unaffected.
+ * Floored defensively at 0 here too, even though `timeBonusFor` already
+ * guarantees that -- same belt-and-braces posture as `unused` above.
+ *
+ * FIXED 8 Aug 2026 (HIGH 1, adversarial review): `checkBonus` and `timeBonus`
+ * are now both scaled by `fractionCorrect` (`correct / entryCount`) before
+ * being added to `net`. Before this fix, neither bonus had any dependency on
+ * how much of the board was actually attempted -- an empty (0 correct / all
+ * not-attempted) board still paid the FULL checkBonus (every check unused)
+ * and the FULL timeBonus (submitted in a couple of seconds), because
+ * `checkBonus` only ever looked at `checksUsed` and `timeBonus` only ever
+ * looked at elapsed time -- neither read `grading.correct` at all. A student
+ * could click Solve immediately, submit nothing, and farm
+ * `floor(entryCount/3) x perUnusedCheck + maxTimeBonus` points every few
+ * seconds. Scaling by `fractionCorrect` is smooth, not a cliff: a
+ * nearly-complete fast board still earns nearly all of both bonuses, an
+ * empty one earns none of either, and a fully-correct board (fraction 1) is
+ * numerically unaffected -- every pre-existing test that scores a 100%-
+ * correct board still gets the same numbers. `entryCount` is always > 0 for
+ * a real board (crossword_entries has at least one row per board, enforced
+ * at authoring time) but guarded anyway rather than asserted, same posture
+ * as this file's other divisions.
  */
 export function scoreBoard(
   grading: BoardGrading,
   checksUsed: number,
   entryCount: number,
-  points: GridPoints
+  points: GridPoints,
+  timeBonus: number = 0
 ): ScoredCrosswordBoard {
   const perfect = grading.wrong === 0 && grading.notAttempted === 0
   const accrual = grading.correct * points.perEntry + grading.wrong * points.perWrong
   const bonus = perfect ? points.perfectBonus : 0
   const unused = Math.max(0, checkBudget(entryCount, points) - checksUsed)
-  const checkBonus = unused * points.perUnusedCheck
+  const fractionCorrect = entryCount > 0 ? grading.correct / entryCount : 0
+  const checkBonus = Math.round(unused * points.perUnusedCheck * fractionCorrect)
+  const safeTimeBonus = Math.round(Math.max(0, timeBonus) * fractionCorrect)
 
   return {
     accrual,
     bonus,
     checkBonus,
-    net: accrual + bonus + checkBonus,
-    potential: grading.correct * points.perEntry + bonus + checkBonus,
+    timeBonus: safeTimeBonus,
+    net: accrual + bonus + checkBonus + safeTimeBonus,
+    potential: grading.correct * points.perEntry + bonus + checkBonus + safeTimeBonus,
     perfect,
   }
 }

@@ -1,13 +1,16 @@
 import { NeonDbError } from '@neondatabase/serverless'
 import { getSql } from '@/lib/db/client'
 import { getCurrentStudent } from '@/lib/auth/current-student'
-import { readBoardToken, isTokenCurrent, BOARD_TOKEN_ISSUED_EVENT_TYPE } from '@/lib/auth/board-token'
+import {
+  readBoardToken, isTokenCurrent, BOARD_TOKEN_ISSUED_EVENT_TYPE, BOARD_TOKEN_TTL_SECONDS,
+} from '@/lib/auth/board-token'
 import { getGame } from '@/lib/games/registry'
 import { attributeStudent, insertAnswerAtomic } from '@/lib/game/answer-commit'
 import {
-  gradeEntry, gradeBoard, checkBudget, scoreBoard,
+  gradeEntry, gradeBoard, checkBudget, scoreBoard, timeBonusFor,
   type CrosswordBoard, type Direction, type GridState, type BoardGrading,
 } from '@/lib/games/crossword'
+import { resolveCrosswordServeAnchor } from '@/lib/games/crossword-serve-anchor'
 
 // POST /api/crossword/submit -- scores crossword play (package A6).
 // Mirrors app/api/connections/submit/route.ts's security shape (board-token
@@ -31,6 +34,45 @@ import {
 // THE ANSWER KEY (crossword_entries.fragment, as CrosswordEntry.answer) is
 // reconstructed here from the DB and never leaves this route except inside
 // `reveal` on an actual 'complete' response -- see that handler below.
+//
+// TIME LEVER (added 8 Aug 2026, server + pure-logic slice; HARDENED same day
+// after two independent adversarial reviews -- HIGH 2 and MED 3 below):
+// crossword declares `lever: 'time'` (lib/games/registry.ts) and this route
+// is where it is actually consumed -- resolveLever() is the one chokepoint
+// every game is supposed to read (AGENTS.md), and 'complete' below is the
+// only place that happens for crossword. Several things follow, all
+// load-bearing:
+//   - `body.time_taken_ms` (the CLIENT's own clock, from page.tsx's
+//     boardStartRef) is still logged, unchanged, into the existing
+//     `time_taken_ms` column -- for research comparison ONLY, never for
+//     scoring.
+//   - The value that actually gates GridPoints.maxTimeBonus is a SEPARATE,
+//     SERVER-authoritative elapsed time, computed entirely inside Postgres
+//     (never via this app server's own clock, so app-server/DB clock skew
+//     cannot leak in) and logged into `server_time_taken_ms`
+//     (db/015_add_crossword_time_lever.sql).
+//   - HIGH 2 FIX: that elapsed time, and the check budget, are no longer
+//     scoped to THIS request's own token nonce. A GET mints a fresh
+//     `board_served` row (and nonce) every time it is called; with one live
+//     board, re-GETing after solving offline used to reset both the clock
+//     and the check budget to zero, because the old code measured elapsed
+//     off the CURRENT nonce's own `board_served` row and counted checks by
+//     `question_id = nonce`. `lib/games/crossword-serve-anchor.ts`'s
+//     `resolveCrosswordServeAnchor` now anchors both to the OLDEST
+//     un-completed `board_served` row for this (student, board) within the
+//     board token's own TTL -- a re-GET can no longer farm a fresh clock or
+//     budget, and a genuine break longer than the TTL still starts a fresh
+//     cycle rather than locking the student out of their own board (see
+//     that module's docstring for the full exploit/innocent-reload trace).
+//   - MED 3 FIX: the full-bonus WINDOW itself (seconds) is no longer
+//     independently re-resolved here. board/route.ts now SNAPSHOTS the
+//     window it showed the student onto that GET's own board_token_issued
+//     row (`time_limit` column) at issue time; this route reads that
+//     snapshot back (see the `latestTimeLimitSeconds` lookup below, folded
+//     into the same query that already checks token supersession) instead
+//     of calling resolveCrosswordTimeWindowSeconds a second time -- so the
+//     window a student is scored against can never drift from the one they
+//     were shown, even if another crossword board completes in between.
 //
 // JUDGMENT CALL, stated explicitly per the build plan: repeat-checking the
 // SAME entry twice within one board serve still consumes 2 units of the
@@ -139,19 +181,10 @@ function parseGrid(raw: unknown): GridState | null {
   return map
 }
 
-/** checksUsed for one board serve (nonce), counted from this serve's own
- *  already-committed check_spent events -- never trusted from the client.
- *  Shared between the 'check' path (the budget gate) and the 'complete'
- *  path (the actual scoring input), same boardProgress()-style pattern
- *  connections/submit uses for its mistake count. */
-async function checksSpent(sql: ReturnType<typeof getSql>, nonce: string): Promise<number> {
-  const rows = (await sql!`
-    select count(*) filter (where event_type = 'check_spent') as checks_used
-    from events
-    where question_id = ${nonce} and game_type = 'crossword'
-  `) as Array<{ checks_used: string | number }>
-  return Number(rows[0]?.checks_used ?? 0)
-}
+// checksUsed used to be counted per-nonce (`question_id = nonce`) here --
+// replaced by lib/games/crossword-serve-anchor.ts's resolveCrosswordServeAnchor
+// (HIGH 2 fix), which counts checks across the whole anchored serve cycle so
+// a re-GET cannot reset the budget. See that module's header for why.
 
 const TERMINAL_REASONS = ['solved', 'abandoned'] as const
 
@@ -204,18 +237,25 @@ export async function POST(req: Request) {
 
   // Same supersession check connections/submit uses: a token that is no
   // longer the LATEST issued for this (student, session) is rejected, whether
-  // or not the newer board was ever played.
+  // or not the newer board was ever played. Also fetches `time_limit` off
+  // that same row (MED 3 fix): once `isTokenCurrent` below confirms
+  // `latestNonce === tokenPayload.nonce`, this row IS the board_token_issued
+  // row for the token being redeemed, so its snapshotted `time_limit` is the
+  // exact window this student was shown at GET time -- read here instead of
+  // a second, independently-resolved query further down.
   let latestNonce: string | null = null
+  let latestTimeLimitSeconds: number | null = null
   try {
     const latest = (await sql`
-      select question_id from events
+      select question_id, time_limit from events
       where event_type = ${BOARD_TOKEN_ISSUED_EVENT_TYPE}
         and student_id = ${student.id}
         and session_id = ${sessionId}
       order by id desc
       limit 1
-    `) as Array<{ question_id: string | null }>
+    `) as Array<{ question_id: string | null; time_limit: number | null }>
     latestNonce = latest.length > 0 ? latest[0].question_id : null
+    latestTimeLimitSeconds = latest.length > 0 ? latest[0].time_limit : null
   } catch (err) {
     console.error('crossword/submit: latest-token lookup failed', err)
     return Response.json({ ok: false, error: 'failed to verify board token' }, { status: 500 })
@@ -226,6 +266,24 @@ export async function POST(req: Request) {
 
   const round = typeof body.round === 'number' ? body.round : null
   const clientStudentId = typeof body.client_student_id === 'string' ? body.client_student_id : null
+  // MED 4 FIX (8 Aug 2026 adversarial review): a client/cookie mismatch used
+  // to fall through to attributeStudent, which downgrades studentIdForInsert
+  // to null and still writes the row -- the events.student_id lookback that
+  // reconstructs lever history filters on the cookie's student_id, so a
+  // null-attributed board_complete becomes permanently invisible to that
+  // student's own dataset (an orphaned row, not just an anonymous one).
+  // Reject outright instead. Other games' submit routes call attributeStudent
+  // the same permissive way and share this hole -- out of scope here, see the
+  // build report.
+  if (clientStudentId && clientStudentId !== student.id) {
+    console.error('crossword/submit: client/cookie student_id mismatch, rejecting rather than orphaning the row', {
+      cookie_student_id: student.id,
+      client_student_id: clientStudentId,
+      session_id: sessionId,
+      board_id: tokenPayload.boardId,
+    })
+    return Response.json({ ok: false, error: 'client/session student mismatch' }, { status: 400 })
+  }
   const { studentIdForInsert } = await attributeStudent(clientStudentId, 'crossword/submit', {
     session_id: sessionId,
     board_id: tokenPayload.boardId,
@@ -323,13 +381,23 @@ export async function POST(req: Request) {
     // pass, same as db/012's own status; fixing it properly needs the same
     // per-serve-ordinal-plus-unique-index redesign db/012's own notes
     // describe, which this task did not scope.
-    let checksUsedBefore: number
-    try {
-      checksUsedBefore = await checksSpent(sql, tokenPayload.nonce)
-    } catch (err) {
-      console.error('crossword/submit: checks-spent lookup failed', err)
+    //
+    // checksUsedBefore is now counted across the whole ANCHORED serve cycle
+    // (HIGH 2 fix), not just this nonce -- otherwise a student could re-GET
+    // the board mid-play to reset the budget back to full. See
+    // lib/games/crossword-serve-anchor.ts's header for the exploit this
+    // closes; a null anchor here is the same "should not happen" case that
+    // module's docstring describes, so it fails closed (500) rather than
+    // guess a budget.
+    const anchor = await resolveCrosswordServeAnchor(sql, student.id, tokenPayload.boardId, BOARD_TOKEN_TTL_SECONDS)
+    if (!anchor) {
+      console.error('crossword/submit: no eligible board_served anchor for this serve', {
+        nonce: tokenPayload.nonce,
+        board_id: tokenPayload.boardId,
+      })
       return Response.json({ ok: false, error: 'failed to compute check budget' }, { status: 500 })
     }
+    const checksUsedBefore = anchor.checksUsed
     const budget = checkBudget(entryCount, points)
     if (checksUsedBefore >= budget) {
       return Response.json(
@@ -352,10 +420,12 @@ export async function POST(req: Request) {
     const correct = status === 'correct'
     const timeTakenMs = typeof body.time_taken_ms === 'number' ? body.time_taken_ms : null
 
-    // lever is written 'none' here, not the registry's declared 'both' --
-    // this row records what actually happened (no lever machinery was
-    // consumed), not what the registry entry permits for the future. See
-    // the route header and lib/games/registry.ts's crossword comment.
+    // lever is written 'none' here, not the registry's declared 'time' --
+    // this row records what actually happened for THIS event: spending a
+    // check never touches GridPoints.maxTimeBonus or any other time-lever
+    // math (see this file's 'complete' branch below, the ONE place the time
+    // lever is actually resolved and applied), so 'none' stays accurate for
+    // check_spent even though board_complete now genuinely writes 'time'.
     const insertCheckSpent = (studentId: string | null) =>
       sql`
         insert into events
@@ -388,18 +458,43 @@ export async function POST(req: Request) {
   // server-side, against the answers reconstructed above.
   const grading = gradeBoard(board, grid)
 
-  // Never trust a client-supplied checks-used count either: recomputed fresh
-  // from this serve's own already-committed check_spent events.
-  let checksUsed: number
-  try {
-    checksUsed = await checksSpent(sql, tokenPayload.nonce)
-  } catch (err) {
-    console.error('crossword/submit: checks-spent lookup failed', err)
+  // Never trust a client-supplied checks-used count OR elapsed time: both are
+  // recomputed fresh, together, from the ANCHORED serve cycle for this
+  // (student, board) pair (HIGH 2 fix) -- see
+  // lib/games/crossword-serve-anchor.ts's header for why this replaced the
+  // old per-nonce lookups (a re-GET could otherwise reset both to zero) and
+  // for the "computed entirely inside Postgres" clock-skew guarantee, which
+  // this keeps. A null anchor is the same "should not happen" case the check
+  // path above fails closed on -- 500, never a guessed budget or elapsed.
+  const anchor = await resolveCrosswordServeAnchor(sql, student.id, tokenPayload.boardId, BOARD_TOKEN_TTL_SECONDS)
+  if (!anchor) {
+    console.error('crossword/submit: no eligible board_served anchor for this serve', {
+      nonce: tokenPayload.nonce,
+      board_id: tokenPayload.boardId,
+    })
     return Response.json({ ok: false, error: 'failed to compute check budget' }, { status: 500 })
   }
+  const checksUsed = anchor.checksUsed
+  const serverElapsedMs: number | null = anchor.elapsedMs
 
-  const scored = scoreBoard(grading, checksUsed, entryCount, points)
   const timeTakenMs = typeof body.time_taken_ms === 'number' ? body.time_taken_ms : null
+
+  // The full-bonus window (seconds) -- read back from the SNAPSHOT
+  // board/route.ts wrote onto this token's own board_token_issued row at
+  // issue time (MED 3 fix, `latestTimeLimitSeconds` above), never
+  // independently re-resolved here and never trusted from anything the
+  // client sent. A null snapshot (a token issued before this fix shipped, or
+  // a write that failed at GET time -- both "should not happen" for a live
+  // token) falls through to `timeBonusFor`'s own windowMs<=0 guard, which
+  // pays zero bonus rather than fabricate a window.
+  const timeLimitSeconds = latestTimeLimitSeconds
+  const timeBonus = timeBonusFor(
+    serverElapsedMs ?? Number.POSITIVE_INFINITY,
+    (timeLimitSeconds ?? 0) * 1000,
+    points.maxTimeBonus
+  )
+
+  const scored = scoreBoard(grading, checksUsed, entryCount, points, timeBonus)
   const netBefore = typeof body.round_net_before === 'number' ? body.round_net_before : 0
   const netAfter = netBefore + scored.net
 
@@ -408,17 +503,24 @@ export async function POST(req: Request) {
   // question_id where event_type = 'board_complete') -- not scoped to
   // game_type, so no new index is needed here either, per the plan this
   // route was built against.
+  //
+  // `lever` is written 'time' here, not 'none' -- unlike check_spent below,
+  // this row is where crossword's time lever is ACTUALLY resolved and
+  // applied (see the route header). `time_limit` carries the resolved
+  // window (seconds); `server_time_taken_ms` (db/015) carries the
+  // server-authoritative elapsed this board was actually scored against;
+  // `time_taken_ms` keeps carrying the client's own clock, unmodified.
   const insertBoardComplete = (studentId: string | null) =>
     sql`
       insert into events
         (session_id, student_id, event_type, game_type, mode, lever, round, question_id,
          board_id, adapt_granularity, checks_used, entries_correct, entries_wrong,
-         entries_not_attempted, time_taken_ms, terminal_reason,
+         entries_not_attempted, time_limit, time_taken_ms, server_time_taken_ms, terminal_reason,
          is_correct, points_delta, negative_applied, net_after)
       values
-        (${sessionId}, ${studentId}, 'board_complete', 'crossword', ${null}, 'none', ${round}, ${tokenPayload.nonce},
+        (${sessionId}, ${studentId}, 'board_complete', 'crossword', ${null}, 'time', ${round}, ${tokenPayload.nonce},
          ${tokenPayload.boardId}, 'board', ${checksUsed}, ${grading.correct}, ${grading.wrong},
-         ${grading.notAttempted}, ${timeTakenMs}, ${terminalReason},
+         ${grading.notAttempted}, ${timeLimitSeconds}, ${timeTakenMs}, ${serverElapsedMs}, ${terminalReason},
          ${scored.perfect}, ${scored.net}, ${grading.wrong > 0}, ${netAfter})
       on conflict (question_id) where event_type = 'board_complete' do nothing
       returning id
@@ -452,7 +554,8 @@ export async function POST(req: Request) {
     // even though the route itself does not guarantee it.
     try {
       const stored = (await sql`
-        select checks_used, entries_correct, entries_wrong, entries_not_attempted, terminal_reason
+        select checks_used, entries_correct, entries_wrong, entries_not_attempted, terminal_reason,
+               points_delta, time_limit, server_time_taken_ms
         from events
         where question_id = ${tokenPayload.nonce} and event_type = 'board_complete'
         limit 1
@@ -462,6 +565,9 @@ export async function POST(req: Request) {
         entries_wrong: number | null
         entries_not_attempted: number | null
         terminal_reason: string | null
+        points_delta: number | null
+        time_limit: number | null
+        server_time_taken_ms: number | null
       }>
       if (stored.length > 0 && stored[0].terminal_reason) {
         const freshGrading = gradeBoard(board, grid)
@@ -472,7 +578,28 @@ export async function POST(req: Request) {
           statuses: freshGrading.statuses,
         }
         const storedChecksUsed = stored[0].checks_used ?? 0
-        const storedScored = scoreBoard(storedGrading, storedChecksUsed, entryCount, points)
+        // FIXED (8 Aug 2026, client slice review): timeBonus IS reproducible
+        // on a replay after all -- db/015's `time_limit` and
+        // `server_time_taken_ms` columns are both persisted on the original
+        // board_complete row (see insertBoardComplete above), so the exact
+        // window and server-authoritative elapsed the ORIGINAL request scored
+        // against can be read back and re-fed through the same pure
+        // timeBonusFor -> scoreBoard pipeline, rather than defaulting to 0 the
+        // way this branch used to. That earlier default-0 left `potential`
+        // (which never got timeBonus) short of `net` (force-overridden to the
+        // real committed `points_delta`, which DID include timeBonus) --
+        // inverting potential>=net, an invariant finishRound's RoundSummary
+        // relies on. Recomputing timeBonus properly here makes storedScored's
+        // OWN net agree with points_delta by construction (same pure inputs,
+        // same pure functions), so the `net: exactNet` override below is now
+        // purely defensive, not compensating for a real mismatch.
+        const storedTimeBonus = timeBonusFor(
+          stored[0].server_time_taken_ms ?? Number.POSITIVE_INFINITY,
+          (stored[0].time_limit ?? 0) * 1000,
+          points.maxTimeBonus
+        )
+        const storedScored = scoreBoard(storedGrading, storedChecksUsed, entryCount, points, storedTimeBonus)
+        const exactNet = stored[0].points_delta ?? storedScored.net
         const reveal = board.entries.map((e) => ({
           contentItemId: e.contentItemId,
           answer: e.answer,
@@ -485,6 +612,7 @@ export async function POST(req: Request) {
             duplicate: true,
             checksUsed: storedChecksUsed,
             ...storedScored,
+            net: exactNet,
             reveal,
           },
           { status: 409 }

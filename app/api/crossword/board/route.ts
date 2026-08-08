@@ -2,16 +2,24 @@ import { getSql } from '@/lib/db/client'
 import { getCurrentStudent } from '@/lib/auth/current-student'
 import { issueBoardToken, readBoardToken, BOARD_TOKEN_ISSUED_EVENT_TYPE } from '@/lib/auth/board-token'
 import { selectCrosswordBoard, type EligibleCrosswordBoard } from '@/lib/games/crossword-board-select'
+import { resolveCrosswordTimeWindowSeconds } from '@/lib/games/crossword-lever'
 
 // GET /api/crossword/board -- serves one crossword board (package A6).
 // Mirrors app/api/connections/board/route.ts's structure closely: least-
 // recently-served selection, a signed per-serve board token, a
 // BOARD_TOKEN_ISSUED_EVENT_TYPE marker for the same supersession check
-// connections'/match's submit routes use. Lever-free by deliberate plan
-// decision (docs/architecture -- see the crossword registry entry's own
-// comment in lib/games/registry.ts): no resolveLever() call, no setup
-// screen, no countdown -- crossword declares `lever: 'both'` but genuinely
-// does not consume it in this build.
+// connections'/match's submit routes use. No setup screen, no countdown UI
+// in this build -- crossword declares `lever: 'time'` (lib/games/registry.ts)
+// and this route now DOES resolve that lever's window (see
+// `timeLimitSeconds` on the response below), but purely for a later client
+// slice to display; nothing here enforces it. The window IS resolved here
+// (never trusted from the client either way), but it is submit/route.ts that
+// is AUTHORITATIVE: as of the MED 3 fix (8 Aug 2026), this route SNAPSHOTS
+// the resolved value onto the board_token_issued row's `time_limit` column at
+// issue time, and submit reads that snapshot back rather than independently
+// re-resolving -- so the window a student is shown and the window they are
+// actually scored against can never drift apart, even if another crossword
+// board completes in between the two calls.
 //
 // THE ANSWER KEY MUST NEVER REACH THE CLIENT: crossword_entries.fragment is
 // selected below ONLY to compute `length` (the client needs cell counts to
@@ -180,19 +188,33 @@ export async function GET(req: Request) {
     return Response.json({ ok: false, error: 'failed to issue board' }, { status: 500 })
   }
 
+  // Resolved BEFORE the marker inserts below, so it can be SNAPSHOTTED onto
+  // the board_token_issued row (MED 3 fix, 8 Aug 2026 adversarial review):
+  // the window used to be independently re-derived at GET (display, here)
+  // and again at POST (scoring, submit/route.ts). If another crossword board
+  // completed in between those two calls, the student could be scored
+  // against a window they were never shown. Snapshotting it once, at issue
+  // time, onto the same `time_limit` column board_complete already writes
+  // (see that route's header) means submit reads back the EXACT value this
+  // response returns, never a fresh, possibly-drifted re-resolution. A
+  // resolution failure here (caught inside resolveCrosswordTimeWindowSeconds
+  // itself) fails open to the base window, never blocks serving the board.
+  const timeLimitSeconds = await resolveCrosswordTimeWindowSeconds(sql, student.id, 'crossword/board')
+
   // Two server-only marker/log rows, same split connections/board.ts uses:
   // board_token_issued for the security supersession check submit.ts relies
-  // on, board_served carrying board_id for the least-recently-served lookup
-  // above. Both keyed on the nonce via question_id. No shuffle_seed here --
-  // unlike Connections' shuffled tile order, a crossword grid's entry
-  // positions are fixed by authoring, not served in a randomised order, so
-  // there is nothing to reproduce from a seed.
+  // on (now ALSO carrying the snapshotted `time_limit`, per the comment
+  // above), board_served carrying board_id for the least-recently-served
+  // lookup above. Both keyed on the nonce via question_id. No shuffle_seed
+  // here -- unlike Connections' shuffled tile order, a crossword grid's
+  // entry positions are fixed by authoring, not served in a randomised
+  // order, so there is nothing to reproduce from a seed.
   try {
     await sql`
       insert into events
-        (session_id, student_id, event_type, game_type, question_id)
+        (session_id, student_id, event_type, game_type, question_id, time_limit)
       values
-        (${sessionId}, ${student.id}, ${BOARD_TOKEN_ISSUED_EVENT_TYPE}, 'crossword', ${nonce})
+        (${sessionId}, ${student.id}, ${BOARD_TOKEN_ISSUED_EVENT_TYPE}, 'crossword', ${nonce}, ${timeLimitSeconds})
     `
     await sql`
       insert into events
@@ -220,5 +242,6 @@ export async function GET(req: Request) {
       ordinal: r.ordinal,
     })),
     boardToken,
+    timeLimitSeconds,
   })
 }
