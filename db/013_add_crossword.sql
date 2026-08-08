@@ -21,6 +21,29 @@
 --   select tablename from pg_tables where tablename like 'crossword_%';
 --     --> (empty) -- no crossword_% table exists yet
 --
+-- RE-PREFLIGHT, same day, before amending this file to add crossword_entries.clue
+-- (this migration was never applied between the two runs, so re-confirming it is
+-- still safe to edit in place rather than needing a new numbered migration):
+--   select tablename from pg_tables where tablename like 'crossword_%';
+--     --> (empty) -- still no crossword_% table exists; safe to amend in place.
+--   select count(*) from events;                                  --> 425
+--   select column_name from information_schema.columns
+--     where table_name = 'events'
+--       and column_name in ('checks_used','entries_correct','entries_wrong',
+--         'entries_not_attempted');
+--     --> (empty) -- none of db/014's four new events columns exist yet either.
+--   select conname, pg_get_constraintdef(oid) from pg_constraint
+--     where conname = 'events_terminal_reason_check';
+--     --> CHECK ((terminal_reason IS NULL) OR (terminal_reason = ANY
+--         (ARRAY['solved','budget','abandoned']))) -- 'solved' and 'abandoned'
+--         (crossword's only two terminal_reason values, see db/014) are already
+--         permitted; no widening needed for crossword.
+--   select column_name from information_schema.columns
+--     where table_name = 'events' and column_name in ('content_item_id','is_correct');
+--     --> both present (content_item_id since db/004, is_correct since the
+--         original events table) -- db/014 reuses both for check_spent rows,
+--         no new columns needed for that event type.
+--
 -- NULLS NOT DISTINCT (PG 15+) check: not needed by this migration. Unlike
 -- db/011's guess-idempotency index, there is no per-serve nonce/idempotency
 -- index here -- this migration is board/grid AUTHORING persistence only, no
@@ -185,13 +208,37 @@ create index if not exists crossword_boards_live_idx
 create table if not exists crossword_entries (
   board_id        text not null references crossword_boards(id),
 
-  -- Forward path to content_items(id) -- how the entry's clue and provenance
-  -- are recovered, exactly like connection_group_members.content_item_id.
-  -- This IS a real FK (unlike events' forward-pointing columns -- see the FK
-  -- EVALUATION section on why events itself stays unconstrained): this table
-  -- is board-authoring data, not the heterogeneous append-only log, and
-  -- connection_group_members already sets the precedent of a real FK here.
+  -- Forward path to content_items(id) -- how this entry's TERM and
+  -- provenance are recovered (NOT its clue -- see `clue` below, which is
+  -- this entry's own column, not derived from content_items). Exactly like
+  -- connection_group_members.content_item_id. This IS a real FK (unlike
+  -- events' forward-pointing columns -- see the FK EVALUATION section on why
+  -- events itself stays unconstrained): this table is board-authoring data,
+  -- not the heterogeneous append-only log, and connection_group_members
+  -- already sets the precedent of a real FK here.
   content_item_id text not null references content_items(id),
+
+  -- AMENDED IN PLACE, same day, before this file was ever applied to Neon
+  -- (safe -- re-preflighted above, still unapplied): the first draft of this
+  -- table had no clue-text column at all, an oversight found in planning for
+  -- package A6's board-authoring/routes/page work. A crossword clue is NOT
+  -- the same thing as content_items.clue. content_items.clue (db/003) is a
+  -- full definitional sentence for the whole TERM ("~85-180 chars", game4-
+  -- rfc-prompt.md §4.1); this column is a fragment-specific contextualizing
+  -- device for the one placed ENTRY -- e.g. "the C in CAGE Distance
+  -- Framework" for a constituent-expansion entry, or "the first step in Lean
+  -- Startup's cycle" for a fragment entry -- per game4-rfc-prompt.md §4.2
+  -- ("Consequence: a crossword clue is a *contextualizing device*, not a
+  -- standalone definition. It gets two channels an MCQ clue does not --
+  -- enumeration (cell count) and framing scaffolds"), which is SETTLED, not
+  -- an open question. Minted by the authoring script (scripts/author-
+  -- crossword-boards.mjs), one clue per entry, never reused verbatim from
+  -- content_items.clue -- a full term-level definitional sentence would
+  -- often give away crossing entries or simply not fit the "the C in ..."
+  -- framing register the game needs. `not null`: every served entry must
+  -- have a clue to render at all -- there is no fallback to content_items.
+  -- clue (a different register) and no blank-clue entry is playable.
+  clue            text not null,
 
   -- The actual grid string, e.g. "EMPATHY" -- NOT always equal to
   -- content_items.term (game4-rfc-prompt.md §4.2: a grid entry is any
@@ -257,21 +304,27 @@ create index if not exists crossword_entries_item_idx
 --     healthy; expands both directions in SQL since there is no stored cell
 --     table):
 --
+--   -- CORRECTED after the first real run against live Neon (scripts/author-crossword-
+--   -- boards.mjs's first --commit, 8 Aug 2026): the original version of this query
+--   -- never selected x/y/direction into "cells" at all, so the self-join against a
+--   -- second copy of crossword_entries existed only to source them -- and once
+--   -- sourced that way, the unqualified board_id/ordinal/content_item_id in the
+--   -- SELECT list became ambiguous between the two aliases. Fixed by selecting
+--   -- x/y/direction into "cells" directly, which removes the need for the join
+--   -- entirely -- simpler than the original design, not just corrected.
 --   with cells as (
 --     select
---       board_id, ordinal, content_item_id,
+--       board_id, ordinal, content_item_id, x, y, direction,
 --       generate_series(0, length(fragment) - 1) as i,
 --       fragment
 --     from crossword_entries
 --   ), expanded as (
 --     select
 --       board_id, ordinal, content_item_id,
---       case when d.direction = 'H' then e.x + e.i else e.x end as cx,
---       case when d.direction = 'H' then e.y else e.y + e.i end as cy,
---       substr(e.fragment, e.i + 1, 1) as letter
---     from cells e
---     join crossword_entries d
---       on d.board_id = e.board_id and d.ordinal = e.ordinal
+--       case when direction = 'H' then x + i else x end as cx,
+--       case when direction = 'H' then y else y + i end as cy,
+--       substr(fragment, i + 1, 1) as letter
+--     from cells
 --   )
 --   select board_id, cx, cy, count(distinct letter) as conflicting_letters
 --   from expanded

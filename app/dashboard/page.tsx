@@ -55,6 +55,13 @@ const HREF_BY_ID: Record<string, string> = {
   // -- wired here now so flipping that one flag is enough to make the tile
   // playable, rather than also needing this file touched at the same time.
   connections: '/games/connections',
+  // Package A6: routes + page shipped, registry `enabled` still false --
+  // crossword's `lever: 'both'` is declared but genuinely not consumed yet
+  // (see app/games/crossword/page.tsx's header), which is the hard
+  // constraint blocking `enabled: true` (lib/games/registry.ts's crossword
+  // comment). Wired here now for the same reason Connections was: flipping
+  // that one flag is enough once the lever mechanic exists.
+  crossword: '/games/crossword',
 }
 
 // The tile blurb is the student's only advance notice of what a game pays, so it has to

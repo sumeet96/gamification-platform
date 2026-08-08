@@ -37,6 +37,20 @@ export const CLIENT_EMITTABLE_EVENT_TYPES = [
   // as the round_* types: safe for the client to emit directly rather than
   // requiring a server-scored route.
   'board_reported_ambiguous',
+  // 'check_spent' (package A6, crossword, db/014) is DELIBERATELY ABSENT here,
+  // for the exact same reason 'question_answered' is absent (see the file
+  // header above): it carries is_correct, a scoring-adjacent fact, computed
+  // server-side by gradeEntry() (lib/games/crossword.ts) from the posted grid
+  // state -- never something the client itself knows authoritatively. An
+  // earlier draft of this array included it with a large caveat comment
+  // saying "don't actually emit this via logEvent()" -- that defeated the
+  // entire point of this file's design, which is to make "the client cannot
+  // emit a scored event" a compile error instead of a rule someone has to
+  // remember to follow. check_spent is written via its own direct INSERT
+  // inside the authenticated /api/crossword/submit route, exactly like
+  // question_answered/board_complete/guess_submitted already are -- it never
+  // goes through logEvent()/POST /api/events, and therefore never needs to be
+  // a member of EventType at all.
 ] as const
 
 export type EventType = (typeof CLIENT_EMITTABLE_EVENT_TYPES)[number]

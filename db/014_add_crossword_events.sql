@@ -1,0 +1,216 @@
+-- Migration 014: events columns + event_type for package A6, the crossword
+-- game's interaction logging (GAME_REGISTRY's sixth tile, enabled: false --
+-- lib/games/registry.ts). db/013 (amended same day, still unapplied) is
+-- board/grid AUTHORING persistence only and deliberately added no events
+-- columns, because crossword's scoring economics and lever were undesigned
+-- at the time. Both are now designed (GridPoints in lib/games/registry.ts,
+-- 7 Aug 2026 user design session; lever stays deliberately unconsumed, see
+-- that entry's comments) -- this migration is the events-side counterpart.
+--
+-- NOT YET APPLIED. Written by db-engineer, additive only, re-runnable. A human
+-- must paste this into the Neon web SQL editor (psql is not installed on the
+-- dev machine -- see docs/CURRENT_STATE.md). THIS FILE WAS NOT RUN AGAINST
+-- NEON -- read-only preflight only, per explicit instruction.
+--
+-- Preflight run 7 Aug 2026 against Neon project ancient-brook-62806105,
+-- server_version 18.4 (be2730e) -- same session as db/013's re-preflight
+-- above it, both run together:
+--
+--   select tablename from pg_tables where tablename like 'crossword_%';
+--     --> (empty) -- confirms db/013 (this migration's prerequisite) is
+--         still unapplied too; both files ship together.
+--   select count(*) from events;                                  --> 425
+--   select count(*) from events where event_type = 'check_spent';
+--     --> 0 (expected -- 'check_spent' does not exist as an event_type
+--         anywhere in the codebase before this migration + the matching
+--         lib/log/logEvent.ts change land, so no row could carry it yet)
+--   select column_name from information_schema.columns
+--     where table_name = 'events'
+--       and column_name in ('checks_used','entries_correct','entries_wrong',
+--         'entries_not_attempted');
+--     --> (empty) -- all four new columns below are genuinely new, no
+--         collision with an existing column of the same name.
+--   select column_name from information_schema.columns
+--     where table_name = 'events' and column_name in ('content_item_id','is_correct');
+--     --> both present -- content_item_id since db/004_add_event_metrics.sql,
+--         is_correct since the original events table (db/schema.sql's base
+--         create table). check_spent reuses both; see below.
+--   select conname, pg_get_constraintdef(oid) from pg_constraint
+--     where conname = 'events_terminal_reason_check';
+--     --> CHECK ((terminal_reason IS NULL) OR (terminal_reason = ANY
+--         (ARRAY['solved','budget','abandoned']))) -- added by db/011.
+--         'solved' and 'abandoned' (crossword's only two values -- see below)
+--         are both already permitted. No widening needed; see the dedicated
+--         section further down for the full reasoning and the GridPoints
+--         read that backs it up.
+--
+-- ---------------------------------------------------------------------------
+-- SCOPE: deliberately small. Reuse existing generic `events` columns
+-- everywhere one already fits, exactly the way db/011 reused board_id/
+-- question_id for Connections rather than inventing Connections-specific
+-- names. Two things change here: one new SERVER-WRITTEN-ONLY event_type
+-- (check_spent -- see below; caught in review and corrected to follow
+-- question_answered/board_complete's existing exclusion from
+-- CLIENT_EMITTABLE_EVENT_TYPES rather than being added to it with a caveat
+-- comment, which would have defeated that array's whole reason for existing
+-- -- see lib/log/logEvent.ts's header), and four new aggregate columns for
+-- board_complete rows.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- 1. check_spent -- crossword's "reveal whether this one entry is currently
+--    correct" action, budgeted at floor(entryCount / checkBudgetDivisor)
+--    per board (GridPoints.checkBudgetDivisor = 3, lib/games/registry.ts).
+--    Decided this session: EACH check spend is logged as its own event row
+--    (in addition to board-complete aggregates below), per the user's
+--    decision recorded in the approved plan -- finer-grained than
+--    Connections' guess_submitted-per-guess-but-no-per-tap design only in
+--    that crossword has no equivalent of Connections' per-tap tile-select
+--    events to exclude; check_spent IS the finest-grained crossword
+--    interaction this build logs, there is no tap-level layer beneath it.
+--
+--    NO NEW COLUMNS NEEDED for this event_type. It reuses two columns that
+--    already exist on `events` (confirmed by the preflight above):
+--      content_item_id -- which entry (crossword_entries.content_item_id)
+--                          was checked. Already the forward path to
+--                          content_items(id) since db/004; crossword_entries
+--                          itself is unique on (board_id, content_item_id)
+--                          (db/013), so this one column plus board_id
+--                          unambiguously identifies the checked entry.
+--      is_correct       -- whether the checked entry was correct AT CHECK
+--                          TIME (lib/games/crossword.ts's gradeEntry()),
+--                          computed server-side inside the /api/crossword/
+--                          submit route from the grid state posted with the
+--                          check request. Never client-supplied -- same rule
+--                          as every other scoring-adjacent boolean this
+--                          project logs.
+--    board_id (existing, added by db/011 -- not scoped to Connections,
+--    plain text, no FK, see that migration's FK EVALUATION section, which
+--    applies unchanged here) and question_id (existing since the base
+--    events table, repurposed as a per-serve nonce by db/007/db/011's
+--    established convention) round out a check_spent row's join keys: which
+--    board, which serve. No new columns needed for either.
+--
+--    *** NOT ADDED TO CLIENT_EMITTABLE_EVENT_TYPES, same as question_answered
+--    *** and board_complete -- caught in review and corrected. An earlier
+--    *** draft of this migration added it there with a large caveat comment
+--    *** telling the next agent not to actually emit it via logEvent(); that
+--    *** defeated the entire point of CLIENT_EMITTABLE_EVENT_TYPES, which
+--    *** exists specifically to make "the client cannot emit a scored event"
+--    *** a compile error (lib/log/logEvent.ts's header). check_spent carries
+--    *** is_correct, computed server-side by gradeEntry() from the posted
+--    *** grid state -- a scoring-adjacent fact, exactly the class of thing
+--    *** this array excludes by design. It is written via a direct INSERT
+--    *** from inside the authenticated, server-computing
+--    *** app/api/crossword/submit/route.ts, the same way question_answered/
+--    *** board_complete/guess_submitted already are, and therefore never
+--    *** needs to satisfy the EventType type at all.
+
+-- ---------------------------------------------------------------------------
+-- 2. board_complete aggregate columns for crossword -- four new additive
+--    columns, all nullable, written ONCE per board_complete row, mirroring
+--    Connections' mistakes_made/groups_solved aggregate pattern (db/011)
+--    exactly rather than a per-tap approach: a fill-in-the-blank keystroke
+--    or a per-cell edit is not logged as its own event row, only the
+--    finished tallies at completion. Consistent with db/011's own stated
+--    reasoning ("three orders of magnitude more volume for the same
+--    behavioural signal a handful of integers already capture").
+-- ---------------------------------------------------------------------------
+alter table events
+  -- How many of the board's check budget the student actually spent by the
+  -- time this board_complete row was written. Server-recomputed from
+  -- committed check_spent rows for this board serve (never trusted from the
+  -- client -- same boardProgress()-style pattern Connections' mistake count
+  -- uses), so this column is redundant with `select count(*) from events
+  -- where event_type = 'check_spent' and question_id = <this serve's nonce>`
+  -- in principle -- kept as its own column anyway because board_complete is
+  -- the one-row-per-board-serve grain most research queries will actually
+  -- join against (avoids a correlated subquery/count(*) join against
+  -- check_spent on every board-grained analysis query), same tradeoff
+  -- db/011 already made for mistakes_made/groups_solved against
+  -- guess_submitted.
+  add column if not exists checks_used int,
+
+  -- Final per-entry tally at completion, from lib/games/crossword.ts's
+  -- gradeBoard() run server-side against crossword_entries' own answers --
+  -- never a client-claimed count. entries_correct + entries_wrong +
+  -- entries_not_attempted should equal the board's total entry count
+  -- (crossword_entries rows for that board_id) on every healthy row; not
+  -- enforced as a DB CHECK (a CHECK cannot see crossword_entries' count from
+  -- an events row), left as a read-only verification query below instead,
+  -- same authoring-time-invariant posture db/011 and db/013 already use for
+  -- checks that span tables.
+  add column if not exists entries_correct int,
+  add column if not exists entries_wrong int,
+  add column if not exists entries_not_attempted int;
+
+-- Verification query for the three-way tally above, read-only, safe to run
+-- any time after both this migration and crossword's routes are live (empty
+-- result = healthy):
+--
+--   select e.id, e.board_id, e.entries_correct, e.entries_wrong,
+--          e.entries_not_attempted, c.entry_count
+--   from events e
+--   join (
+--     select board_id, count(*) as entry_count
+--     from crossword_entries
+--     group by board_id
+--   ) c on c.board_id = e.board_id
+--   where e.event_type = 'board_complete'
+--     and e.game_type = 'crossword'
+--     and coalesce(e.entries_correct, 0) + coalesce(e.entries_wrong, 0)
+--         + coalesce(e.entries_not_attempted, 0) <> c.entry_count;
+
+-- ---------------------------------------------------------------------------
+-- terminal_reason -- NO WIDENING NEEDED, confirmed by reading both the
+-- constraint (preflight above) and GridPoints (lib/games/registry.ts) before
+-- writing this file, not assumed.
+-- ---------------------------------------------------------------------------
+-- db/011's events_terminal_reason_check already permits exactly
+-- ('solved', 'budget', 'abandoned'). Crossword only ever writes 'solved' (the
+-- student clicked the explicit solve action) or 'abandoned' (exitMidRound,
+-- fire-and-forget, same pattern every other game uses) -- both already in
+-- the allowlist, confirmed live by the preflight's
+-- pg_get_constraintdef query above.
+--
+-- 'budget' does NOT apply to crossword and this migration deliberately does
+-- not repurpose it. Read GridPoints' full docstring (lib/games/registry.ts)
+-- before assuming otherwise: crossword's check budget
+-- (checkBudgetDivisor/perUnusedCheck) is a CONSUMABLE REWARD MODIFIER, not a
+-- termination gate -- spending all checks does not end the round, lock
+-- further edits, or force a submit; "using 1 of 3 still pays for the other
+-- 2" is explicitly a linear forgone-bonus calculation, not a budget-
+-- exhausted branch. Likewise perWrong is a per-entry point cost applied at
+-- grading time, not an early-termination trigger -- a student can fill every
+-- entry wrong and the board still only ends when they explicitly click
+-- Solve or navigate away (abandoned). There is no code path in the decided
+-- GridPoints shape, and none anticipated, where crossword's server computes
+-- a terminal_reason the way Connections' submit route derives 'budget'
+-- objectively from a committed mistake count (PartitionBoardPoints'
+-- maxMistakes) -- crossword's terminal_reason is client-claimed telemetry
+-- (see the API contract spec's explicit "Important asymmetry with
+-- Connections" note), which is safe specifically because no GridPoints value
+-- (accrual/bonus/checkBonus/net) reads terminal_reason as an input.
+-- Confirmed by reading GridPoints' full docstring and interface
+-- (lib/games/registry.ts) in the course of writing this migration, not
+-- assumed from the plan's summary.
+--
+-- Widening this CHECK later, if a genuine 'timeout' or budget-shaped
+-- termination mode is ever designed for crossword, is a DROP + re-ADD of the
+-- named constraint -- not destructive, no column or row touched, same
+-- pattern db/011's own header describes for its 'timeout' exclusion.
+
+-- ---------------------------------------------------------------------------
+-- End-to-end verification, read-only, safe to run any time after applying:
+-- ---------------------------------------------------------------------------
+--   select column_name from information_schema.columns
+--     where table_name = 'events'
+--       and column_name in ('checks_used', 'entries_correct', 'entries_wrong',
+--         'entries_not_attempted');
+--     -- expect all 4
+--   select count(*) from events where event_type = 'check_spent';
+--     -- expect 0 until crossword's routes are built, deployed, and played
+--   select conname, pg_get_constraintdef(oid) from pg_constraint
+--     where conname = 'events_terminal_reason_check';
+--     -- expect unchanged from the preflight above -- this migration adds no
+--     -- new named constraint at all, only nullable columns.

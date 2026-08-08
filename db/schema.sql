@@ -537,11 +537,14 @@ create unique index if not exists events_guess_submitted_uidx
 
 -- db/013_add_crossword.sql: NOT YET APPLIED as of this snapshot -- see that
 -- file for the full preflight, the authoring-time-invariant verification
--- queries, and the FK evaluations. Board/grid persistence ONLY for package
--- A6, the crossword game (GAME_REGISTRY's sixth tile, enabled: false --
--- lib/games/registry.ts). No events columns: crossword's scoring economics
--- and lever mechanic are undesigned (see GridPoints' docstring in that
--- file), so there is no shape yet to log against.
+-- queries, and the FK evaluations. Board/grid AUTHORING persistence for
+-- package A6, the crossword game (GAME_REGISTRY's sixth tile, enabled:
+-- false -- lib/games/registry.ts). Originally shipped with no events
+-- columns because crossword's scoring economics and lever were undesigned
+-- at the time -- both are now designed (GridPoints, 7 Aug 2026; lever stays
+-- deliberately unconsumed), so db/014_add_crossword_events.sql (also NOT
+-- YET APPLIED, folded in below the crossword_boards/crossword_entries
+-- tables) adds the events-side columns and event_type.
 --
 -- Flatter than Connections -- no group layer. Each grid entry maps 1:1 to
 -- one content_items row (the term whose fragment was placed), per
@@ -570,6 +573,12 @@ create table if not exists crossword_boards (
 create table if not exists crossword_entries (
   board_id        text not null references crossword_boards(id),
   content_item_id text not null references content_items(id),   -- real FK, unlike events' forward-pointing columns -- see db/013
+  -- Fragment-specific contextualizing clue (e.g. "the C in CAGE Distance
+  -- Framework"), NOT content_items.clue (the full definitional sentence for
+  -- the whole term) -- game4-rfc-prompt.md §4.2, settled. Minted by the
+  -- authoring script, one per entry, never reused from content_items.clue.
+  -- Added same-day amendment to db/013, before that migration was applied.
+  clue            text not null,
   -- The actual grid string, e.g. "EMPATHY" -- NOT always equal to
   -- content_items.term (a fragment or constituent-expansion part of it).
   fragment        text not null,
@@ -619,3 +628,28 @@ end $$;
 create index if not exists crossword_boards_live_idx
   on crossword_boards (subject)
   where retired_at is null;
+
+-- db/014_add_crossword_events.sql: NOT YET APPLIED as of this snapshot --
+-- see that file for the full preflight and reasoning. Events-side
+-- counterpart to db/013 above: one new client-emittable event_type
+-- ('check_spent', added to CLIENT_EMITTABLE_EVENT_TYPES in
+-- lib/log/logEvent.ts -- see that file's comment on the entry for why the
+-- crossword submit route must write it via its own direct insert, not
+-- through POST /api/events) plus four new aggregate columns for
+-- board_complete rows, mirroring Connections' mistakes_made/groups_solved
+-- pattern (db/011) rather than a per-tap approach.
+--
+-- check_spent needs NO new columns -- it reuses content_item_id (db/004)
+-- and is_correct (both already exist on events) plus the existing board_id/
+-- question_id-as-nonce convention.
+--
+-- terminal_reason needs NO widening for crossword -- db/011's
+-- events_terminal_reason_check already permits 'solved' and 'abandoned'
+-- (crossword's only two values; there is no crossword equivalent of
+-- Connections' 'budget', confirmed against GridPoints' full docstring in
+-- lib/games/registry.ts -- see db/014 for the full reasoning).
+alter table events
+  add column if not exists checks_used int,             -- board_complete only
+  add column if not exists entries_correct int,          -- board_complete only
+  add column if not exists entries_wrong int,             -- board_complete only
+  add column if not exists entries_not_attempted int;    -- board_complete only

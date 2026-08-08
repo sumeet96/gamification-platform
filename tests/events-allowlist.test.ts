@@ -21,6 +21,12 @@ test('the client-emittable allowlist is exactly the six interaction event types'
   // Package A5 added 'board_reported_ambiguous' -- Connections' one-tap
   // "this board seems ambiguous" affordance (docs/NEXT_SESSION_BUILD_BRIEF.md
   // §5/§7). Like the five round-lifecycle types below it, it carries no score.
+  //
+  // Package A6 (crossword) deliberately did NOT add 'check_spent' here, even
+  // though an earlier draft did -- see logEvent.ts's comment on the array.
+  // check_spent carries is_correct, a scoring-adjacent fact, so it follows
+  // 'question_answered'/'board_complete's exclusion below rather than joining
+  // this list.
   assert.deepEqual(
     [...CLIENT_EMITTABLE_EVENT_TYPES].sort(),
     ['board_reported_ambiguous', 'round_continue', 'round_offer', 'round_start', 'round_stop', 'session_start']
@@ -36,12 +42,16 @@ test('round_offer is present -- it is what makes voluntary persistence measurabl
 
 test('scored event types are never allowlisted', () => {
   // question_answered and board_complete are scoring facts written server-side only
-  // (app/api/answer/route.ts and app/api/match/submit/route.ts respectively). Cast to
-  // a wide-string array first: CLIENT_EMITTABLE_EVENT_TYPES's element type deliberately
-  // does not include these strings, which is the property under test.
+  // (app/api/answer/route.ts and app/api/match/submit/route.ts respectively).
+  // check_spent (package A6) joins them -- it carries is_correct, computed by
+  // gradeEntry() server-side, written directly by app/api/crossword/submit/route.ts,
+  // never via logEvent()/POST /api/events. Cast to a wide-string array first:
+  // CLIENT_EMITTABLE_EVENT_TYPES's element type deliberately does not include
+  // these strings, which is the property under test.
   const types: readonly string[] = CLIENT_EMITTABLE_EVENT_TYPES
   assert.equal(types.includes('question_answered'), false)
   assert.equal(types.includes('board_complete'), false)
+  assert.equal(types.includes('check_spent'), false)
 })
 
 test('unknown or forged event types are not allowlisted', () => {
